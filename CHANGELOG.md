@@ -6,6 +6,12 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-26
+
+### Highlights
+
+The dashboard's off-list now names switched-off tools (it said "everything on" while a tool was off), long origins wrap inside their card, and `memory status` reads "working N note sets".
+
 ## [0.1.1] - 2026-09-26
 
 ### Highlights
