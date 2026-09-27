@@ -385,17 +385,24 @@
     }).catch(() => { const p = pill('board offline'); p.id = 'state'; $('#state').replaceWith(p); });
   }
 
-  // ---------- the neural net ----------
+  // ---------- the neural net: bodies and minds, two planes on one grid ----------
+  // A member is a BODY in its rank's layer (portrait, halo, K/C badge for a keeper or court
+  // vessel); a MIND is a dashed ring with a brain tinted by the lane it serves, carrying its desk
+  // (thoughts / limit — stress glows). Bonds are synapses; a live body's synapses carry a pulse.
   const netBox = $('#net');
   let team = null, focus = '';
   const liveNames = new Set();
-  function rankOf(n) { return n.kind === 'skill' ? 'skill' : (n.rank || 'plain'); }
+  const PORTRAITS = new Set(['orchestrator', 'coord', 'domain', 'zone', 'service']);
+  const BRAIN = 'M0 -6 C-3.2 -6 -5.6 -4.4 -5.6 -1.6 C-7.2 -0.6 -7.2 1.8 -5.4 2.8 C-6 4.6 -4.2 6.2 -2.2 6.2 C-1.1 6.2 -0.4 5.4 0 4.4 C0.4 5.4 1.1 6.2 2.2 6.2 C4.2 6.2 6 4.6 5.4 2.8 C7.2 1.8 7.2 -0.6 5.6 -1.6 C5.6 -4.4 3.2 -6 0 -6 Z';
+  const MIND = 'skill';
+  const isMind = n => n.kind === MIND;
+  const tone = n => isMind(n) ? n.lane : (n.rank || 'plain'); // what data-rank colours
+  const keeper = b => b && (b.mode === 'all' || b.mode === 'primary');
   function netDraw() {
     if (!team || !netBox.isConnected || netBox.offsetParent === null) return;
     const W = Math.max(320, netBox.clientWidth);
-    const nodes = team.nodes || [], edges = team.edges || [];
-    const lanes = (team.lanes && team.lanes.length ? team.lanes : [...new Set(nodes.map(n => n.lane))]);
-    const label = id => ((team.labels || []).find(l => l.id === id) || {}).label || id;
+    const nodes = team.nodes, edges = team.edges, lanes = team.lanes;
+    const label = id => (team.labels.find(l => l.id === id) || {}).label || id.replace(/^[a-z]+:/, '') ;
     const byLane = new Map(lanes.map(l => [l, []]));
     for (const n of nodes) { if (!byLane.has(n.lane)) byLane.set(n.lane, []); byLane.get(n.lane).push(n); }
     const deg = new Map();
@@ -407,17 +414,18 @@
       for (let i = 0; i < list.length; i += perRow) rows.push({ lane, nodes: list.slice(i, i + perRow), first: i === 0 });
     }
     rows.reverse(); // the input layer at the bottom, the crown on top
-    const RH = 104, top = 8, H = top + rows.length * RH + 8;
+    const RH = 112, top = 8, H = top + rows.length * RH + 8;
     const pos = new Map();
     const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'the ' + word('world', 'workspace') + ' as a neural net' });
+    const defs = svg('defs');
+    g.append(defs);
     rows.forEach((row, i) => {
       const y = top + i * RH;
-      // a layer wears its rank's colour (net.css maps data-rank → --node), a skill layer the accent
-      const band = svg('g', { 'data-rank': row.lane },
+      // a layer wears its rank's colour (net.css maps data-rank → --node); a mind layer its lane's
+      g.append(svg('g', { 'data-rank': row.lane, 'data-plane': row.lane.includes(':') ? 'minds' : 'bodies' },
         svg('rect', { class: 'net-row', x: 4, y, width: W - 8, height: RH - 10, rx: 12 }),
-        row.first ? svg('text', { class: 'net-row-label', x: 16, y: y + 16 }, document.createTextNode(label(row.lane) + ' · ' + byLane.get(row.lane).length)) : null);
-      g.append(band);
-      row.nodes.forEach((n, j) => pos.set(n.id, { x: pad + (W - 2 * pad) * (j + 0.5) / row.nodes.length, y: y + RH / 2, n }));
+        row.first ? svg('text', { class: 'net-row-label', x: 16, y: y + 16 }, document.createTextNode(label(row.lane) + ' · ' + byLane.get(row.lane).length)) : null));
+      row.nodes.forEach((n, j) => pos.set(n.id, { x: pad + (W - 2 * pad) * (j + 0.5) / row.nodes.length, y: y + RH / 2 + 4, n }));
     });
     const edgeLayer = svg('g', { 'data-layer': 'edges' }), pulseLayer = svg('g', { 'data-layer': 'pulses' }), nodeLayer = svg('g', { 'data-layer': 'nodes' });
     g.append(edgeLayer, pulseLayer, nodeLayer);
@@ -429,20 +437,48 @@
         : `M${A.x.toFixed(1)} ${A.y} C ${A.x.toFixed(1)} ${(A.y + B.y) / 2} ${B.x.toFixed(1)} ${(A.y + B.y) / 2} ${B.x.toFixed(1)} ${B.y}`;
       edgeLayer.append(svg('path', { class: 'net-edge', 'data-bond': e.bond, 'data-from': e.from, 'data-to': e.to, d }));
     }
+    let k = 0;
     for (const [id, p] of pos) {
-      const n = p.n, r = 10 + Math.min(10, 3 * Math.sqrt(deg.get(id) || 0));
-      const node = svg('g', { class: 'net-node', 'data-id': id, 'data-rank': rankOf(n), 'data-kind': n.kind, tabindex: 0, role: 'button', 'aria-label': n.name + ' (' + (n.rank || n.kind) + ')' },
-        svg('circle', { class: 'net-node-halo', cx: p.x, cy: p.y, r: r * 1.7 }),
-        svg('circle', { class: 'net-node-core', cx: p.x, cy: p.y, r }),
-        svg('circle', { class: 'net-node-dot', cx: p.x, cy: p.y, r: r * 0.38 }),
-        svg('text', { class: 'net-node-label', x: p.x, y: p.y + r * 1.7 + 10 }, document.createTextNode(n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name)));
+      const n = p.n, r = (isMind(n) ? 12 : 17) + Math.min(7, 2.5 * Math.sqrt(deg.get(id) || 0));
+      const desk = n.desk;
+      const node = svg('g', { class: 'net-node', 'data-id': id, 'data-rank': tone(n), 'data-kind': isMind(n) ? 'skill' : 'body',
+        'data-stress': desk && desk.stress && desk.stress !== 'ok' ? desk.stress : false, tabindex: 0, role: 'button',
+        'aria-label': n.name + ' (' + (isMind(n) ? word('skill', 'skill') : (n.rank || 'body')) + ')' });
+      node.append(svg('circle', { class: 'net-node-halo', cx: p.x, cy: p.y, r: r * 1.7 }), svg('circle', { class: 'net-node-core', cx: p.x, cy: p.y, r }));
+      if (isMind(n)) {
+        const s = (r * 0.13).toFixed(2);
+        node.append(svg('g', { transform: `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) scale(${s})` },
+          svg('path', { class: 'net-brain', d: BRAIN }), svg('path', { class: 'net-brain-fold', d: 'M0 -6 L0 4.4' })));
+      } else if (PORTRAITS.has(n.rank)) {
+        const cid = 'np-' + (k++);
+        defs.append(svg('clipPath', { id: cid }, svg('circle', { cx: p.x, cy: p.y, r: r * 0.86 })));
+        const img = svg('image', { class: 'net-portrait', href: 'web/portraits/' + n.rank + '.png', x: p.x - r * 0.86, y: p.y - r * 0.86, width: r * 1.72, height: r * 1.72,
+          preserveAspectRatio: 'xMidYMid slice', 'clip-path': `url(#${cid})` });
+        img.addEventListener('error', () => img.remove());
+        node.append(img);
+      } else {
+        node.append(svg('circle', { class: 'net-node-dot', cx: p.x, cy: p.y, r: r * 0.38 }));
+      }
+      if (n.body) node.append(svg('g', { class: 'net-badge' },
+        svg('circle', { cx: p.x + r * 0.8, cy: p.y - r * 0.8, r: 6.5 }),
+        svg('text', { x: p.x + r * 0.8, y: p.y - r * 0.8 + 3 }, document.createTextNode(keeper(n.body) ? 'K' : 'C'))));
+      if (desk) node.append(svg('text', { class: 'net-desk', x: p.x + r + 6, y: p.y + 4 }, document.createTextNode(desk.notes + '/' + desk.limit)));
+      node.append(svg('text', { class: 'net-node-label', x: p.x, y: p.y + r * 1.7 + 10 }, document.createTextNode(n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name)));
       node.addEventListener('click', () => setFocus(focus === id ? '' : id));
       node.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setFocus(focus === id ? '' : id); } });
       nodeLayer.append(node);
     }
     netBox.replaceChildren(g);
-    $('#net-note').textContent = nodes.length + ' ' + word('members', 'members') + ' · ' + edges.length + ' bonds · ' + rows.length + ' layers';
+    const bodies = nodes.filter(n => !isMind(n)).length, minds = nodes.length - bodies;
+    $('#net-note').textContent = bodies + ' ' + word('bodies', 'agents') + ' · ' + minds + ' ' + word('minds', 'skills') + ' · ' + edges.length + ' bonds · ' + rows.length + ' layers';
+    findingsList();
     netLive(); applyFocus();
+  }
+  function findingsList() {
+    const box = $('#net-findings');
+    const items = [...team.findings.map(t => ({ t, tone: 'warn' })), ...team.notes.map(t => ({ t, tone: '' }))];
+    box.replaceChildren(...(items.length ? [el('h3', { class: 'panel-note', text: team.findings.length + ' findings · ' + team.notes.length + ' notes — what the ontology says is missing' }),
+      el('ul', { class: 'findings' }, items.map(i => el('li', { 'data-tone': i.tone || false, text: i.t })))] : []));
   }
   function netLive() {
     const g = netBox.querySelector('svg');
@@ -482,23 +518,64 @@
     const n = team.nodes.find(x => x.id === id);
     if (!n) return;
     const bonds = team.edges.filter(e => e.from === id || e.to === id).map(e => (e.from === id ? e.bond + ' → ' + nameOf(e.to) : nameOf(e.from) + ' → ' + e.bond));
-    const doc = el('pre', { class: 'kcard-doc', text: n.doc ? 'reading ' + n.doc + '…' : 'no doc' });
+    const rows = [];
+    const row = (k, v) => { if (v) rows.push(el('dt', { text: k }), el('dd', { text: v })); };
+    if (isMind(n)) {
+      row('serves', label2(n.lane));
+      row('source', n.source);
+      row('notes', n.desk ? n.desk.notes + ' / ' + n.desk.limit + ' notes' + (n.desk.stress && n.desk.stress !== 'ok' ? ' — ' + n.desk.stress : '') + (n.desk.heldBy ? ' · held by ' + n.desk.heldBy : '') : 'no notes yet');
+      row('what', n.description);
+    } else {
+      row(word('territory', 'territory'), (n.owns || []).join(', ') || '—');
+      row('agent', n.body ? (keeper(n.body) ? 'keeper' : 'court') + ' · ' + (n.body.model || 'the session model') + ' · ' + n.body.source : 'not defined — runs in the session');
+    }
+    row('bonds', bonds.join(' · ') || '—');
+    const docPath = n.doc || (n.desk && n.desk.src) || '';
+    const doc = el('pre', { class: 'kcard-doc', text: docPath ? 'reading ' + docPath + '…' : 'no doc — the ontology notes it' });
     box.append(el('article', { class: 'kcard' },
-      el('div', { class: 'kcard-title' }, n.name, el('span', { class: 'pill', 'data-tone': 'info', text: n.rank || n.kind }), liveNames.has(id) ? pill('running') : null),
-      el('dl', {},
-        el('dt', { text: word('territory', 'territory') }), el('dd', { text: (n.owns || []).join(', ') || '—' }),
-        el('dt', { text: 'lane' }), el('dd', { text: n.lane || '—' }),
-        el('dt', { text: 'bonds' }), el('dd', { text: bonds.join(' · ') || '—' })),
-      doc));
-    if (n.doc) fetch('api/doc?path=' + encodeURIComponent(n.doc)).then(r => r.ok ? r.text() : Promise.reject(new Error(r.status)))
-      .then(t => { doc.textContent = t.split('\n').slice(0, 60).join('\n'); }).catch(() => { doc.textContent = n.doc + ' — not readable here'; });
+      el('div', { class: 'kcard-title' }, n.name, el('span', { class: 'pill', 'data-tone': 'info', text: isMind(n) ? word('skill', 'skill') : (n.rank || 'body') }), liveNames.has(id) ? pill('running') : null),
+      el('dl', {}, rows), doc));
+    if (docPath) fetch('api/doc?path=' + encodeURIComponent(docPath)).then(r => r.ok ? r.text() : Promise.reject(new Error(r.status)))
+      .then(t => { doc.textContent = t.split('\n').slice(0, 60).join('\n'); }).catch(() => { doc.textContent = docPath + ' — not readable here'; });
   }
+  const label2 = id => ((team && team.labels.find(l => l.id === id)) || {}).label || id;
   const nameOf = id => ((team && team.nodes.find(n => n.id === id)) || {}).name || id;
+  // the ontology's graph, joined with the two planes it does not draw: minted bodies ride their
+  // members (or stand in their rank's layer), every wearable skill joins (the binary's own
+  // included), and each mind carries its desk
   function loadTeam() {
-    return getJSON('api/team').then(c => {
-      c.nodes = c.nodes || []; c.edges = c.edges || []; c.lanes = c.lanes || []; c.labels = c.labels || [];
+    return Promise.all([getJSON('api/team'), getJSON('api/workspace').catch(() => ({ agents: [], skills: [], workingNotes: [] }))]).then(([c, w]) => {
+      c.nodes = c.nodes || []; c.edges = c.edges || []; c.lanes = c.lanes || []; c.labels = c.labels || []; c.findings = c.findings || []; c.notes = c.notes || [];
       // a skill's lane is drawn as skill:<lane> (the lane order and labels speak that way)
       for (const n of c.nodes) if (n.kind === 'skill' && c.lanes.includes('skill:' + n.lane)) n.lane = 'skill:' + n.lane; // a lane may share a rank's name
+      const byName = new Map(c.nodes.map(n => [n.name, n]));
+      const ranks = c.lanes.filter(l => !l.includes(':'));
+      for (const b of w.agents || []) {
+        const n = byName.get(b.name);
+        if (n) { n.body = b; continue; }
+        let rank = ranks.find(r => b.name === r || b.name.startsWith(r + '-'));
+        const prefix = b.name.split('-')[0].replace(/_/g, '');
+        if (!rank && WORDS['rank.' + prefix]) {
+          // a rank born in time (service, dark coord …): its first body opens its layer, above the crown
+          rank = prefix;
+          c.lanes.splice(Math.max(0, c.lanes.findIndex(l => l.endsWith(':shared'))), 0, rank);
+          c.labels.push({ id: rank, label: WORDS['rank.' + prefix], kind: 'rank' }); ranks.push(rank);
+        }
+        const lane = rank || 'bodies:other';
+        if (!rank && !c.lanes.includes(lane)) { c.lanes.push(lane); c.labels.push({ id: lane, label: 'other agents', kind: 'rank' }); }
+        const node = { id: 'body-' + b.name, name: b.name, kind: 'member', rank: rank || '', lane, owns: [], body: b, description: b.description };
+        c.nodes.push(node); byName.set(b.name, node);
+      }
+      const shared = c.lanes.find(l => l.endsWith(':shared')) || 'skill:shared';
+      for (const s of w.skills || []) {
+        const n = byName.get(s.name);
+        if (n) { n.source = n.source || s.source; n.description = n.description || s.description; continue; }
+        if (!c.lanes.includes(shared)) c.lanes.push(shared);
+        const node = { id: 'skill-' + s.name, name: s.name, kind: 'skill', lane: shared, shared: true, source: s.source, description: s.description, owns: [] };
+        c.nodes.push(node); byName.set(s.name, node);
+      }
+      // a desk sits in a mind, or in a member's own hat (<name>@hat, worn by that member)
+      for (const d of w.workingNotes || []) { const n = byName.get(String(d.skill).replace(/@skill$/, '')); if (n && (d.notes || !n.desk)) n.desk = d; }
       team = c; netDraw(); relations();
     }).catch(() => { $('#net-note').textContent = 'the ontology is silent'; });
   }

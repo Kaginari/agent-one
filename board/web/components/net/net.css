@@ -1,4 +1,4 @@
-/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-6, --accent-hero, --step--2, --step--1, --font-body, --time, --time-slow, --ease, --space-3xs, --space-s. The workspace as a neural net: layers from input (bottom) to crown (top), bonds as synapses, live bodies glow and their synapses carry a pulse; data-focus lights one node's neighbourhood and makes its bonds blink. */
+/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-6, --accent-hero, --warn, --danger, --weight-bold, --font-code, --step--2, --step--1, --font-body, --time, --time-slow, --ease, --space-3xs, --space-s. The workspace as a neural net: layers from input (bottom) to crown (top), bonds as synapses, live bodies glow and their synapses carry a pulse; data-focus lights one node's neighbourhood and makes its bonds blink. */
 @layer components {
   .net { position: relative; inline-size: 100%; }
   .net svg { display: block; inline-size: 100%; block-size: auto; overflow: visible; font-family: var(--font-body); }
@@ -10,6 +10,26 @@
   .net [data-rank="domain"] { --node: var(--series-2); }
   .net [data-rank="coord"] { --node: var(--series-4); }
   .net [data-rank="service"] { --node: var(--series-3); }
+  /* a mind is coloured by whose work it does: zone gathers facts, verdict weighs, global arms the voice */
+  .net [data-rank="skill:zone"] { --node: var(--series-1); }
+  .net [data-rank="skill:review"] { --node: var(--series-4); }
+  .net [data-rank="skill:global"] { --node: var(--series-2); }
+  .net [data-rank="skill:shared"] { --node: var(--ink-muted); }
+  .net-brain { fill: var(--node); }
+  .net-brain-fold { fill: none; stroke: var(--surface); stroke-width: 1.1; }
+  .net-portrait { opacity: 0.95; }
+  .net-badge circle { fill: var(--surface); stroke: var(--node); stroke-width: 1.2; }
+  .net-badge text { fill: var(--ink); font: var(--weight-bold) var(--step--2) var(--font-body); text-anchor: middle; }
+  .net-desk { fill: var(--ink-muted); font: var(--step--2) var(--font-code); }
+  .net-node[data-stress] .net-node-core { stroke: var(--warn); stroke-width: 3; }
+  .net-node[data-stress="STRESSED"] .net-node-core { stroke: var(--danger); }
+  .net-node[data-stress] .net-node-halo { fill: var(--warn); opacity: 0.3; }
+  .net-node[data-stress="STRESSED"] .net-node-halo { fill: var(--danger); animation: net-glow calc(var(--time-slow) * 3) var(--ease) infinite; }
+  .net-node[data-stress] .net-desk { fill: var(--warn); }
+  .net-key { font-weight: normal; }
+  .net-key[data-kind="skill"] { color: var(--accent); }
+  .findings { display: grid; gap: var(--space-3xs); margin: 0; padding-inline-start: var(--space-s); font: var(--step--1) / 1.45 var(--font-code); color: var(--ink-muted); }
+  .findings li[data-tone="warn"] { color: var(--warn); }
   .net-node-halo { fill: var(--node); opacity: 0; transition: opacity var(--time) var(--ease); }
   .net-node-core { fill: var(--surface); stroke: var(--node); stroke-width: 2; }
   .net-node[data-kind="skill"] .net-node-core { stroke-dasharray: 3 2; }

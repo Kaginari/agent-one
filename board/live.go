@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/Kaginari/agent-one/memory"
 )
 
 // Live is the running session as the dashboard drives it: its event stream, and the few acts a
@@ -76,6 +78,22 @@ func (b *Board) liveRoutes() {
 	}))
 	b.mux.HandleFunc("/dash", b.dash)
 	b.mux.HandleFunc("/dash/stream", b.dashStream)
+	// the workspace's two planes beside the ontology: the minted agents, every wearable skill, and
+	// the desks (thoughts live in the worn skill)
+	b.mux.HandleFunc("/api/workspace", func(w http.ResponseWriter, r *http.Request) {
+		agents, skills := b.src.Agents(), b.src.Skills()
+		if agents == nil {
+			agents = []AgentInfo{}
+		}
+		if skills == nil {
+			skills = []SkillInfo{}
+		}
+		notes := []memory.WorkingNotes{}
+		if m := b.src.Memory(); m != nil && m.WorkingNotes != nil {
+			notes = m.WorkingNotes
+		}
+		writeJSON(w, map[string]any{"agents": agents, "skills": skills, "workingNotes": notes})
+	})
 	b.mux.HandleFunc("/api/live", func(w http.ResponseWriter, r *http.Request) {
 		st := map[string]any{"session": false}
 		if b.opt.Live != nil {

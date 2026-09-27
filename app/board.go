@@ -43,6 +43,20 @@ func (a *App) boardOptions() board.Options {
 		Subagent: a.liveAgents,
 		Config:   func() any { return configTree(a.Cfg) },
 		Off:      a.offList,
+		Agents: func() []board.AgentInfo {
+			var out []board.AgentInfo
+			for _, g := range a.Found.Agents {
+				out = append(out, board.AgentInfo{Name: g.Name, Mode: orStr(g.Mode, "subagent"), Model: g.Model, Description: g.Description, Source: g.Source})
+			}
+			return out
+		},
+		Skills: func() []board.SkillInfo {
+			var out []board.SkillInfo
+			for _, s := range a.Found.Skills {
+				out = append(out, board.SkillInfo{Name: s.Name, Description: s.Description, Source: s.Source})
+			}
+			return out
+		},
 		Session: func() board.Session {
 			return board.Session{ID: a.SessionID, Model: a.mountModel.Ref.Model, Provider: a.mountModel.Provider, Started: a.started, State: a.sessionState()}
 		},

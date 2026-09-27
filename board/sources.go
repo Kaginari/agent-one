@@ -306,6 +306,26 @@ type Sources struct {
 	Memory   func() *MemoryView
 	Toolbox  func() *ToolboxView
 	Doc      func(path string) (string, error)
+	// Agents are the minted agents (.claude/agents, .opencode/agents); Skills every skill the
+	// session can wear, the binary's own included. The integrator knows them; files answer empty.
+	Agents func() []AgentInfo
+	Skills func() []SkillInfo
+}
+
+// AgentInfo is one minted agent: the vessel a ranked member rides.
+type AgentInfo struct {
+	Name        string `json:"name"`
+	Mode        string `json:"mode"` // subagent · all/primary (a Keeper)
+	Model       string `json:"model,omitempty"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"`
+}
+
+// SkillInfo is one skill the session can wear, wherever it was found.
+type SkillInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"` // claude · opencode · native · builtin · …-global
 }
 
 // FileSources reads the workspace's files. Subagent, Config, Off and Session answer honestly empty.
@@ -332,6 +352,8 @@ func FileSources(root, workspaceDir string, layout onto.Layout, now func() time.
 		Memory:   f.memory,
 		Toolbox:  f.toolbox,
 		Doc:      f.doc,
+		Agents:   func() []AgentInfo { return nil },
+		Skills:   func() []SkillInfo { return nil },
 	}
 }
 
@@ -368,6 +390,12 @@ func (s Sources) withDefaults(d Sources) Sources {
 	}
 	if s.Doc == nil {
 		s.Doc = d.Doc
+	}
+	if s.Agents == nil {
+		s.Agents = d.Agents
+	}
+	if s.Skills == nil {
+		s.Skills = d.Skills
 	}
 	return s
 }
