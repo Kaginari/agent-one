@@ -32,8 +32,8 @@ func TestNoForkedVocabularyLeaks(t *testing.T) {
 			}
 			return nil
 		}
-		if rel == "FORKED.md" {
-			return nil
+		if rel == "FORKED.md" || rel == "discover/foreign.go" || rel == "discover/foreign_test.go" {
+			return nil // FORKED.md tells the history; foreign.go names the other convention only to keep its files out
 		}
 		switch strings.ToLower(filepath.Ext(rel)) {
 		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pptx", ".pdf":

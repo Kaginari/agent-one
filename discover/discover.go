@@ -182,7 +182,7 @@ func Instructions(opt Options) []Instruction {
 	var out []Instruction
 	add := func(p, src string) {
 		data, err := os.ReadFile(p)
-		if err != nil {
+		if err != nil || Foreign(src, string(data)) {
 			return
 		}
 		out = append(out, Instruction{Path: p, Source: src, Content: string(data)})
@@ -252,7 +252,7 @@ func Skills(opt Options) []Skill {
 			}
 			p := filepath.Join(ds.dir, e.Name(), "SKILL.md")
 			data, err := os.ReadFile(p)
-			if err != nil {
+			if err != nil || Foreign(ds.source, string(data)) {
 				continue
 			}
 			fm, _ := Frontmatter(string(data))
@@ -307,7 +307,7 @@ func Commands(opt Options) []Command {
 				return nil
 			}
 			data, err := os.ReadFile(p)
-			if err != nil {
+			if err != nil || Foreign(ds.source, string(data)) {
 				return nil
 			}
 			fm, agent := Frontmatter(string(data))
@@ -350,7 +350,7 @@ func Agents(opt Options) []Agent {
 				return nil
 			}
 			data, err := os.ReadFile(p)
-			if err != nil {
+			if err != nil || Foreign(ds.source, string(data)) {
 				return nil
 			}
 			fm, agent := Frontmatter(string(data))
