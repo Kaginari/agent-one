@@ -80,6 +80,10 @@ type message struct {
 	Content    string     `json:"content"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	// Reasoning is OpenRouter's reasoning text, ReasoningContent the DeepSeek/vLLM name for it;
+	// read for display, never sent back.
+	Reasoning        string `json:"reasoning,omitempty"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type toolDef struct {
@@ -266,7 +270,7 @@ func (c *Client) Complete(ctx context.Context, req provider.Request) (provider.R
 	defer res.Body.Close()
 	var resp provider.Response
 	if stream && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("content-type"), "text/event-stream") {
-		resp, err = c.readStream(res.Body, req.OnDelta)
+		resp, err = c.readStream(res.Body, req.OnDelta, req.OnThinking)
 		if err != nil {
 			return provider.Response{}, err
 		}
@@ -289,11 +293,19 @@ func (c *Client) Complete(ctx context.Context, req provider.Request) (provider.R
 			return provider.Response{}, fmt.Errorf("openai: no choices in the response")
 		}
 		ch := out.Choices[0]
+		if req.OnThinking != nil {
+			if t := ch.Message.Reasoning + ch.Message.ReasoningContent; t != "" {
+				req.OnThinking(t)
+			}
+		}
 		resp = provider.Response{Model: out.Model, Message: provider.Message{Role: provider.Assistant, Text: ch.Message.Content}, Usage: out.Usage.reading()}
 		for _, tc := range ch.Message.ToolCalls {
 			call := callOf(tc.ID, tc.Function.Name, tc.Function.Arguments)
 			call.Extra = tc.ExtraContent
 			resp.Message.ToolCalls = append(resp.Message.ToolCalls, call)
+		}
+		if ch.FinishReason == "error" {
+			return provider.Response{}, errUpstream(out.Model)
 		}
 		resp.Stop = finishOf(ch.FinishReason)
 		if req.OnDelta != nil && resp.Message.Text != "" && len(tagRe.FindAllString(resp.Message.Text, -1)) == 0 {
@@ -323,6 +335,13 @@ func callOf(id, name, args string) provider.ToolCall {
 		in = b
 	}
 	return provider.ToolCall{ID: id, Name: name, Input: in}
+}
+
+// errUpstream is an answer the upstream ended with finish_reason "error": OpenRouter can do so
+// under HTTP 200, after the headers and even after some text. It is a failed call, never a
+// finished answer — and a transient one, so the fallback model is tried.
+func errUpstream(model string) error {
+	return fmt.Errorf("openai: the upstream ended the answer with finish_reason error (model %s) — a failed call, not an answer", model)
 }
 
 func finishOf(s string) provider.StopReason {
@@ -404,7 +423,7 @@ func RenderWire(text string) string {
 }
 
 // readStream assembles a streamed chat completion.
-func (c *Client) readStream(r io.Reader, onDelta func(string)) (provider.Response, error) {
+func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (provider.Response, error) {
 	resp := provider.Response{Message: provider.Message{Role: provider.Assistant}}
 	var text strings.Builder
 	calls := map[int]*toolCall{}
@@ -446,6 +465,11 @@ func (c *Client) readStream(r io.Reader, onDelta func(string)) (provider.Respons
 			resp.Usage = ev.Usage.reading()
 		}
 		for _, ch := range ev.Choices {
+			if onThinking != nil {
+				if t := ch.Delta.Reasoning + ch.Delta.ReasoningContent; t != "" {
+					onThinking(t)
+				}
+			}
 			if ch.Delta.Content != "" {
 				text.WriteString(ch.Delta.Content)
 				if onDelta != nil && !c.text() {
@@ -488,6 +512,9 @@ func (c *Client) readStream(r io.Reader, onDelta func(string)) (provider.Respons
 		call := callOf(tc.ID, tc.Function.Name, tc.Function.Arguments)
 		call.Extra = tc.ExtraContent
 		resp.Message.ToolCalls = append(resp.Message.ToolCalls, call)
+	}
+	if finish == "error" {
+		return provider.Response{}, errUpstream(resp.Model)
 	}
 	resp.Stop = finishOf(finish)
 	if c.text() && onDelta != nil {
@@ -589,23 +616,35 @@ func (c *Client) doRetry(ctx context.Context, body []byte) (*http.Response, erro
 func errorText(body []byte) string {
 	type e struct {
 		Error *struct {
-			Message string `json:"message"`
-			Type    string `json:"type"`
-			Status  string `json:"status"`
+			Message  string `json:"message"`
+			Type     string `json:"type"`
+			Status   string `json:"status"`
+			Metadata struct {
+				Raw          string `json:"raw"`           // OpenRouter: the upstream's own words
+				ProviderName string `json:"provider_name"` // OpenRouter: which upstream answered
+			} `json:"metadata"`
 		} `json:"error"`
 	}
 	pick := func(x e) string {
 		if x.Error == nil || x.Error.Message == "" {
 			return ""
 		}
+		msg := x.Error.Message
+		if md := x.Error.Metadata; md.Raw != "" || md.ProviderName != "" {
+			raw := strings.TrimSpace(md.Raw)
+			if len(raw) > 200 {
+				raw = raw[:200] + "…"
+			}
+			msg = strings.TrimSpace(fmt.Sprintf("%s (upstream %s: %s)", msg, md.ProviderName, raw))
+		}
 		kind := x.Error.Type
 		if kind == "" {
 			kind = x.Error.Status
 		}
 		if kind != "" {
-			return kind + ": " + x.Error.Message
+			return kind + ": " + msg
 		}
-		return x.Error.Message
+		return msg
 	}
 	var one e
 	if json.Unmarshal(body, &one) == nil {

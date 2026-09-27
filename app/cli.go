@@ -31,7 +31,10 @@ type IO struct {
 type cliFlags struct {
 	root, dist, session, format string
 	json, quiet, noBoard, bench bool
+	plain                       bool
 	since                       string
+	ssh                         string // `board --ssh [addr]`: serve the board over SSH
+	goal                        goalContract
 }
 
 func splitFlags(args []string) (cliFlags, []string) {
@@ -71,6 +74,22 @@ func splitFlags(args []string) (cliFlags, []string) {
 			f.noBoard = true
 		case "--bench":
 			f.bench = true
+		case "--plain":
+			f.plain = true
+		case "--validate":
+			f.goal.validate = take(&i, name)
+		case "--read":
+			f.goal.read = take(&i, name)
+		case "--constraints":
+			f.goal.constraints = take(&i, name)
+		case "--max-turns":
+			fmt.Sscan(take(&i, name), &f.goal.maxTurns)
+		case "--ssh":
+			f.ssh = defaultSSHAddr
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && strings.Contains(args[i+1], ":") {
+				i++
+				f.ssh = args[i]
+			}
 		default:
 			rest = append(rest, a)
 		}
@@ -82,6 +101,9 @@ var commands = []struct{ name, summary string }{
 	{"repl", "a live session (the default)"},
 	{"run", "run one ask to its end: run [--json] [--format text|json|wire] \"<ask>\""},
 	{"resume", "resume a session: resume <id> [ask]"},
+	{"goal", "work to a goal until a command proves it: goal --validate \"<cmd>\" [--read …] [--constraints …] [--max-turns N] \"<objective>\""},
+	{"review", "two reviewers on two models, one merged shortlist: review [range]"},
+	{"handoff", "write a handoff for a fresh session: handoff [focus]"},
 	{"sessions", "list the sessions of this workspace"},
 	{"status", "the honesty rule and the instrument board"},
 	{"config", "config show [--yaml] | explain | check | path | patch"},
@@ -92,7 +114,8 @@ var commands = []struct{ name, summary string }{
 	{"bench", "a fixed task set on every configured model (mock always; real providers with keys)"},
 	{"selftest", "every package's selftest, one @S PASS n checks"},
 	{"init", "found a workspace here: init [--bench]"},
-	{"board", "serve the board without a session"},
+	{"board", "serve the board without a session: board [--ssh [addr]]"},
+	{"guard", "the global dangerous-command guard: check, test, show, export, hook, install"},
 	{"version", "print the version"},
 	{"help", "this list"},
 }
@@ -111,6 +134,10 @@ func Main(dist string, args []string, io IO, v Version) int {
 	if io.Err == nil {
 		io.Err = os.Stderr
 	}
+	if code, handled := Containered(dist, args, io); handled {
+		return code
+	}
+	args, _, _ = stripContainerFlags(args)
 	name, args := command(args)
 	switch name {
 	case "version":
@@ -121,7 +148,7 @@ func Main(dist string, args []string, io IO, v Version) int {
 		for _, c := range commands {
 			fmt.Fprintf(io.Out, "  %-9s %s\n", c.name, c.summary)
 		}
-		fmt.Fprintln(io.Out, "flags: --root <dir> --model <provider/id> --approve <classes> --dry-run --strict --set key=value --no-<feature> --format text|json|wire --json --quiet --session <id>")
+		fmt.Fprintln(io.Out, "flags: --root <dir> --model <provider/id> --approve <classes> --dry-run --strict --set key=value --no-<feature> --format text|json|wire --json --quiet --session <id> --plain --containered [--image <ref>]")
 		return 0
 	}
 	f, rest := splitFlags(args)
@@ -139,7 +166,7 @@ func Main(dist string, args []string, io IO, v Version) int {
 	if f.format != "" {
 		overrides = append(overrides, config.Override{Path: "output.format", Value: f.format, Flag: "--format"})
 	}
-	opt := Options{Dist: dist, Root: f.root, Env: io.Env, Flags: overrides, In: io.In, Out: io.Out, Err: io.Err, Version: v, Session: f.session, Quiet: f.quiet, NoBoard: f.noBoard}
+	opt := Options{Dist: dist, Root: f.root, Env: io.Env, Flags: overrides, In: io.In, Out: io.Out, Err: io.Err, Version: v, Session: f.session, Quiet: f.quiet, NoBoard: f.noBoard, Plain: f.plain}
 	if opt.Root != "" {
 		opt.Cwd = opt.Root
 	}
@@ -154,6 +181,8 @@ func Main(dist string, args []string, io IO, v Version) int {
 		return config.CLI(append(cargs, rest...), io.Out, io.Err)
 	case "memory", "toolbox", "onto":
 		return cmdInstrument(name, dist, f, leftover, io)
+	case "guard":
+		return cmdGuard(dist, rest, io)
 	case "selftest":
 		return Selftest(dist, io)
 	}
@@ -178,7 +207,23 @@ func Main(dist string, args []string, io IO, v Version) int {
 	switch name {
 	case "repl":
 		a.startBoard(ctx)
+		if a.wantsTUI(f.plain) {
+			return a.TUI(ctx)
+		}
 		return a.REPL(ctx)
+	case "review":
+		merge, err := a.runReview(ctx, strings.Join(leftover, " "), func(l string) { fmt.Fprintln(io.Err, l) })
+		if err != nil {
+			fmt.Fprintf(io.Err, "@S FAIL\n@? review: %v\n", err)
+			return 2
+		}
+		return a.cmdRun(ctx, merge, io)
+	case "goal":
+		g := f.goal
+		g.objective = strings.TrimSpace(strings.Join(leftover, " "))
+		return a.cmdGoal(ctx, g, io)
+	case "handoff":
+		return a.cmdRun(ctx, a.handoffAsk(ctx, strings.TrimSpace(strings.Join(leftover, " ")), ""), io)
 	case "run":
 		return a.cmdRun(ctx, strings.TrimSpace(strings.Join(leftover, " ")), io)
 	case "resume":
@@ -196,7 +241,7 @@ func Main(dist string, args []string, io IO, v Version) int {
 	case "bench":
 		return a.Bench(ctx, io)
 	case "board":
-		return a.cmdBoard(ctx, io)
+		return a.cmdBoard(ctx, io, f.ssh)
 	}
 	fmt.Fprintf(io.Err, "@S FAIL\n@? unknown command %q — `%s help` lists them\n", name, dist)
 	return 2
@@ -204,6 +249,7 @@ func Main(dist string, args []string, io IO, v Version) int {
 
 // valueFlags are the config flags that take a value in the next token.
 var valueFlags = map[string]bool{"--model": true, "--mode": true, "--approve": true, "--format": true, "--max-steps": true, "--budget": true, "--small-model": true, "--log-level": true, "--profile": true, "--set": true,
+	"--validate": true, "--read": true, "--constraints": true, "--max-turns": true,
 	"--root": true, "-root": true, "--dist": true, "--session": true, "-session": true, "--since": true}
 
 // command finds the subcommand in an argv where flags may come first (`agent-one --root x run
@@ -244,6 +290,14 @@ func cmdInit(dist string, f cliFlags, io IO) int {
 	fmt.Fprintf(io.Out, "@S OK %s founded at %s\n", dist, root)
 	for _, m := range made {
 		fmt.Fprintln(io.Out, "@F "+m)
+	}
+	if wantsSetup(dist, root, f, io) {
+		switch p, err := runSetup(dist, root, io); {
+		case err != nil:
+			fmt.Fprintf(io.Err, "@? setup: %v — the %s is founded; its config can be written later\n", err, worldWord(dist))
+		case p != "":
+			fmt.Fprintln(io.Out, "@F "+p)
+		}
 	}
 	if f.bench {
 		fmt.Fprintln(io.Out, "@F bench: config comes from "+strings.ToUpper(strings.ReplaceAll(dist, "-", "_"))+"_CONFIG_CONTENT; the gate needs a TTY or a file-layer pre-approval")
@@ -376,6 +430,10 @@ func (a *App) cmdResume(ctx context.Context, id, ask string, io IO) int {
 	}
 	if io.In != nil {
 		if f, ok := io.In.(*os.File); ok && f == os.Stdin && isTerminal(f) {
+			if a.wantsTUI(false) {
+				a.startBoard(ctx)
+				return a.TUI(ctx)
+			}
 			fmt.Fprintf(io.Err, "resumed %s (%d messages)\n", id, len(s.Messages))
 			return a.REPL(ctx)
 		}

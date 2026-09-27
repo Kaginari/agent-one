@@ -27,13 +27,17 @@ func TestNoForkedVocabularyLeaks(t *testing.T) {
 		}
 		rel := filepath.ToSlash(p)
 		if d.IsDir() {
-			if rel == ".git" || rel == "board/assets" {
+			if rel == ".git" || rel == "board/assets" || rel == "bin" { // bin/: a built binary is bytes, not words
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		if rel == "FORKED.md" {
 			return nil
+		}
+		switch strings.ToLower(filepath.Ext(rel)) {
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico":
+			return nil // an image is bytes, not words: compressed data can spell anything
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {

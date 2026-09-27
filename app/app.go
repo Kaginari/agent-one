@@ -53,6 +53,8 @@ type Options struct {
 	IsTTY func() bool
 	// NoBoard keeps the board down whatever ui.board.autostart says (one-shot runs, tests).
 	NoBoard bool
+	// Plain keeps the line REPL on a terminal (--plain); the TUI is never forced on a pipe.
+	Plain bool
 }
 
 // App is one opened engine.
@@ -82,6 +84,12 @@ type App struct {
 	OnDelta func(text string)
 	// Inbox hands lines typed mid-turn to the running agent.
 	Inbox func(s *loop.Session) []string
+	// OnStep sees every tool step start and end (loop.Hooks.Observe); nil is quiet.
+	OnStep func(s *loop.Session, st *loop.StepRecord, phase string)
+	// OnStream sees every agent's streamed text and thinking (loop.Hooks.Stream); nil is quiet.
+	OnStream func(agent, kind, text string)
+	// Notify carries one-line notices for the operator (a config reload); nil prints on Err.
+	Notify func(text string)
 
 	mount      provider.Provider
 	mountModel config.Model
@@ -247,8 +255,19 @@ func (a *App) reload(next *config.Config, changes []config.Change) {
 	a.Hooks.Cfg = next
 	a.mu.Unlock()
 	for _, c := range changes {
+		if a.Notify != nil {
+			a.Notify("config reloaded: " + c.String())
+			continue
+		}
 		fmt.Fprintln(a.Opt.Err, "config reloaded: "+c.String())
 	}
+}
+
+// liveConfig is the config as reloaded, for hooks that must read the newest rules.
+func (a *App) liveConfig() *config.Config {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.Cfg
 }
 
 // Build is the workspace's build for this engine: routed models, the gate, the per-agent shelf,
@@ -286,8 +305,14 @@ func (a *App) Build() workspace.Build {
 	}
 	env := func() tool.Env { return tool.Env{Root: a.Root, WorkspaceDir: cfg.Dist.WorkspaceDir} }
 	mine := loop.Hooks{
-		Decide:   decideHook(cfg, env),
-		Missing:  a.Missing.Hook(),
+		Decide:  decideHook(a.liveConfig, env),
+		Missing: a.Missing.Hook(),
+		Guard:   a.guardHook(),
+		Stream: func(s *loop.Session, kind, text string) {
+			if a.OnStream != nil {
+				a.OnStream(agentName(s), kind, text)
+			}
+		},
 		PreTool:  a.Hooks.PreTool,
 		PostTool: a.Hooks.PostTool,
 		Budget:   budgetHook,
@@ -304,6 +329,11 @@ func (a *App) Build() workspace.Build {
 				return a.Inbox(s)
 			}
 			return nil
+		},
+		Observe: func(s *loop.Session, st *loop.StepRecord, phase string) {
+			if a.OnStep != nil {
+				a.OnStep(s, st, phase)
+			}
 		},
 	}
 	b.Extra = workspace.MergeHooks(a.drainHooks(), mine)
@@ -425,7 +455,12 @@ func (a *App) StatusLines() []string {
 		out = append(out, "model "+l)
 	}
 	if a.Sandbox != nil {
-		out = append(out, sandboxLine(a.Sandbox))
+		if img := a.Opt.Env(a.Cfg.Dist.EnvPrefix + "CONTAINER_IMAGE"); img != "" {
+			out = append(out, "container: docker "+img+" — the workspace read-write, the rest read-only; the tool sandbox does not nest")
+		} else {
+			out = append(out, sandboxLine(a.Sandbox))
+		}
+		out = append(out, a.guardLine())
 	}
 	if a.MCP != nil {
 		out = append(out, a.MCP.Status()...)
