@@ -302,7 +302,8 @@ Benchmarks run under [Harbor](https://github.com/harbor-framework/harbor) in Doc
 per task, the agent inside it, the task's own tests deciding. Every launch is recorded in
 [`bench/runs.jsonl`](bench/runs.jsonl); [`bench/RESULTS.md`](bench/RESULTS.md) is generated from it.
 CI runs a no-cost smoke benchmark (`bench/smoke.sh`) on every commit against a fake
-OpenAI-compatible server.
+OpenAI-compatible server. A real run, agent-one against OpenCode on the same gateway models, is
+`bench/harbor.sh` — see [`bench/HARBOR.md`](bench/HARBOR.md).
 
 ## License
 

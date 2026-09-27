@@ -1,0 +1,29 @@
+# Bench config for a real run: the agent against an OpenAI-compatible gateway, the same shape as
+# examples/gateway/.agent-one/ folded into one file. bench/harbor.sh renders it into the run dir,
+# filling the three placeholders (the gateway URL, the key's variable NAME, the first model); the
+# key's value never lands in a file. Inside a task container the container is the sandbox, and
+# nobody is there to answer the gate.
+providers:
+  gateway:
+    enabled: true
+    type: openai
+    baseURL: __GATEWAY_URL__
+    apiKeyEnv: __KEY_ENV__            # the key's name only; the launcher forwards it by name
+    toolCalls: native                 # vLLM with --enable-auto-tool-choice; "text" if the gateway strips tools
+    contextWindow: auto               # read from the gateway's /v1/models (max_model_len)
+    timeout: 10m
+models:
+  default: gateway/__DEFAULT_MODEL__  # each job passes --model gateway/<model>; this is the fallback
+# Uncomment and price the models to get a cost column; without prices cost stays unknown ("—").
+# registry:
+#   models:
+#     gateway/__DEFAULT_MODEL__: { tier: 3, price: { input: 0, output: 0 } }
+tools:
+  profile: minimal
+  bash: { sandbox: none }
+policy:
+  humanGate: { enabled: false }
+budgets:
+  session: { tokens: 400000 }
+ui:
+  board: { autostart: false }

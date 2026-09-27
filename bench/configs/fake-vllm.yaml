@@ -12,7 +12,7 @@ models:
 tools:
   profile: minimal
   bash: { sandbox: none }
-law:
+policy:
   humanGate: { enabled: false }
 budgets:
   session: { tokens: 200000 }
