@@ -554,6 +554,9 @@
         const n = byName.get(b.name);
         if (n) { n.body = b; continue; }
         let rank = ranks.find(r => b.name === r || b.name.startsWith(r + '-'));
+        // a machine-wide agent (~/.config/…) is another world's unless it rides a member here or
+        // carries one of this world's rank prefixes — the net draws this team, not the machine
+        if (/-global$/.test(b.source || '') && !rank && !WORDS['rank.' + b.name.split('-')[0].replace(/_/g, '')]) continue;
         const prefix = b.name.split('-')[0].replace(/_/g, '');
         if (!rank && WORDS['rank.' + prefix]) {
           // a rank born in time (service, dark coord …): its first body opens its layer, above the crown
