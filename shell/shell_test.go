@@ -72,7 +72,13 @@ func TestTimeoutKillsTree(t *testing.T) {
 	if err != nil || !r.TimedOut || r.Exit != 124 || !strings.Contains(r.Output, "rest-of-list") {
 		t.Fatalf("%+v %v", r, err)
 	}
-	if left := descendants(s.proc.shellPid); len(left) != 0 {
+	// killed is the claim, not gone within 0ms: a killed child may still be tearing down when
+	// /proc is read (seen under -race on a loaded CI runner), so it gets a moment to go
+	left := descendants(s.proc.shellPid)
+	for deadline := time.Now().Add(2 * time.Second); len(left) != 0 && time.Now().Before(deadline); left = descendants(s.proc.shellPid) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(left) != 0 {
 		t.Fatalf("processes survived the kill under the shell: %v", left)
 	}
 	if time.Since(t0) > 5*time.Second {
