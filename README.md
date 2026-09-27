@@ -109,6 +109,7 @@ reviews the change before the turn is done:
 | `review [range]` | two reviewers on two models in parallel, one merged shortlist; nothing fixed before you approve |
 | `handoff [focus]` | a handoff note for a fresh session (`/handoff read` picks it up) |
 | `guard check\|test\|show\|export\|hook\|install` | the global dangerous-command guard; `install --yes` wires it into Claude Code and OpenCode |
+| `ui init\|scan\|check` | web pages built from one token system: lay the foundation, regenerate the legend, lint and screenshot at 360/768/1280 in both themes |
 | `board [--ssh [addr]]` | the dashboard without a session — on the web, and over SSH (keys in `~/.ssh/authorized_keys` only) |
 | `--containered` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
 | `selftest` · `version` · `init` | |
@@ -256,6 +257,28 @@ rules:
 Everything is on by default; switching something off is always shown in `status`, never silent.
 `agent-one config show --yaml` prints every key with its effective value; `agent-one config explain`
 adds the file and line each came from.
+
+## Web UIs
+
+When the agent builds a page, it holds the built-in **`ui` skill** (a project skill of the same name
+overrides it). The app's own `ui/` dir is the source of truth; nothing is copied into the workspace:
+
+```
+ui/tokens.css      raw scales → meaning tokens (--surface --ink --accent --space-m --step-1 …), both themes, density
+ui/palettes.css    thirteen palettes in OKLCH, contrast-checked; <html data-palette="forest"> swaps every colour
+ui/layout.css      the page grid and primitives: .page .stack .cluster .grid .cols .sidebar .switcher .center .cover .frame
+ui/components/<name>/<name>.{css,html}   one component; its css starts /* @component <name> — tokens: … */
+```
+
+A global or radical change is one edit in one tier (a palette, `--density`, `--type-ratio`, a
+primitive); no component is touched. `agent-one ui scan` derives the **legend** —
+`.agent-one/ui-assets/{manifest.json,legend.md,catalogue.html}`: every component, the classes it owns,
+its variants, the tokens it reads. The agent reads it before it changes anything. `agent-one ui check`
+lints the system (no literal colour or pixel length outside the token files, every class declared,
+every token defined, every header true) and renders the catalogue with headless Chromium at 360, 768
+and 1280px in light and dark, failing any component that scrolls sideways. The gate runs the lints on
+every turn that touched the ui dir (`policy.gate.ui`). A project already on Tailwind, Bootstrap or a
+design-system package keeps it: the skill follows the existing system.
 
 ## Safety, in code
 

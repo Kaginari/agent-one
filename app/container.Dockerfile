@@ -14,5 +14,6 @@ RUN if [ -n "$APT" ]; then \
  && apt-get install -y --no-install-recommends \
       bash ca-certificates coreutils curl diffutils file findutils gawk git grep jq less make \
       patch procps python3 ripgrep sed tar unzip xz-utils \
+      chromium fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 ENV LANG=C.UTF-8

@@ -34,6 +34,8 @@ type GateOptions struct {
 	Log            bool // append the verdict to log.md
 	Retries        int  // a failed gate goes back to the model this many times per turn
 	TestsIntact    bool // a turn may not pass by deleting, skipping or narrowing tests
+	// UI lints the ui dir when the turn wrote under it (app.uiGate); nil = off
+	UI func(wrote []string) []string
 	// TestsBefore is the test files' text as the turn opened; the EndGate hook fills it per call.
 	TestsBefore map[string]string
 	Timeout     time.Duration // per verify command; 0 = 120s
@@ -132,6 +134,13 @@ func (w *Workspace) Gate(ctx context.Context, opt GateOptions, as string, wrote 
 			fail("Tests intact: " + why + " — only the operator decides a test goes")
 		}
 		v.Checked = append(v.Checked, "Tests intact")
+	}
+	// ui holds — the component system's lints on a turn that touched it
+	if opt.UI != nil {
+		for _, why := range opt.UI(wrote) {
+			fail("UI system: " + why)
+		}
+		v.Checked = append(v.Checked, "UI system")
 	}
 	// 3. duties done — the commission is answered on the wire
 	if opt.DutiesDone {

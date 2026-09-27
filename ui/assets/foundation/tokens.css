@@ -1,0 +1,160 @@
+/* tokens.css — the one place a design decision lives.
+   Three tiers, each reading only the tier above it:
+     raw      palettes.css (--n-*, --p-*: colour) and the scales below (space, type, radius, time)
+     meaning  what a value is FOR: --surface, --ink, --accent, --space-m, --step-1 …
+     component  a component's own --card-pad etc., defined in its css, aliasing meaning tokens
+   A global change edits ONE tier here: a retheme swaps the palette (data-palette) or remaps the
+   meaning tier; a density change moves --density; a type change moves --type-ratio. No component
+   is touched. Nothing outside tokens.css and palettes.css holds a literal colour or pixel length
+   (`ui check` enforces it). */
+@layer reset, tokens, layout, components, utilities;
+
+@layer tokens {
+  :root {
+    /* raw — scales. Fluid between a 360px and a 1280px viewport. */
+    --density: 1;
+    --space-unit: calc(clamp(1rem, 0.93rem + 0.3vw, 1.2rem) * var(--density));
+    --space-3xs: calc(var(--space-unit) * 0.25);
+    --space-2xs: calc(var(--space-unit) * 0.5);
+    --space-xs: calc(var(--space-unit) * 0.75);
+    --space-s: var(--space-unit);
+    --space-m: calc(var(--space-unit) * 1.5);
+    --space-l: calc(var(--space-unit) * 2);
+    --space-xl: calc(var(--space-unit) * 3);
+    --space-2xl: calc(var(--space-unit) * 4);
+    --space-3xl: calc(var(--space-unit) * 6);
+
+    --type-base: clamp(1rem, 0.96rem + 0.18vw, 1.125rem);
+    --type-ratio: 1.2;
+    --step--2: calc(var(--type-base) / var(--type-ratio) / var(--type-ratio));
+    --step--1: calc(var(--type-base) / var(--type-ratio));
+    --step-0: var(--type-base);
+    --step-1: calc(var(--type-base) * var(--type-ratio));
+    --step-2: calc(var(--step-1) * var(--type-ratio));
+    --step-3: calc(var(--step-2) * var(--type-ratio));
+    --step-4: calc(var(--step-3) * var(--type-ratio));
+    --step-5: clamp(var(--step-3), 1.5rem + 3vw, calc(var(--step-4) * var(--type-ratio)));
+
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --leading-tight: 1.2;
+    --leading: 1.55;
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-bold: 650;
+
+    --radius-s: 0.25rem;
+    --radius-m: 0.5rem;
+    --radius-l: 1rem;
+    --radius-pill: 999rem;
+    --hairline: 1px;
+    --focus-width: 2px;
+
+    --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+    --time-fast: 120ms;
+    --time: 200ms;
+    --time-slow: 360ms;
+
+    /* meaning — layout */
+    --gutter: clamp(var(--space-s), 4vw, var(--space-xl));
+    --page-max: 72rem;
+    --measure: 65ch;
+
+    /* meaning — font */
+    --font-body: var(--font-sans);
+    --font-heading: var(--font-sans);
+    --font-code: var(--font-mono);
+
+    /* meaning — colour, light theme (the palette's neutrals and accent, remapped by role) */
+    color-scheme: light;
+    --surface: var(--n-0);
+    --surface-2: var(--n-1);
+    --surface-sunken: var(--n-2);
+    --line: var(--n-3);
+    --ink-muted: var(--n-6);
+    --ink: var(--n-9);
+    --accent: var(--p-1);
+    --accent-ink: var(--p-1-ink);
+    --accent-wash: var(--p-5);
+    --accent-hero: var(--p-2);
+    --second: var(--p-3);
+    --focus: var(--p-2);
+    --ok: oklch(0.48 0.12 150);
+    --warn: oklch(0.5 0.12 75);
+    --danger: oklch(0.5 0.14 25);
+    --shadow: 0 0.1rem 0.3rem oklch(0 0 0 / 0.08), 0 0.4rem 1.2rem oklch(0 0 0 / 0.06);
+  }
+
+  /* meaning — colour, dark theme: chosen by the reader's system, or forced by data-theme */
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --surface: var(--n-9);
+    --surface-2: var(--n-8);
+    --surface-sunken: var(--n-9);
+    --line: var(--n-6);
+    --ink-muted: var(--n-3);
+    --ink: var(--n-0);
+    --accent: var(--p-1-dark);
+    --accent-ink: var(--p-1-dark-ink);
+    --accent-wash: var(--p-4);
+    --accent-hero: var(--p-2);
+    --second: var(--p-3);
+    --focus: var(--p-2);
+    --ok: oklch(0.78 0.12 150);
+    --warn: oklch(0.8 0.12 75);
+    --danger: oklch(0.76 0.13 25);
+    --shadow: 0 0.1rem 0.3rem oklch(0 0 0 / 0.4), 0 0.4rem 1.2rem oklch(0 0 0 / 0.3);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface: var(--n-9);
+      --surface-2: var(--n-8);
+      --surface-sunken: var(--n-9);
+      --line: var(--n-6);
+      --ink-muted: var(--n-3);
+      --ink: var(--n-0);
+      --accent: var(--p-1-dark);
+      --accent-ink: var(--p-1-dark-ink);
+      --accent-wash: var(--p-4);
+      --accent-hero: var(--p-2);
+      --second: var(--p-3);
+      --focus: var(--p-2);
+      --ok: oklch(0.78 0.12 150);
+      --warn: oklch(0.8 0.12 75);
+      --danger: oklch(0.76 0.13 25);
+      --shadow: 0 0.1rem 0.3rem oklch(0 0 0 / 0.4), 0 0.4rem 1.2rem oklch(0 0 0 / 0.3);
+    }
+  }
+
+  /* density: one knob for every space token */
+  [data-density="compact"] { --density: 0.75; }
+  [data-density="comfortable"] { --density: 1.25; }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root { --time-fast: 0ms; --time: 0ms; --time-slow: 0ms; }
+  }
+}
+
+@layer reset {
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: none; text-size-adjust: none; }
+  body {
+    margin: 0; min-block-size: 100vh;
+    font-family: var(--font-body); font-size: var(--step-0); line-height: var(--leading);
+    background: var(--surface); color: var(--ink);
+  }
+  h1, h2, h3, h4 { font-family: var(--font-heading); line-height: var(--leading-tight); text-wrap: balance; margin: 0; }
+  h1 { font-size: var(--step-4); }
+  h2 { font-size: var(--step-3); }
+  h3 { font-size: var(--step-2); }
+  h4 { font-size: var(--step-1); }
+  p, ul, ol, figure, blockquote { margin: 0; }
+  p { text-wrap: pretty; max-inline-size: var(--measure); }
+  img, svg, video, canvas { display: block; max-inline-size: 100%; block-size: auto; }
+  input, button, textarea, select { font: inherit; color: inherit; }
+  a { color: var(--accent); text-underline-offset: 0.15em; }
+  :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-width); }
+  code, kbd, pre { font-family: var(--font-code); font-size: 0.95em; }
+}

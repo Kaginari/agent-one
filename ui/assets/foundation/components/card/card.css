@@ -1,0 +1,18 @@
+/* @component card — tokens: --surface-2, --line, --radius-l, --space-m, --space-s, --space-2xs, --shadow, --ink-muted, --step--1, --step-2, --hairline. A bounded group of content; its body reflows by its own width (container query), data-variant="raised". */
+@layer components {
+  .card {
+    --card-pad: var(--space-m);
+    container-type: inline-size;
+    display: flex; flex-direction: column; gap: var(--space-s);
+    padding: var(--card-pad);
+    background: var(--surface-2);
+    border: var(--hairline) solid var(--line); border-radius: var(--radius-l);
+  }
+  .card[data-variant="raised"] { box-shadow: var(--shadow); border-color: transparent; }
+  .card-title { font-size: var(--step-2); }
+  .card-meta { font-size: var(--step--1); color: var(--ink-muted); }
+  .card-body { display: grid; gap: var(--space-2xs); }
+  @container (min-width: 30rem) {
+    .card-body { grid-template-columns: 1fr auto; align-items: end; }
+  }
+}

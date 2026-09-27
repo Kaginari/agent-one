@@ -373,7 +373,7 @@ func TestDiscoverAndHooks(t *testing.T) {
 	for _, a := range d.Agents {
 		ag = append(ag, a.Name+":"+a.Mode)
 	}
-	if names(sk) != "global-skill:claude-global,tdd:claude,wire:native" {
+	if names(sk) != "global-skill:claude-global,tdd:claude,ui:builtin,wire:native" {
 		t.Errorf("skills: %s", names(sk))
 	}
 	if names(cm) != "gate:check,review" {

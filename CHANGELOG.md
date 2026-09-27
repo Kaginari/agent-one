@@ -6,6 +6,16 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Web UIs from one token system.** A built-in `ui` skill (method + design craft, offline), and
+  `agent-one ui init|scan|check`: a foundation (tokens in three tiers, 13 OKLCH palettes checked for
+  WCAG AA, layout primitives, cascade layers, two example components), a derived legend under
+  `.agent-one/ui-assets/` (manifest, legend.md, a live catalogue), lints (tokens only, declared
+  classes, defined tokens, true headers) and screenshots at 360/768/1280 in both themes with
+  sideways-scroll detection. The gate runs the lints on a turn that touched the ui dir
+  (`policy.gate.ui`, on by default). The container image ships Chromium.
+
 ## [0.2.0] - 2026-09-27
 
 ### Highlights

@@ -290,7 +290,7 @@ func (a *App) Build() workspace.Build {
 		Gate:      a.Gate,
 		Shelf:     func(as string, depth int) (*tool.Registry, func()) { return a.Shelf.Build(as) },
 		Budget:    policyBudget(cfg, maxOut),
-		Hooks:     hookOptions(cfg, a.rules),
+		Hooks:     a.withUIGate(hookOptions(cfg, a.rules)),
 		Ownership: workspace.OwnershipOptions{Enabled: cfg.Policy.Ownership.Enabled},
 		Subagent: workspace.SubagentOptions{Enabled: a.on("dispatch"), MaxDepth: cfg.Tools.Dispatch.MaxDepth, Cap: cfg.Policy.Wire.Cap, Unsaid: cfg.Policy.Wire.RequireUnsaid,
 			Background: cfg.Tools.Dispatch.Background, Wake: func(agent, report string, failed bool) {

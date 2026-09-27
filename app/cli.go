@@ -116,6 +116,7 @@ var commands = []struct{ name, summary string }{
 	{"init", "found a workspace here: init [--bench]"},
 	{"board", "serve the board without a session: board [--ssh [addr]]"},
 	{"guard", "the global dangerous-command guard: check, test, show, export, hook, install"},
+	{"ui", "the web ui system: init (tokens, layout, components), scan (the legend), check (lint + screenshots)"},
 	{"version", "print the version"},
 	{"help", "this list"},
 }
@@ -183,6 +184,8 @@ func Main(dist string, args []string, io IO, v Version) int {
 		return cmdInstrument(name, dist, f, leftover, io)
 	case "guard":
 		return cmdGuard(dist, rest, io)
+	case "ui":
+		return cmdUI(dist, f, rest, io)
 	case "selftest":
 		return Selftest(dist, io)
 	}

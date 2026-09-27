@@ -1,0 +1,22 @@
+/* @component button — tokens: --accent, --accent-ink, --font-body, --ink, --line, --radius-m, --space-3xs, --space-2xs, --space-s, --step--1, --step-0, --surface-2, --time-fast, --ease, --weight-medium, --hairline. The one clickable action; data-variant="primary|quiet", data-size="s". */
+@layer components {
+  .button {
+    --button-bg: var(--surface-2);
+    --button-ink: var(--ink);
+    --button-pad-y: var(--space-2xs);
+    --button-pad-x: var(--space-s);
+    display: inline-flex; align-items: center; gap: var(--space-2xs);
+    padding: var(--button-pad-y) var(--button-pad-x);
+    font: var(--weight-medium) var(--step-0) / 1.2 var(--font-body);
+    color: var(--button-ink); background: var(--button-bg);
+    border: var(--hairline) solid var(--line); border-radius: var(--radius-m);
+    cursor: pointer; text-decoration: none;
+    transition: filter var(--time-fast) var(--ease), transform var(--time-fast) var(--ease);
+  }
+  .button:hover { filter: brightness(1.06); }
+  .button:active { transform: translateY(var(--hairline)); }
+  .button[data-variant="primary"] { --button-bg: var(--accent); --button-ink: var(--accent-ink); border-color: transparent; }
+  .button[data-variant="quiet"] { --button-bg: transparent; border-color: transparent; }
+  .button[data-size="s"] { --button-pad-y: var(--space-3xs); --button-pad-x: var(--space-2xs); font-size: var(--step--1); }
+  .button:disabled, .button[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+}

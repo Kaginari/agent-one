@@ -49,10 +49,22 @@ type Skill struct {
 	Dir         string
 	Source      string
 	Frontmatter map[string]string
+	Text        string // a built-in skill's SKILL.md, shipped in the binary (Path is "")
+}
+
+// Builtin is a skill the binary ships, from its SKILL.md text; a project or global skill of the
+// same name wins over it.
+func Builtin(text string) Skill {
+	fm, _ := Frontmatter(text)
+	return Skill{Name: fm["name"], Description: fm["description"], Source: "builtin", Frontmatter: fm, Text: text}
 }
 
 // Load reads the skill's agent (frontmatter stripped).
 func (s Skill) Load() (string, error) {
+	if s.Path == "" && s.Text != "" {
+		_, agent := Frontmatter(s.Text)
+		return agent, nil
+	}
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
 		return "", err

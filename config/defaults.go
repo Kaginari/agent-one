@@ -50,7 +50,7 @@ const defaultsJSON = `{
   "policy": {
     "principles":      { "enabled": true },
     "humanGate":  { "enabled": true, "strict": false, "approve": [], "dryRun": false },
-    "gate":       { "enabled": true, "rightAuthor": true, "invariantsHold": true, "dutiesDone": true, "docTruthful": true, "retries": 1, "testsIntact": true },
+    "gate":       { "enabled": true, "rightAuthor": true, "invariantsHold": true, "dutiesDone": true, "docTruthful": true, "retries": 1, "testsIntact": true, "ui": true },
     "docsAsCode":   { "enabled": true },
     "ownership":  { "enabled": true },
     "wire":       { "enabled": true, "cap": 2048, "requireUnsaid": true, "raw": false },

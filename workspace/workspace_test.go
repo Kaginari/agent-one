@@ -696,3 +696,21 @@ func TestTestsIntactLanguages(t *testing.T) {
 		}
 	}
 }
+
+func TestGateUI(t *testing.T) {
+	dir := fixture(t)
+	w := open(t, dir)
+	var saw []string
+	opt := GateOptions{Enabled: true, UI: func(wrote []string) []string {
+		saw = wrote
+		return []string{"error ui/components/card/card.css:3 [literal] a literal colour"}
+	}}
+	v := w.Gate(context.Background(), opt, "", []string{"ui/components/card/card.css"}, nil, false, "")
+	if v.Word != "fail" || !strings.Contains(v.String(), "UI system: error ui/components/card/card.css:3") || len(saw) != 1 {
+		t.Fatalf("the ui lints did not fail the gate: %s", v)
+	}
+	opt.UI = func([]string) []string { return nil }
+	if v := w.Gate(context.Background(), opt, "", []string{"ui/components/card/card.css"}, nil, false, ""); v.Word == "fail" {
+		t.Fatalf("clean ui failed the gate: %s", v)
+	}
+}

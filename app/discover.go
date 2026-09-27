@@ -58,6 +58,13 @@ func Discover(cfg *config.Config, root, home string) Discovered {
 				d.Skills = append(d.Skills, discover.Skill{Name: name, Description: fm["description"], Path: p, Dir: filepath.Join(dir, e.Name()), Source: "native", Frontmatter: fm})
 			}
 		}
+		// the Skills the binary ships, unless the workspace holds its own of the same name
+		for _, b := range builtinSkills(cfg.Dist) {
+			if !seen[b.Name] {
+				seen[b.Name] = true
+				d.Skills = append(d.Skills, b)
+			}
+		}
 		sort.SliceStable(d.Skills, func(i, j int) bool { return d.Skills[i].Name < d.Skills[j].Name })
 	}
 	if cfg.Discovery.Commands.Enabled {
