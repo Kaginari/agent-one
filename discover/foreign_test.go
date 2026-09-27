@@ -16,6 +16,8 @@ func TestForeignGlobalsAreSkipped(t *testing.T) {
 	write(filepath.Join(home, ".config/opencode/agents/throne.md"), foreign)
 	write(filepath.Join(home, ".config/opencode/agents/helper.md"), "---\ndescription: a plain helper\n---\nhelp\n")
 	write(filepath.Join(home, ".claude/commands/genesis.md"), foreign)
+	write(filepath.Join(home, ".claude/commands/mint.md"), "---\ndescription: Mint a Body\n---\nBodies are named for the rank they serve (`orc-security`), for Rimuru.\n")
+	write(filepath.Join(home, ".claude/commands/tidy.md"), "---\ndescription: tidy the repo itself\n---\nkeep it to yourself\n")
 	write(filepath.Join(home, ".claude/skills/old/SKILL.md"), foreign)
 	write(filepath.Join(home, ".claude/CLAUDE.md"), foreign)
 	write(filepath.Join(root, ".claude/agents/local.md"), foreign) // the workspace's own: kept
@@ -32,8 +34,8 @@ func TestForeignGlobalsAreSkipped(t *testing.T) {
 			t.Fatal("a foreign machine-wide agent was listed")
 		}
 	}
-	if c := Commands(opt); len(c) != 0 {
-		t.Fatalf("a foreign machine-wide command was listed: %v", c)
+	if c := Commands(opt); len(c) != 1 || c[0].Name != "tidy" {
+		t.Fatalf("commands = %v, want tidy only (itself/yourself never match)", c)
 	}
 	if s := Skills(opt); len(s) != 0 {
 		t.Fatalf("a foreign machine-wide skill was listed: %v", s)
