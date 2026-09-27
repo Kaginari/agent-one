@@ -1,0 +1,9 @@
+instruments/loop/
+instruments/usage/
+instruments/working-notes/
+instruments/toolbox/
+memory/short/
+memory/long/
+toolbox/registry.json
+tmp/
+config.local.*

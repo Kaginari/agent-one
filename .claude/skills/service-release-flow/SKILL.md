@@ -1,0 +1,13 @@
+---
+name: service-release-flow
+description: How agent-one is proven, released and benchmarked — the ci and release workflows, GoReleaser, the install script, and the Harbor bench with its append-only record. Wear it for any change under .github/, .goreleaser.yaml, install.sh, RELEASING.md, CHANGELOG.md or bench/, and before any tag.
+---
+- CI (`.github/workflows/ci.yml`) on main and PRs: gofmt clean, `go vet ./...`, bubblewrap installed with `kernel.apparmor_restrict_unprivileged_userns=0`, `go test -race ./...`, `go run ./cmd/agent-one selftest`, and the tree must be clean afterwards (`git status --porcelain`); a build matrix linux/darwin × amd64/arm64 with `CGO_ENABLED=0 -trimpath`; `goreleaser check`; bench-smoke.
+- Release (`release.yml`) on a `v*` tag: `go test ./...`, then `CHANGELOG.md` must hold `## [X.Y.Z]` for the tag or the job fails; GoReleaser (`.goreleaser.yaml`, v2) builds archives `agent-one_<os>_<arch>.tar.gz` with LICENSE, README, CHANGELOG, writes `checksums.txt`, pushes `ghcr.io/kaginari/agent-one:<version>` and `:latest` (never `latest` for a pre-release) from `Dockerfile.release` (debian bookworm-slim, no RUN steps), and attests provenance only on a public repo.
+- The release steps for a human are in `RELEASING.md`: move `## [Unreleased]` under `## [X.Y.Z] - YYYY-MM-DD` (Highlights, Added/Changed/Fixed/Removed), commit `chore: release vX.Y.Z`, `git tag -a vX.Y.Z -m vX.Y.Z && git push origin main vX.Y.Z`. Tagging and pushing are outward and irreversible: the operator does or approves them.
+- `install.sh`: `releases/latest/download` (or `VERSION=`), sha256 against `checksums.txt` before install to `BIN_DIR` (default `~/.local/bin`); the archive name carries no version on purpose.
+- Bench: `bench/smoke.sh` (needs `bin/agent-one`, `bin/fakevllm`, the `agent-one-harbor` image, Docker) proves right → 1.0 and wrong → 0.0 through `record.py --expect`; `bench/harbor.sh` runs real gateway models head to head with OpenCode (cost) — dry-run first, key by name only, operator approval always. `runs.jsonl` is append-only; `RESULTS.md` is generated (`record.py --render`) — never hand-edited. `bench/jobs/`, `.smoke-config.yaml`, `.fakevllm-*.log`, `__pycache__/` are gitignored.
+- `bench/fakevllm` is its own Go module (`go build -C bench/fakevllm`); `bench/harbor/Dockerfile` is the Harbor runner image; `bench/configs/fake-vllm.yaml` switches the human gate and sandbox off for task containers only.
+- Local readings available here: gofmt, cross-compile, `bash -n` on the scripts, `ast.parse` on the Python; not available: goreleaser, the harbor CLI, a writable `bench/harbor/__pycache__` (root-owned).
+
+## Working notes
