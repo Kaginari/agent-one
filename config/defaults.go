@@ -20,6 +20,7 @@ const defaultsJSON = `{
     "mock":       { "enabled": false, "type": "mock", "script": "" }
   },
   "guard": { "enabled": true, "files": [], "patterns": [] },
+  "registry": { "models": {}, "tools": [], "packages": { "npm": "", "pip": "", "go": "", "tokenEnv": "", "env": {} }, "containers": { "image": "", "base": "", "apt": "" } },
   "tools": {
     "profile":   "max",
     "read":      { "enabled": true, "maxLines": 2000, "maxBytes": 51200 },

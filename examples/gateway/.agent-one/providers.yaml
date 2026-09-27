@@ -1,0 +1,11 @@
+# The model gateway in front of the vLLM-hosted models: one OpenAI-compatible endpoint.
+# Edit baseURL to your gateway (or: agent-one --set providers.gateway.baseURL=https://…/v1).
+gateway:
+  enabled: true
+  type: openai
+  baseURL: https://llm-gateway.example.corp/v1
+  apiKeyEnv: GATEWAY_API_KEY          # the key's name only; export it in your shell
+  toolCalls: native                   # vLLM with --enable-auto-tool-choice; "text" if the gateway strips tools
+  contextWindow: auto                 # read from the gateway's /v1/models (max_model_len)
+  timeout: 10m
+  # tls: { caFile: /etc/ssl/certs/corp-ca.pem }   # a gateway behind the corporate CA

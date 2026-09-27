@@ -204,7 +204,11 @@ func (w *Workspace) Memory() (*memory.Workspace, error) {
 
 // Toolbox opens the toolbox instrument on this workspace.
 func (w *Workspace) Toolbox() (*toolbox.Workspace, error) {
-	return toolbox.OpenIn(w.Root, w.Lex.WorkspaceDir)
+	tb, err := toolbox.OpenIn(w.Root, w.Lex.WorkspaceDir)
+	if tb != nil {
+		tb.Extra = w.ToolboxExtra
+	}
+	return tb, err
 }
 
 // Recall runs the recall beat: memory hits as `src#sec` anchors, toolbox @T lines. Never an agent.

@@ -452,3 +452,48 @@ func TestSectionFiles(t *testing.T) {
 		t.Fatalf("guard.yaml beside guards.yaml is ambiguous: %v", err)
 	}
 }
+
+// registry.yaml: the gateway's models join the provider's catalogue; packages and containers are
+// read; a model for an unconfigured provider is a hole.
+func TestRegistrySection(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	workspace := filepath.Join(root, ".agent-one")
+	os.MkdirAll(workspace, 0o755)
+	os.WriteFile(filepath.Join(workspace, "providers.yaml"), []byte("gateway: {enabled: true, type: openai, baseURL: https://gw/v1, apiKeyEnv: GATEWAY_API_KEY}\n"), 0o644)
+	os.WriteFile(filepath.Join(workspace, "registry.yaml"), []byte(`models:
+  gateway/kimi-k3: {tier: 3, contextWindow: 262144}
+  gateway/glm-5-3: {tier: 2}
+  nowhere/x: {tier: 1}
+tools:
+  - {name: kubectl, description: "the cluster CLI", triggers: [kube, pods]}
+packages:
+  npm: https://art.corp/api/npm/npm/
+  pip: https://art.corp/api/pypi/pypi/simple
+  tokenEnv: ARTIFACTORY_TOKEN
+  env: {GONOSUMDB: corp.example}
+containers: {base: art.corp/docker/debian:bookworm-slim, apt: https://art.corp/debian}
+`), 0o644)
+	c, err := LoadWith(Options{Dist: "agent-one", Root: root, Home: home, Env: func(string) string { return "" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := c.Providers["gateway"].Models
+	if m["kimi-k3"] == nil || m["kimi-k3"].ContextWindow != 262144 || m["glm-5-3"] == nil {
+		t.Fatalf("the registry's models join the provider: %v", m)
+	}
+	if o, _ := c.Origin("registry.models.gateway/kimi-k3"); o.Layer != "project" || !strings.HasSuffix(o.File, "registry.yaml") {
+		t.Fatalf("a section file's values are the project layer's, named by their file: %+v", o)
+	}
+	if !strings.Contains(strings.Join(c.Holes, "|"), `no provider "nowhere"`) {
+		t.Fatalf("a model with no provider is a hole: %v", c.Holes)
+	}
+	env := strings.Join(c.Registry.Packages.PackageEnv(), " ")
+	for _, want := range []string{"NPM_CONFIG_REGISTRY=https://art.corp/api/npm/npm/", "PIP_INDEX_URL=https://art.corp/api/pypi/pypi/simple", "UV_INDEX_URL=", "GONOSUMDB=corp.example"} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("package env misses %q: %s", want, env)
+		}
+	}
+	if c.Registry.Containers.Base == "" || len(c.Registry.Tools) != 1 || c.Registry.Tools[0].Name != "kubectl" {
+		t.Fatalf("containers and tools are read: %+v", c.Registry)
+	}
+}

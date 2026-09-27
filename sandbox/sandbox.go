@@ -34,6 +34,7 @@ type Options struct {
 	Bwrap    string   // the bwrap binary; "" looks it up on PATH
 	EnvDrop  []string // more env names to drop; `*` globs allowed (e.g. AWS_*)
 	EnvAllow []string // names that survive scrubbing; wins over every drop rule
+	EnvSet   []string // NAME=value set after scrubbing (the package registries); wins over the process env
 	Timeout  time.Duration
 }
 
@@ -193,7 +194,22 @@ func (s *Sandbox) Scrub(env []string) []string {
 	if s == nil {
 		return ScrubEnv(env, nil, nil)
 	}
-	return ScrubEnv(env, s.opt.EnvDrop, s.opt.EnvAllow)
+	out := ScrubEnv(env, s.opt.EnvDrop, s.opt.EnvAllow)
+	if len(s.opt.EnvSet) == 0 {
+		return out
+	}
+	set := map[string]bool{}
+	for _, kv := range s.opt.EnvSet {
+		k, _, _ := strings.Cut(kv, "=")
+		set[k] = true
+	}
+	kept := out[:0]
+	for _, kv := range out {
+		if k, _, _ := strings.Cut(kv, "="); !set[k] {
+			kept = append(kept, kv)
+		}
+	}
+	return append(kept, s.opt.EnvSet...)
 }
 
 var secretName = regexp.MustCompile(`(?i)(^|_)(API_KEY|TOKEN|SECRET|PASSWORD|PASSWD)$`)

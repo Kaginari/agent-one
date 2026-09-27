@@ -36,8 +36,9 @@ type Override struct {
 
 // Layer is one source in precedence order.
 type Layer struct {
-	Name    string // default | global | project | local | env-file | env | flag
-	Path    string // file path, "env", "flag" or "default"
+	Name    string   // default | global | project | local | env-file | env | flag
+	Path    string   // file path, "env", "flag" or "default"
+	Files   []string // the section files the layer also read (registry.yaml, guards.yaml…)
 	Present bool
 	Node    *yaml.Node
 }
@@ -183,6 +184,9 @@ func finishLoad(c *Config, layers []Layer, o Options) (*Config, error) {
 	layerOf := map[string]string{}
 	for _, l := range layers {
 		layerOf[l.Path] = l.Name
+		for _, f := range l.Files {
+			layerOf[f] = l.Name
+		}
 	}
 	collectOrigins(tree, "", c.Origins, layerOf)
 
@@ -785,6 +789,7 @@ func (r *reader) sections(l Layer, dir string, defaults *yaml.Node) (Layer, erro
 		wrap := yaml.MapNode(p, 0)
 		wrap.Set(section, node)
 		wrap = normalize(wrap)
+		l.Files = append(l.Files, p)
 		if l.Present {
 			l.Node = merge(l.Node, wrap)
 		} else {

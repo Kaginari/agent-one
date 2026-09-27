@@ -1,0 +1,7 @@
+# Who runs on what. The roles' tiers rise analyst ≤ judge ≤ drafter; each has a fallback from
+# another family, tried when a call still fails after its retries on 429/5xx, or on a transport error.
+default: { model: gateway/kimi-k3, fallback: gateway/glm-5-3 }
+roles:
+  analyst: { model: gateway/muse-glimmer, fallback: gateway/glm-5-3 }
+  judge:   { model: gateway/glm-5-3,      fallback: gateway/kimi-k3 }
+  drafter: { model: gateway/kimi-k3,      fallback: gateway/glm-5-3 }

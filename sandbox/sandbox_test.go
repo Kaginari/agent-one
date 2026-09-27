@@ -98,3 +98,14 @@ func TestBwrapConfinement(t *testing.T) {
 		t.Fatal(s.Status())
 	}
 }
+
+func TestEnvSetWinsAndTokenAllowed(t *testing.T) {
+	s := New(Options{EnvAllow: []string{"ARTIFACTORY_TOKEN"}, EnvSet: []string{"NPM_CONFIG_REGISTRY=https://art/npm/"}})
+	got := strings.Join(s.Scrub([]string{"NPM_CONFIG_REGISTRY=https://registry.npmjs.org/", "ARTIFACTORY_TOKEN=t", "OTHER_TOKEN=x", "PATH=/bin"}), " ")
+	if !strings.Contains(got, "NPM_CONFIG_REGISTRY=https://art/npm/") || strings.Contains(got, "registry.npmjs.org") {
+		t.Fatalf("the registry's value wins: %s", got)
+	}
+	if !strings.Contains(got, "ARTIFACTORY_TOKEN=t") || strings.Contains(got, "OTHER_TOKEN") {
+		t.Fatalf("the named token passes, other secrets do not: %s", got)
+	}
+}

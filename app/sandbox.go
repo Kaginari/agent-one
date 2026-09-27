@@ -33,7 +33,8 @@ func newSandbox(cfg *config.Config, root string) *sandbox.Sandbox {
 		Root:     root,
 		RWPaths:  rw,
 		EnvDrop:  drop,
-		EnvAllow: cfg.Tools.Bash.EnvAllow,
+		EnvAllow: envAllow(cfg),
+		EnvSet:   cfg.Registry.Packages.PackageEnv(),
 		Timeout:  5 * time.Second,
 	})
 }
@@ -45,4 +46,13 @@ func sandboxLine(sb *sandbox.Sandbox) string {
 		return "sandbox: bwrap (" + strings.TrimSpace(p.Path+" "+p.Version) + ")"
 	}
 	return "@? sandbox: none — " + sb.Why()
+}
+
+// envAllow is bash's allow-list plus the package registry's token, when one is named.
+func envAllow(cfg *config.Config) []string {
+	out := append([]string(nil), cfg.Tools.Bash.EnvAllow...)
+	if t := cfg.Registry.Packages.TokenEnv; t != "" {
+		out = append(out, t)
+	}
+	return out
 }

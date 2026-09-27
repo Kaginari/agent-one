@@ -20,6 +20,7 @@ type Config struct {
 	Tools     Tools                `json:"tools"`
 	Policy    Policy               `json:"policy"`
 	Guard     Guard                `json:"guard"`
+	Registry  Registry             `json:"registry"`
 	Memory    Memory               `json:"memory"`
 	Toolbox   Toolbox              `json:"toolbox"`
 	Ontology  Ontology             `json:"ontology"`
@@ -616,4 +617,64 @@ type Guard struct {
 	Enabled  bool     `json:"enabled"`
 	Files    []string `json:"files"`
 	Patterns []string `json:"patterns"` // POSIX-ERE (RE2) lines, added to the built-in list
+}
+
+// Registry is where things come from: the models a gateway serves, the external tools the toolbox
+// indexes, the package registries (a private Artifactory) the shell and the container use, and the
+// container registry --containered pulls from. Keys and tokens are named, never written.
+type Registry struct {
+	// Models is the model catalogue, keyed "<provider>/<model-id>"; each entry joins
+	// providers.<provider>.models unless the provider already declares it.
+	Models map[string]*ModelEntry `json:"models"`
+	// Tools are external tools for the toolbox, as extra.jsonl lines are.
+	Tools      []*RegistryTool `json:"tools"`
+	Packages   Packages        `json:"packages"`
+	Containers Containers      `json:"containers"`
+}
+
+// RegistryTool is one external tool the toolbox indexes (the extra.jsonl fields).
+type RegistryTool struct {
+	Name        string   `json:"name"`
+	Path        string   `json:"path"`
+	Description string   `json:"description"`
+	Usage       string   `json:"usage"`
+	Serves      string   `json:"serves"`
+	Triggers    []string `json:"triggers"`
+}
+
+// Packages points the package managers at a registry: set in the shell and in the container.
+type Packages struct {
+	Npm string `json:"npm"` // NPM_CONFIG_REGISTRY
+	Pip string `json:"pip"` // PIP_INDEX_URL, UV_INDEX_URL
+	Go  string `json:"go"`  // GOPROXY
+	// TokenEnv names the variable holding the registry's token; it is let through to the shell
+	// (the agent can read it — give it a read-only token). The value is never written.
+	TokenEnv string            `json:"tokenEnv"`
+	Env      map[string]string `json:"env"` // anything else: PIP_TRUSTED_HOST, GONOSUMDB, CARGO_REGISTRIES_…
+}
+
+// Containers is --containered's registry: a prebuilt runtime image, or the base and apt mirror to
+// build one from.
+type Containers struct {
+	Image string `json:"image"` // pull this runtime image instead of building one
+	Base  string `json:"base"`  // the build's base image (default debian:bookworm-slim)
+	Apt   string `json:"apt"`   // an apt mirror for the build (e.g. an Artifactory debian remote)
+}
+
+// PackageEnv is the environment the package registries set, sorted by name.
+func (p Packages) PackageEnv() []string {
+	var out []string
+	add := func(k, v string) {
+		if v != "" {
+			out = append(out, k+"="+v)
+		}
+	}
+	add("NPM_CONFIG_REGISTRY", p.Npm)
+	add("PIP_INDEX_URL", p.Pip)
+	add("UV_INDEX_URL", p.Pip)
+	add("GOPROXY", p.Go)
+	for _, k := range sortedKeys(p.Env) {
+		add(k, p.Env[k])
+	}
+	return out
 }

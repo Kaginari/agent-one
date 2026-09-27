@@ -1,0 +1,4 @@
+# Added to the built-in denylist of catastrophic commands — refused before any approval.
+- '(^|[[:space:]])terraform[[:space:]]+destroy'
+- 'kubectl[[:space:]]+delete[[:space:]]+(ns|namespace|node)'
+- 'helm[[:space:]]+uninstall'

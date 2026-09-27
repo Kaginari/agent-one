@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: false   # stdlib only: no go.sum, nothing to cache
+          cache: false   # module downloads are small; a clean build every run
       - name: Tests must pass on the tagged commit
         run: go test ./...
       - name: Release notes — the tag's section of CHANGELOG.md goes on top of the generated list

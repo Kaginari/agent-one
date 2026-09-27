@@ -14,7 +14,7 @@ var fileLayers = map[string]bool{"global": true, "project": true, "local": true}
 func (c *Config) finish() error {
 	steps := []func() error{
 		c.checkScalars, c.checkProviders, c.checkTools, c.checkMCP, c.checkPermissions,
-		c.resolveRules, c.buildRanks, c.checkModels, c.checkGate, c.checkCompaction,
+		c.resolveRules, c.mergeRegistry, c.buildRanks, c.checkModels, c.checkGate, c.checkCompaction,
 	}
 	for _, s := range steps {
 		if err := s(); err != nil {
@@ -174,4 +174,28 @@ func (c *Config) OffLines() []string {
 		out = append(out, f.String())
 	}
 	return out
+}
+
+// mergeRegistry folds registry.models into the providers' catalogues: an entry joins
+// providers.<p>.models unless the provider declares that model itself; a provider that is not
+// configured is a hole, never a silent drop.
+func (c *Config) mergeRegistry() error {
+	for _, key := range sortedKeys(c.Registry.Models) {
+		p, id, err := SplitModel(key)
+		if err != nil {
+			return fmt.Errorf("%s: registry.models.%s: %v", c.Where("registry.models."+key), key, err)
+		}
+		prov := c.Providers[p]
+		if prov == nil {
+			c.Holes = append(c.Holes, fmt.Sprintf("registry.models.%s: no provider %q is configured (%s)", key, p, c.Where("registry.models."+key)))
+			continue
+		}
+		if prov.Models == nil {
+			prov.Models = map[string]*ModelEntry{}
+		}
+		if _, ok := prov.Models[id]; !ok {
+			prov.Models[id] = c.Registry.Models[key]
+		}
+	}
+	return nil
 }

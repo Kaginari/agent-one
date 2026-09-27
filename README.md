@@ -34,15 +34,24 @@ into a **workspace** governed by [`AGENT-ONE.md`](AGENT-ONE.md) and runs the age
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Kaginari/agent-one/main/install.sh | sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/Kaginari/agent-one/main/install.sh
+sh install.sh                     # downloads the release for your OS and checks it against checksums.txt
 # or
 go install github.com/Kaginari/agent-one/cmd/agent-one@latest
-# or
-docker run --rm -it -v "$PWD:/work" ghcr.io/kaginari/agent-one:latest
 ```
 
 Release archives for linux/macOS × amd64/arm64 ship with `checksums.txt` and build provenance:
-`gh attestation verify <archive> --repo Kaginari/agent-one`.
+`gh attestation verify <archive> --repo Kaginari/agent-one`. A container image to try the binary:
+`docker run --rm -it -e ANTHROPIC_API_KEY -v "$PWD:/work" ghcr.io/kaginari/agent-one:latest` — the
+binary alone on Debian slim (no bubblewrap, git or toolchains); for real work in a container use
+`--containered`, which builds a runtime with them.
+
+**Requirements.** Linux or macOS. `bubblewrap` (`bwrap`) for the sandboxed shell on Linux — without it
+the shell runs unsandboxed and `status` says so; macOS has no bwrap. Docker for `--containered`.
+
+**Data boundary.** No telemetry. The binary contacts only the providers you configure (and the
+package or container registries you name); any other network act is `outward` and asks you, and the
+sandboxed shell has no network unless an `outward` act was approved.
 
 ## Quick start
 
@@ -91,7 +100,7 @@ reviews the change before the turn is done:
 | `agent-one` / `repl` | the live session: keep talking while subagents work; `/agents`, `/send`, `/usage`, `/status`, `/compact` |
 | `run "<task>"` | one task to completion, non-interactive; `--json` for automation |
 | `resume <id>` · `sessions` | continue or list sessions |
-| `status` | the instrument board and every policy that is switched off (and where) |
+| `status` | every live reading (models, sandbox, guard, memory) and every policy switched off, with where — gaps print as `@?` lines |
 | `config show\|explain\|check\|path\|patch` | the effective configuration with the origin of every value |
 | `memory` · `toolbox` · `onto` | memory tiers, the two-level tool registry, the ownership graph |
 | `usage` | tokens and cost by agent, role, model and day |
@@ -99,43 +108,168 @@ reviews the change before the turn is done:
 | `goal --validate "<cmd>" "<objective>"` | work turn after turn until the command passes; the binary runs it, the model cannot skip it |
 | `review [range]` | two reviewers on two models in parallel, one merged shortlist; nothing fixed before you approve |
 | `handoff [focus]` | a handoff note for a fresh session (`/handoff read` picks it up) |
-| `guard check\|test\|show\|install` | the global dangerous-command guard; `install` wires it into Claude Code and OpenCode |
+| `guard check\|test\|show\|export\|hook\|install` | the global dangerous-command guard; `install --yes` wires it into Claude Code and OpenCode |
 | `board [--ssh [addr]]` | the dashboard without a session — on the web, and over SSH (keys in `~/.ssh/authorized_keys` only) |
 | `--containered` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
 | `selftest` · `version` · `init` | |
 
 ## Configuration
 
-`.agent-one/config.yaml` (or `.json`), layered over `~/.config/agent-one/`, environment and flags:
+Configuration is YAML (or JSON), layered — each layer overrides the one before it:
 
-```yaml
-providers:
-  vllm: { type: openai, baseURL: https://vllm.internal/v1, apiKeyEnv: VLLM_API_KEY, toolCalls: native }
-models:
-  default: vllm/Qwen/Qwen3-Coder-480B-A35B-Instruct
-permissions:
-  rules:
-    - { match: "bash:git push*", action: ask }
-    - { match: "bash:git push --force*", action: deny }
-tools:
-  custom:
-    kube-pods: { run: [kubectl, get, pods, -n, "{{ns}}"], params: { ns: { type: string } }, class: outward }
-rules:
-  - { text: "Tests must pass before a change lands.", check: "go test ./..." }
-budgets:
-  session: { usd: 5 }
+| Layer | Where | Kept in git |
+|---|---|---|
+| built-in defaults | in the binary — everything on | — |
+| global | `~/.config/agent-one/` | no |
+| project | `.agent-one/` in the workspace | yes |
+| project local | `.agent-one/config.local.yaml` | no (machine-only) |
+| environment | `AGENT_ONE_CONFIG=<file>`, `AGENT_ONE_CONFIG_CONTENT=<yaml>`, `AGENT_ONE_MODEL`, `AGENT_ONE_DISABLE_PROJECT_CONFIG=1` (skip the project layers), `AGENT_ONE_PROVIDER_<NAME>_API_KEY` (built-in provider names only; a custom provider uses `apiKeyEnv`) | — |
+| flags | `--model`, `--set key=value`, `--approve outward`, `--dry-run`, `--no-<feature>` | — |
+
+`agent-one config explain` shows every effective value and the file and line it came from;
+`agent-one status` shows every model, the guard, the sandbox and anything switched off.
+
+### One file per part
+
+A layer can be one `config.yaml`, or split: beside it, a file named after a section holds just that
+section. The example in [`examples/gateway/`](examples/gateway/) — agent-one on vLLM-hosted models
+behind a gateway — is laid out this way:
+
+```
+.agent-one/
+├── config.yaml        # the workspace's own settings
+├── providers.yaml     # model endpoints
+├── registry.yaml      # models, tools, package and container registries
+├── models.yaml        # who runs on what
+├── guards.yaml        # catastrophic commands, refused before any approval
+├── rules.yaml         # rules every agent reads, optionally checked at the gate
+└── permissions.yaml   # ask / allow / deny per command
 ```
 
-
-Any section can live in its own file beside `config.yaml` — `models.yaml`, `providers.yaml`,
-`rules.yaml`, `guards.yaml` — and `config explain` names the file every value came from. `guards.yaml`
-may be just a list of patterns, added to the built-in denylist of catastrophic commands:
+**`providers.yaml`** — where the models are. Keys are named, never written:
 
 ```yaml
-# .agent-one/guards.yaml
+gateway:
+  enabled: true
+  type: openai                       # any OpenAI-compatible endpoint: vLLM, a gateway, OpenRouter, Ollama
+  baseURL: https://llm-gateway.example.corp/v1
+  apiKeyEnv: GATEWAY_API_KEY         # the variable's name; export the key in your shell
+  toolCalls: native                  # vLLM with --enable-auto-tool-choice; "text" for tags in the text
+  contextWindow: auto                # read from /v1/models (max_model_len)
+  timeout: 10m
+  # headers: { X-Tenant: platform }        # a routing header; a credential here is refused
+  # tls: { caFile: /etc/ssl/certs/corp-ca.pem }
+```
+
+`contextWindow: auto` reads the served maximum from `/v1/models`; a gateway that does not report it
+needs `contextWindow: <n>` here or per model in `registry.yaml`. (A provider named `vllm` needs no
+`type`: it is known.)
+
+**`registry.yaml`** — where things come from: the models a gateway serves, the tools the agent can
+discover, a private Artifactory, the container registry (the example ships `packages` and `containers`
+commented out):
+
+```yaml
+models:                                     # "<provider>/<id>" — tier orders the roles; price in USD per 1M tokens
+  gateway/muse-glimmer: { tier: 1, contextWindow: 131072, price: { input: 0, output: 0 } }
+  gateway/glm-5-3:      { tier: 2 }
+  gateway/kimi-k3:      { tier: 3 }
+tools:                                      # external tools the toolbox indexes
+  - { name: kubectl, description: "the cluster CLI", triggers: [kube, pods, deploy] }
+packages:                                   # set in every shell command and in the container
+  npm: https://artifactory.example.corp/artifactory/api/npm/npm-remote/
+  pip: https://artifactory.example.corp/artifactory/api/pypi/pypi-remote/simple
+  go:  https://artifactory.example.corp/artifactory/api/go/go-remote
+  tokenEnv: ARTIFACTORY_TOKEN               # let through by name — the agent can read it: use a read-only token
+  env: { GONOSUMDB: example.corp }
+containers:                                 # for --containered
+  base: artifactory.example.corp/docker-remote/debian:bookworm-slim
+  apt:  https://artifactory.example.corp/artifactory/debian-remote
+  # image: artifactory.example.corp/docker-local/agent-one-runtime:1   # pull a prebuilt runtime instead
+```
+
+For a private container registry, `docker login artifactory.example.corp` first: docker's own login
+answers for the pull.
+
+**`models.yaml`** — the session's model and the three roles (the analyst reads, the judge reviews, the
+drafter writes). A call is retried on 429 and 5xx (honouring `Retry-After`); when it still fails, or
+fails outright on a transport error, the fallback is tried — never on a refusal. A *role* is what a
+subagent does for a call; a *rank* is its place in the tree (coordinator → domain owner → zone
+worker); a *member* is one named agent — each can be given its own model:
+
+```yaml
+default: { model: gateway/kimi-k3, fallback: gateway/glm-5-3 }
+roles:
+  analyst: { model: gateway/muse-glimmer, fallback: gateway/glm-5-3 }
+  judge:   { model: gateway/glm-5-3,      fallback: gateway/kimi-k3 }
+  drafter: { model: gateway/kimi-k3,      fallback: gateway/glm-5-3 }
+# ranks: { zone: …, domain: … }   members: { zone-auth: … }   tasks: { drain: …, gate: … }
+```
+
+**`guards.yaml`** — added to the built-in denylist (disk wipes, `rm -rf ~`, force-pushes, repository and
+secret deletion, history purges, secret-store reads, `curl … | sh`). A match is refused before any
+approval — no rule or `--approve` can run it:
+
+```yaml
 - '(^|[[:space:]])terraform[[:space:]]+destroy'
-- 'kubectl[[:space:]]+delete[[:space:]]+(ns|namespace)'
+- 'kubectl[[:space:]]+delete[[:space:]]+(ns|namespace|node)'
+- 'helm[[:space:]]+uninstall'
 ```
+
+**`rules.yaml`** and **`permissions.yaml`**:
+
+```yaml
+# rules.yaml — every agent reads them; a check runs at the review gate
+- { text: "Tests must pass before a change lands.", check: "make test" }
+- { text: "No secret, key or token is ever written to a file." }
+```
+
+```yaml
+# permissions.yaml — ask / allow / deny per command. An allow on bash, git or webfetch is a
+# loosening that `config check` lists; a bare bash:* allow is refused.
+rules:
+  - { match: "bash:git push*", action: ask }
+  - { match: "bash:kubectl get*", action: allow }
+  - { match: "bash:kubectl*", action: ask }
+```
+
+### Every other section
+
+| Section | What it controls | A taste |
+|---|---|---|
+| `tools` | the builtin tools, their limits, custom tools, the bash sandbox | `bash: { sandbox: bwrap, timeout: 2m }` · `custom: { kube-pods: { run: [kubectl, get, pods], class: read } }` |
+| `policy` | the review gate and its checks, the human gate, budgets per turn | `gate: { retries: 1, testsIntact: true }` · `humanGate: { approve: [outward] }` |
+| `memory` · `compaction` | recall and notes; draining the context when it fills | `compaction: { trigger: { fraction: 0.85 } }` |
+| `mcp` | MCP servers (Claude Code's `.mcp.json` and OpenCode's are imported) | `servers: { gh: { command: [gh-mcp] } }` |
+| `hooks` | shell hooks at preTool, postTool, sessionStart, preCompact, stop, userPrompt | `preTool: [{ match: "bash", command: "./check.sh" }]` |
+| `discovery` | where instructions, skills, commands and agents are found (Claude Code and OpenCode dirs included) | `skills: { paths: [.claude/skills] }` |
+| `budgets` | spend ceilings for the session and each subagent | `session: { tokens: 400000, usd: 5 }` |
+| `ui` · `output` | the dashboard, the status line, output format | `board: { autostart: false }` |
+| `sessions` · `undo` | where sessions and undo snapshots live, how long | `sessions: { keepDays: 30 }` |
+
+| `toolbox` · `ontology` · `instruments` | the searchable tool registry, the ownership graph, the journals | `toolbox: { budgetTokens: 1500 }` |
+| `mode` · `smallModel` · `logLevel` | `build` or `plan` (plan writes nothing); a small model for small tasks | `mode: plan` |
+| `tools.profile` · `tools.missing` | the toolset shape (`max`, `anthropic`, `openai`, `minimal`); what happens when a tool is missing | `profile: minimal` |
+| `permissions.import` · `mcp.import` | take Claude Code's and OpenCode's permissions and MCP servers | `import: { claudeCode: { enabled: false } }` |
+| `guard` | more denylist files, patterns inline | `files: [~/corp-guards.txt]` |
+
+Everything is on by default; switching something off is always shown in `status`, never silent.
+`agent-one config show --yaml` prints every key with its effective value; `agent-one config explain`
+adds the file and line each came from.
+
+## Safety, in code
+
+Beyond the review gate, human approval and the sandbox described above:
+
+- **The guard** — the catastrophic and irreversible are refused before any approval, held to a
+  151-case test corpus; `agent-one guard install --yes` wires the same list into Claude Code and
+  OpenCode (without `--yes` it only shows the change).
+- **The review gate, hardened** — it runs the checks as they were before the turn, fails a turn that
+  deleted or skipped tests, and sends a failure back to the model once, then to you.
+- **Dry-run and previews** — `--dry-run` plans and shows what it would run or ask, running nothing;
+  every edit shows its diff; `/board` and `ctrl+t` show every agent live.
+- **The sandbox** (`bwrap`) or **the container** (`--containered`: the workspace read-write, the rest
+  read-only, pulled or built from your private registry).
 
 ## Benchmarks
 

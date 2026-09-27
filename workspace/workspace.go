@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,7 +38,9 @@ type Options struct {
 
 // Workspace is one opened workspace.
 type Workspace struct {
-	Root         string
+	Root string
+	// ToolboxExtra are externals declared in config (registry.tools), for the toolbox.
+	ToolboxExtra []json.RawMessage
 	Lex          Lexicon
 	Ranks        Ranks
 	Policy       *Policy

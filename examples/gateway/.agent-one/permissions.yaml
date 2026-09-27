@@ -1,0 +1,4 @@
+rules:
+  - { match: "bash:git push*", action: ask }
+  - { match: "bash:kubectl get*", action: allow }
+  - { match: "bash:kubectl*", action: ask }

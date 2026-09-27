@@ -1,0 +1,7 @@
+# The workspace's own settings; every other part lives in its own file beside this one
+# (providers.yaml, registry.yaml, models.yaml, guards.yaml, rules.yaml, permissions.yaml).
+# `agent-one config explain` names the file every value came from.
+budgets:
+  session: { tokens: 400000 }
+ui:
+  board: { autostart: true, port: 7411 }

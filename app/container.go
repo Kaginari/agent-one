@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Kaginari/agent-one/config"
 	"github.com/Kaginari/agent-one/workspace"
 )
 
@@ -41,6 +42,7 @@ type ContainerSpec struct {
 	RO      []string // host paths mounted read-only at the same path
 	RW      []string // host paths mounted read-write at the same path (the session store)
 	EnvKeys []string // passed by name: docker reads the value, it never lands in argv
+	EnvSet  []string // NAME=value that is no secret: the package registries' URLs
 	Argv    []string // the binary's own arguments
 }
 
@@ -51,8 +53,8 @@ func prefixOf(dist string) string { return strings.ToUpper(strings.ReplaceAll(di
 
 // DefaultRuntimeImage is the image built from the embedded Dockerfile; its tag follows the
 // Dockerfile, so a changed runtime is rebuilt, never silently reused.
-func DefaultRuntimeImage(dist string) string {
-	sum := sha256.Sum256(runtimeDockerfile)
+func DefaultRuntimeImage(dist string, build ...string) string {
+	sum := sha256.Sum256(append(append([]byte(nil), runtimeDockerfile...), []byte(strings.Join(build, "|"))...))
 	return dist + "-runtime:" + hex.EncodeToString(sum[:])[:12]
 }
 
@@ -78,6 +80,9 @@ func (s ContainerSpec) Args() []string {
 	}
 	for _, k := range s.EnvKeys {
 		a = append(a, "-e", k)
+	}
+	for _, kv := range s.EnvSet {
+		a = append(a, "-e", kv)
 	}
 	a = append(a, "-w", s.Cwd, s.Image, "/usr/local/bin/"+s.Dist)
 	return append(a, s.Argv...)
@@ -167,9 +172,17 @@ func Containered(dist string, args []string, io IO) (code int, handled bool) {
 	if err != nil {
 		return fail("the Docker engine does not answer: %s", firstLineOf(string(out)))
 	}
+	cfg, cerr := config.LoadWith(config.Options{Dist: dist, Env: io.Env})
+	var reg config.Registry
+	if cerr == nil {
+		reg = cfg.Registry
+	}
 	if image == "" {
-		image = DefaultRuntimeImage(dist)
-		if err := ensureImage(docker, image, io.Err); err != nil {
+		image = reg.Containers.Image // a prebuilt runtime from the private registry: pulled, not built
+	}
+	if image == "" {
+		image = DefaultRuntimeImage(dist, reg.Containers.Base, reg.Containers.Apt)
+		if err := ensureImage(docker, image, reg.Containers, io.Err); err != nil {
 			return fail("%v", err)
 		}
 	}
@@ -201,7 +214,10 @@ func Containered(dist string, args []string, io IO) (code int, handled bool) {
 	}
 	spec := ContainerSpec{Dist: dist, Image: image, Exe: exe, Root: root, Cwd: cwd, Home: home, UID: os.Getuid(), GID: os.Getgid(),
 		TTY: isTerminal(os.Stdin) && isTerminal(os.Stdout), RO: hostReadOnly(dist, home), RW: []string{store},
-		EnvKeys: passEnv(dist, os.Environ()), Argv: rest}
+		EnvKeys: passEnv(dist, os.Environ()), EnvSet: reg.Packages.PackageEnv(), Argv: rest}
+	if t := reg.Packages.TokenEnv; t != "" && !contains(spec.EnvKeys, t) {
+		spec.EnvKeys = append(spec.EnvKeys, t)
+	}
 	cmd := exec.Command(docker, spec.Args()...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -215,12 +231,19 @@ func Containered(dist string, args []string, io IO) (code int, handled bool) {
 }
 
 // ensureImage builds the runtime image from the embedded Dockerfile when it is not there yet.
-func ensureImage(docker, image string, w io.Writer) error {
+func ensureImage(docker, image string, c config.Containers, w io.Writer) error {
 	if exec.Command(docker, "image", "inspect", image).Run() == nil {
 		return nil
 	}
 	fmt.Fprintf(w, "building the runtime image %s (first containered run; pulls its base image)…\n", image)
-	cmd := exec.Command(docker, "build", "-t", image, "-")
+	args := []string{"build", "-t", image}
+	if c.Base != "" {
+		args = append(args, "--build-arg", "BASE="+c.Base)
+	}
+	if c.Apt != "" {
+		args = append(args, "--build-arg", "APT="+c.Apt)
+	}
+	cmd := exec.Command(docker, append(args, "-")...)
 	cmd.Stdin = bytes.NewReader(runtimeDockerfile)
 	cmd.Stdout, cmd.Stderr = w, w
 	if err := cmd.Run(); err != nil {
@@ -240,4 +263,13 @@ func firstLineOf(s string) string {
 		s = s[:i]
 	}
 	return s
+}
+
+func contains(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

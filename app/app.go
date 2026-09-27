@@ -7,6 +7,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -157,6 +158,11 @@ func New(opt Options) (*App, error) {
 		return nil, err
 	}
 	a.Workspace = w
+	for _, t := range cfg.Registry.Tools {
+		if b, err := json.Marshal(t); err == nil {
+			w.ToolboxExtra = append(w.ToolboxExtra, b)
+		}
+	}
 	for _, n := range w.Notes {
 		a.hole(n)
 	}

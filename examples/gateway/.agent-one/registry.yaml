@@ -1,0 +1,22 @@
+# Where things come from. Model IDs are the names the gateway's /v1/models lists — adjust on the day.
+models:
+  gateway/muse-glimmer: { tier: 1, price: { input: 0, output: 0 } }   # fast: reading, finding
+  gateway/glm-5-3:      { tier: 2, price: { input: 0, output: 0 } }   # the reviewer
+  gateway/kimi-k3:      { tier: 3, price: { input: 0, output: 0 } }   # the strongest: drafting, the session
+
+# Tools the agent can discover and load (as a skill or command would be).
+tools:
+  - { name: kubectl, description: "the cluster CLI — read-only contexts only in the demo", triggers: [kube, pods, deploy] }
+
+# A private Artifactory for the package managers: set in every shell command and in the container.
+# packages:
+#   npm: https://artifactory.example.corp/artifactory/api/npm/npm-remote/
+#   pip: https://artifactory.example.corp/artifactory/api/pypi/pypi-remote/simple
+#   go:  https://artifactory.example.corp/artifactory/api/go/go-remote
+#   tokenEnv: ARTIFACTORY_TOKEN        # let through by name — give the agent a read-only token
+#   env: { GONOSUMDB: example.corp }
+
+# --containered pulls from the private registry.
+# containers:
+#   base: artifactory.example.corp/docker-remote/debian:bookworm-slim
+#   apt:  https://artifactory.example.corp/artifactory/debian-remote

@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: false   # stdlib only: no go.sum, nothing to cache
+          cache: false   # module downloads are small; a clean build every run
       - name: gofmt
         run: |
           out=$(gofmt -l .)
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: false   # stdlib only: no go.sum, nothing to cache
+          cache: false   # module downloads are small; a clean build every run
       - run: CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath -o /dev/null ./cmd/agent-one
 
   goreleaser-check:
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: false   # stdlib only: no go.sum, nothing to cache
+          cache: false   # module downloads are small; a clean build every run
       - name: Build the agent and the fake vLLM
         run: |
           CGO_ENABLED=0 go build -trimpath -o bin/agent-one ./cmd/agent-one

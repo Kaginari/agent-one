@@ -7,12 +7,13 @@ import (
 
 func TestContainerArgsMountTheWorldReadWriteAndTheRestReadOnly(t *testing.T) {
 	s := ContainerSpec{Dist: "agent-one", Image: "agent-one-runtime:x", Exe: "/opt/agent-one", Root: "/w", Cwd: "/w/src", Home: "/home/u", UID: 1000, GID: 1000,
-		RO: []string{"/home/u/.config/agent-one"}, RW: []string{"/home/u/.local/share/agent-one"}, EnvKeys: []string{"OPENROUTER_API_KEY"}, Argv: []string{"run", "hi"}}
+		RO: []string{"/home/u/.config/agent-one"}, RW: []string{"/home/u/.local/share/agent-one"}, EnvKeys: []string{"OPENROUTER_API_KEY", "ARTIFACTORY_TOKEN"},
+		EnvSet: []string{"NPM_CONFIG_REGISTRY=https://art/npm/"}, Argv: []string{"run", "hi"}}
 	got := strings.Join(s.Args(), " ")
 	for _, want := range []string{
 		"-v /w:/w ", "-v /opt/agent-one:/usr/local/bin/agent-one:ro", "-v /home/u/.config/agent-one:/home/u/.config/agent-one:ro",
 		"-v /home/u/.local/share/agent-one:/home/u/.local/share/agent-one ", "--user 1000:1000", "-e OPENROUTER_API_KEY ",
-		"-e AGENT_ONE_CONTAINERED=1", "-w /w/src agent-one-runtime:x /usr/local/bin/agent-one run hi", "--network host",
+		"-e AGENT_ONE_CONTAINERED=1", "-e ARTIFACTORY_TOKEN ", "-e NPM_CONFIG_REGISTRY=https://art/npm/", "-w /w/src agent-one-runtime:x /usr/local/bin/agent-one run hi", "--network host",
 	} {
 		if !strings.Contains(got+" ", want) {
 			t.Fatalf("docker argv misses %q:\n%s", want, got)
@@ -95,4 +96,24 @@ func TestGuardPatternsFromConfig(t *testing.T) {
 	if !strings.Contains(a.guardLine(), "3 sources") {
 		t.Fatalf("status counts the config as a source: %s", a.guardLine())
 	}
+}
+
+func TestRegistryToolsReachTheToolbox(t *testing.T) {
+	w := newTestWorkspace(t, "agent-one", agentOneMembers())
+	w.write(".agent-one/registry.yaml", "tools:\n  - {name: kubectl-corp, description: the cluster CLI behind the corp proxy, triggers: [kube]}\n")
+	a := w.open()
+	tb, err := a.Workspace.Toolbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := tb.BuildRegistry(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range reg.Entries {
+		if e.Name == "kubectl-corp" {
+			return
+		}
+	}
+	t.Fatal("a registry.tools entry is not in the toolbox")
 }
