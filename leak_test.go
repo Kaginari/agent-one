@@ -36,8 +36,8 @@ func TestNoForkedVocabularyLeaks(t *testing.T) {
 			return nil
 		}
 		switch strings.ToLower(filepath.Ext(rel)) {
-		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico":
-			return nil // an image is bytes, not words: compressed data can spell anything
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pptx", ".pdf":
+			return nil // an image or a document is compressed bytes, not words: they can spell anything (decks are checked as text when built)
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {
