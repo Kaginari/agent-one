@@ -216,7 +216,7 @@ func (h *tuiHost) Welcome() tui.Welcome {
 	w.Roles = roles
 	a.mu.Lock()
 	if a.boardAddr != "" {
-		w.Board = "http://" + a.boardAddr + "/"
+		w.Board = "http://" + a.boardAddr + "/dash  (/dash opens it)"
 	}
 	a.mu.Unlock()
 	w.Off = len(a.Cfg.Off())
@@ -291,6 +291,7 @@ func (h *tuiHost) drain() []string {
 
 var builtinCommands = []tui.MenuItem{
 	{Name: "help", Description: "commands and shortcuts"},
+	{Name: "dash", Description: "open the dashboard in the browser — the same session, live: console, neural net, metrics"},
 	{Name: "board", Description: "the board, full screen: agents, the ontology graph, roles, usage"},
 	{Name: "agents", Description: "the live subagent: every agent, its state, context and spend"},
 	{Name: "send", Description: "/send <agent> <text> — a line for a running agent"},

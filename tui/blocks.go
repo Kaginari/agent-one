@@ -81,7 +81,7 @@ func (t Theme) Welcome(w Welcome, width int) string {
 	if len(w.Roles) > 0 {
 		row("roles", strings.Join(w.Roles, " · "))
 	}
-	row("board", w.Board)
+	row("dash", w.Board)
 	row("session", w.Session)
 	row("handoff", w.Handoff)
 	if w.Off > 0 {

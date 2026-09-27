@@ -256,7 +256,7 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 	case "quit", "exit", "q":
 		return true
 	case "help", "?":
-		fmt.Fprintln(out, "/agents · /send <agent> <text> · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
+		fmt.Fprintln(out, "/dash · /agents · /send <agent> <text> · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
 		var names []string
 		for _, c := range a.Found.Commands {
 			names = append(names, "/"+c.Name)
@@ -267,6 +267,17 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 		if len(names) > 0 {
 			fmt.Fprintln(out, "commands: "+strings.Join(names, " "))
 		}
+	case "dash", "dashboard":
+		a.mu.Lock()
+		addr := a.boardAddr
+		a.mu.Unlock()
+		if addr == "" {
+			fmt.Fprintln(errw, a.boardLine())
+			return false
+		}
+		url := "http://" + addr + "/dash"
+		openBrowser(url)
+		fmt.Fprintln(out, "dashboard: "+url+" — the session mirrors there; ask from either side, approve here")
 	case "agents", "subagents":
 		for _, l := range a.Subagent.Lines() {
 			fmt.Fprintln(out, l)
