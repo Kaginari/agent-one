@@ -99,7 +99,6 @@ type Model struct {
 	logs       map[string]*bodyLog
 	logOrder   []string
 	bview      *bodyView
-	boardOnly  bool // the board alone (served over SSH): no session, no scrollback; esc quits
 	toasts     []toast
 
 	// the board: full screen while open; blocks that finish meanwhile wait in held
@@ -168,10 +167,6 @@ func (m *Model) Attach(send func(tea.Msg)) {
 // Init starts the ticks and the printer and asks the terminal for its background; the welcome
 // waits for the terminal's width, and briefly for that answer, so it is drawn in the right theme.
 func (m *Model) Init() tea.Cmd {
-	if m.boardOnly {
-		m.bgKnown, m.welcomed = true, true
-		return tea.Batch(tick(), m.openBoard())
-	}
 	cmds := []tea.Cmd{textarea.Blink, tick(), m.printer}
 	if m.intro != nil {
 		cmds = append(cmds, introTick())

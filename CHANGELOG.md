@@ -15,6 +15,16 @@ All notable changes to Agent-One are recorded here. The format follows
   classes, defined tokens, true headers) and screenshots at 360/768/1280 in both themes with
   sideways-scroll detection. The gate runs the lints on a turn that touched the ui dir
   (`policy.gate.ui`, on by default). The container image ships Chromium.
+- **The dashboard** at `/dash` on the board, and `agent-one dash` to run a session in the browser: a
+  console like the CLI (streamed answers, thinking, tool and subagent cards with diffs, approvals),
+  the team as a live neural net with knowledge cards, metrics, and the relations matrix with its
+  dimensions — built on the ui system and held to `ui check`. Acts carry a per-run token and a
+  loopback/same-origin check.
+
+### Removed
+
+- The SSH board (`board --ssh`): the board is local only — 127.0.0.1, or the host's loopback from
+  `--containered`.
 
 ## [0.2.0] - 2026-09-27
 

@@ -43,6 +43,10 @@ global rule never loses a specificity fight, and a third-party sheet goes in its
 - **One component = one dir, one root class** named after it (`.card`), children prefixed
   (`.card-title`), variants as attributes (`data-variant="raised"`, `data-size="s"`), states as
   ARIA or native attributes (`aria-expanded`, `:disabled`). No ids in a reusable piece.
+- **A component's inputs are `--<name>-*`.** A value only the page knows (a fill, a progress, a
+  tint) comes in as a custom property on the element — `style="--meter-value: 42%"` or
+  `el.style.setProperty('--meter-value', …)` — and the css reads it with a fallback
+  (`var(--meter-value, 0%)`). The legend lists them as inputs; nothing else is set inline.
 - **The header is the legend's source.** A component css starts
   `/* @component <name> — tokens: --a, --b. <what it is, its variants>. */` listing exactly the
   tokens it reads; `ui check` holds it true.

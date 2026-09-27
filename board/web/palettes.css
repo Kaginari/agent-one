@@ -1,0 +1,162 @@
+/* palettes.css — the raw tier only. A default on :root and twelve named palettes; tokens.css
+ * derives the meaning tier (--surface, --ink, --accent, --ok …) from these, the same way for all.
+ *
+ * Each palette sets, in oklch():
+ *   --n-0 … --n-9   neutrals, lightest first (L .98 → .16), tinted toward the palette's hue.
+ *                   Light: surface n-0, surface-2 n-1, line n-3, ink-muted n-6, ink n-9.
+ *                   Dark:  surface n-9, surface-2 n-8, line n-6, ink-muted n-3, ink n-0.
+ *   --p-1           the accent in the light theme: button and link fill, link text (≥4.5:1 on n-0/n-1)
+ *   --p-1-dark      the same hue lifted for the dark theme (≥4.5:1 on n-9/n-8)
+ *   --p-1-ink       text on a p-1 fill · --p-1-dark-ink  text on a p-1-dark fill (both ≥4.5:1)
+ *   --p-2 … --p-5   supporting colours for highlights, charts and tags:
+ *                   p-2 the hero (accent hue, L≈.64: fills, charts, focus rings; not body text),
+ *                   p-3 the counter-hue (a second hue at hero lightness, for a second series or tag),
+ *                   p-4 the deep (L≈.30: the dark theme's wash, a light-theme emphasis fill),
+ *                   p-5 the tint (L≈.94: the light theme's wash, selected rows, callouts).
+ * Pick with <html data-palette="forest">; no attribute means the :root default.
+ */
+@layer tokens {
+
+  /* default — neutral blue, low chroma; the palette a page gets when nobody chose one */
+  :root {
+    --p-1: oklch(0.46 0.09 230); --p-1-dark: oklch(0.79 0.08 225);
+    --p-1-ink: oklch(0.985 0.003 230); --p-1-dark-ink: oklch(0.16 0.012 235);
+    --p-2: oklch(0.64 0.10 228); --p-3: oklch(0.64 0.07 60); --p-4: oklch(0.30 0.06 235); --p-5: oklch(0.94 0.02 225);
+    --n-0: oklch(0.985 0.003 230); --n-1: oklch(0.955 0.005 230); --n-2: oklch(0.90 0.006 230);
+    --n-3: oklch(0.82 0.008 230);  --n-4: oklch(0.70 0.010 230);  --n-5: oklch(0.58 0.011 230);
+    --n-6: oklch(0.47 0.012 232);  --n-7: oklch(0.35 0.012 234);  --n-8: oklch(0.25 0.012 235);
+    --n-9: oklch(0.16 0.012 235);
+  }
+
+  /* calm — soft blue-grey that warms toward the tints; dashboards, admin tools, long sessions */
+  [data-palette="calm"] {
+    --p-1: oklch(0.46 0.10 245); --p-1-dark: oklch(0.78 0.08 225);
+    --p-1-ink: oklch(0.985 0.004 240); --p-1-dark-ink: oklch(0.17 0.014 255);
+    --p-2: oklch(0.63 0.11 235); --p-3: oklch(0.66 0.08 70); --p-4: oklch(0.30 0.06 250); --p-5: oklch(0.93 0.03 210);
+    --n-0: oklch(0.985 0.004 240); --n-1: oklch(0.955 0.006 240); --n-2: oklch(0.90 0.008 240);
+    --n-3: oklch(0.82 0.010 240);  --n-4: oklch(0.70 0.012 240);  --n-5: oklch(0.58 0.014 240);
+    --n-6: oklch(0.47 0.014 240);  --n-7: oklch(0.35 0.014 245);  --n-8: oklch(0.25 0.014 250);
+    --n-9: oklch(0.17 0.014 255);
+  }
+
+  /* trust — navy to confident blue, cool neutrals; fintech, B2B, anything that signs a contract */
+  [data-palette="trust"] {
+    --p-1: oklch(0.45 0.16 258); --p-1-dark: oklch(0.78 0.10 245);
+    --p-1-ink: oklch(0.985 0.003 255); --p-1-dark-ink: oklch(0.17 0.020 264);
+    --p-2: oklch(0.60 0.17 252); --p-3: oklch(0.66 0.10 200); --p-4: oklch(0.28 0.09 262); --p-5: oklch(0.94 0.03 240);
+    --n-0: oklch(0.985 0.003 255); --n-1: oklch(0.955 0.005 255); --n-2: oklch(0.90 0.007 255);
+    --n-3: oklch(0.82 0.009 255);  --n-4: oklch(0.70 0.011 255);  --n-5: oklch(0.58 0.013 255);
+    --n-6: oklch(0.47 0.015 258);  --n-7: oklch(0.35 0.018 260);  --n-8: oklch(0.25 0.020 262);
+    --n-9: oklch(0.17 0.020 264);
+  }
+
+  /* warm — terracotta, apricot, cream; hospitality, food, community, anything meant to feel hosted */
+  [data-palette="warm"] {
+    --p-1: oklch(0.49 0.15 32); --p-1-dark: oklch(0.80 0.10 55);
+    --p-1-ink: oklch(0.985 0.006 75); --p-1-dark-ink: oklch(0.17 0.016 40);
+    --p-2: oklch(0.66 0.16 40); --p-3: oklch(0.64 0.08 120); --p-4: oklch(0.32 0.09 30); --p-5: oklch(0.94 0.04 75);
+    --n-0: oklch(0.985 0.006 75); --n-1: oklch(0.955 0.010 75); --n-2: oklch(0.90 0.012 70);
+    --n-3: oklch(0.82 0.014 65);  --n-4: oklch(0.70 0.016 60);  --n-5: oklch(0.58 0.018 55);
+    --n-6: oklch(0.47 0.020 50);  --n-7: oklch(0.35 0.020 45);  --n-8: oklch(0.25 0.018 40);
+    --n-9: oklch(0.17 0.016 40);
+  }
+
+  /* earth — olive, clay, sand at low chroma; crafts, agriculture, wellness, slow products */
+  [data-palette="earth"] {
+    --p-1: oklch(0.45 0.07 105); --p-1-dark: oklch(0.78 0.065 85);
+    --p-1-ink: oklch(0.985 0.008 85); --p-1-dark-ink: oklch(0.17 0.016 115);
+    --p-2: oklch(0.62 0.08 95); --p-3: oklch(0.62 0.09 40); --p-4: oklch(0.30 0.045 110); --p-5: oklch(0.94 0.03 80);
+    --n-0: oklch(0.985 0.008 85); --n-1: oklch(0.955 0.012 85); --n-2: oklch(0.90 0.014 85);
+    --n-3: oklch(0.82 0.016 85);  --n-4: oklch(0.70 0.018 90);  --n-5: oklch(0.58 0.020 95);
+    --n-6: oklch(0.47 0.020 100); --n-7: oklch(0.35 0.020 105); --n-8: oklch(0.25 0.018 110);
+    --n-9: oklch(0.17 0.016 115);
+  }
+
+  /* neon — violet-black base, magenta accent, mint and acid-lime counters; dark-first: gaming, music, launches */
+  [data-palette="neon"] {
+    --p-1: oklch(0.48 0.22 320); --p-1-dark: oklch(0.80 0.13 340);
+    --p-1-ink: oklch(0.985 0.006 300); --p-1-dark-ink: oklch(0.14 0.034 300);
+    --p-2: oklch(0.68 0.19 345); --p-3: oklch(0.86 0.17 165); --p-4: oklch(0.30 0.13 300); --p-5: oklch(0.94 0.09 110);
+    --n-0: oklch(0.985 0.006 300); --n-1: oklch(0.955 0.010 300); --n-2: oklch(0.90 0.014 300);
+    --n-3: oklch(0.82 0.018 300);  --n-4: oklch(0.70 0.022 300);  --n-5: oklch(0.58 0.026 300);
+    --n-6: oklch(0.46 0.030 300);  --n-7: oklch(0.33 0.034 300);  --n-8: oklch(0.22 0.036 300);
+    --n-9: oklch(0.14 0.034 300);
+  }
+
+  /* pastel — plum ink, rose accent, lavender and mint counters; consumer, kids, wellness, onboarding */
+  [data-palette="pastel"] {
+    --p-1: oklch(0.50 0.11 335); --p-1-dark: oklch(0.82 0.08 300);
+    --p-1-ink: oklch(0.99 0.005 330); --p-1-dark-ink: oklch(0.18 0.020 320);
+    --p-2: oklch(0.66 0.11 345); --p-3: oklch(0.80 0.09 165); --p-4: oklch(0.34 0.07 320); --p-5: oklch(0.95 0.04 165);
+    --n-0: oklch(0.99 0.005 330);  --n-1: oklch(0.965 0.008 330); --n-2: oklch(0.91 0.010 330);
+    --n-3: oklch(0.83 0.012 325);  --n-4: oklch(0.71 0.014 320);  --n-5: oklch(0.59 0.016 320);
+    --n-6: oklch(0.48 0.018 320);  --n-7: oklch(0.36 0.020 320);  --n-8: oklch(0.26 0.020 320);
+    --n-9: oklch(0.18 0.020 320);
+  }
+
+  /* mono — no hue at all; typography carries everything: editorial, code, tools for makers */
+  [data-palette="mono"] {
+    --p-1: oklch(0.42 0 0); --p-1-dark: oklch(0.80 0 0);
+    --p-1-ink: oklch(0.99 0 0); --p-1-dark-ink: oklch(0.15 0 0);
+    --p-2: oklch(0.64 0 0); --p-3: oklch(0.50 0 0); --p-4: oklch(0.25 0 0); --p-5: oklch(0.93 0 0);
+    --n-0: oklch(0.99 0 0);  --n-1: oklch(0.96 0 0); --n-2: oklch(0.90 0 0); --n-3: oklch(0.82 0 0);
+    --n-4: oklch(0.70 0 0);  --n-5: oklch(0.58 0 0); --n-6: oklch(0.47 0 0); --n-7: oklch(0.35 0 0);
+    --n-8: oklch(0.24 0 0);  --n-9: oklch(0.15 0 0);
+  }
+
+  /* retro — deep teal accent against burnt orange and mustard on cream; brands with a past, print-like sites */
+  [data-palette="retro"] {
+    --p-1: oklch(0.47 0.08 195); --p-1-dark: oklch(0.82 0.14 85);
+    --p-1-ink: oklch(0.975 0.012 85); --p-1-dark-ink: oklch(0.18 0.024 205);
+    --p-2: oklch(0.64 0.16 50); --p-3: oklch(0.70 0.09 190); --p-4: oklch(0.30 0.05 200); --p-5: oklch(0.94 0.05 90);
+    --n-0: oklch(0.975 0.012 85); --n-1: oklch(0.945 0.016 85); --n-2: oklch(0.89 0.018 85);
+    --n-3: oklch(0.81 0.018 85);  --n-4: oklch(0.69 0.018 90);  --n-5: oklch(0.57 0.018 100);
+    --n-6: oklch(0.46 0.020 150); --n-7: oklch(0.34 0.022 190); --n-8: oklch(0.25 0.024 200);
+    --n-9: oklch(0.18 0.024 205);
+  }
+
+  /* forest — pine, moss, fern to a pale lichen, an amber counter; outdoors, sustainability, calm productivity */
+  [data-palette="forest"] {
+    --p-1: oklch(0.45 0.10 150); --p-1-dark: oklch(0.79 0.10 125);
+    --p-1-ink: oklch(0.985 0.005 120); --p-1-dark-ink: oklch(0.16 0.018 155);
+    --p-2: oklch(0.63 0.12 140); --p-3: oklch(0.72 0.12 70); --p-4: oklch(0.28 0.06 150); --p-5: oklch(0.94 0.04 110);
+    --n-0: oklch(0.985 0.005 120); --n-1: oklch(0.955 0.008 120); --n-2: oklch(0.90 0.010 125);
+    --n-3: oklch(0.82 0.012 130);  --n-4: oklch(0.70 0.014 135);  --n-5: oklch(0.58 0.016 140);
+    --n-6: oklch(0.47 0.018 145);  --n-7: oklch(0.35 0.020 150);  --n-8: oklch(0.25 0.020 152);
+    --n-9: oklch(0.16 0.018 155);
+  }
+
+  /* ocean — deep sea through teal to foam, a coral counter; travel, data-heavy tools, anything that wants depth */
+  [data-palette="ocean"] {
+    --p-1: oklch(0.46 0.08 215); --p-1-dark: oklch(0.81 0.10 185);
+    --p-1-ink: oklch(0.985 0.005 200); --p-1-dark-ink: oklch(0.16 0.022 235);
+    --p-2: oklch(0.63 0.10 200); --p-3: oklch(0.68 0.14 30); --p-4: oklch(0.28 0.055 230); --p-5: oklch(0.95 0.04 180);
+    --n-0: oklch(0.985 0.005 200); --n-1: oklch(0.955 0.008 205); --n-2: oklch(0.90 0.010 210);
+    --n-3: oklch(0.82 0.012 215);  --n-4: oklch(0.70 0.014 220);  --n-5: oklch(0.58 0.016 225);
+    --n-6: oklch(0.47 0.018 228);  --n-7: oklch(0.35 0.020 230);  --n-8: oklch(0.25 0.022 232);
+    --n-9: oklch(0.16 0.022 235);
+  }
+
+  /* sunset — plum through coral and peach to gold; lifestyle, events, media, warm hero pages */
+  [data-palette="sunset"] {
+    --p-1: oklch(0.48 0.17 350); --p-1-dark: oklch(0.81 0.11 50);
+    --p-1-ink: oklch(0.985 0.007 60); --p-1-dark-ink: oklch(0.16 0.020 330);
+    --p-2: oklch(0.67 0.18 20); --p-3: oklch(0.80 0.12 80); --p-4: oklch(0.30 0.10 330); --p-5: oklch(0.94 0.045 80);
+    --n-0: oklch(0.985 0.007 60); --n-1: oklch(0.955 0.010 55); --n-2: oklch(0.90 0.012 45);
+    --n-3: oklch(0.82 0.014 35);  --n-4: oklch(0.70 0.016 20);  --n-5: oklch(0.58 0.018 5);
+    --n-6: oklch(0.47 0.020 350); --n-7: oklch(0.35 0.022 340); --n-8: oklch(0.25 0.022 335);
+    --n-9: oklch(0.16 0.020 330);
+  }
+
+  /* ink — near-black with an indigo bite, paper-white neutrals; documentation, writing, reading apps */
+  [data-palette="ink"] {
+    --p-1: oklch(0.40 0.10 275); --p-1-dark: oklch(0.77 0.09 265);
+    --p-1-ink: oklch(0.99 0.002 270); --p-1-dark-ink: oklch(0.13 0.018 280);
+    --p-2: oklch(0.58 0.13 270); --p-3: oklch(0.64 0.06 60); --p-4: oklch(0.22 0.05 280); --p-5: oklch(0.93 0.02 260);
+    --n-0: oklch(0.99 0.002 270);  --n-1: oklch(0.965 0.004 270); --n-2: oklch(0.91 0.006 270);
+    --n-3: oklch(0.83 0.008 270);  --n-4: oklch(0.71 0.010 270);  --n-5: oklch(0.58 0.012 270);
+    --n-6: oklch(0.46 0.014 272);  --n-7: oklch(0.33 0.016 275);  --n-8: oklch(0.22 0.018 278);
+    --n-9: oklch(0.13 0.018 280);
+  }
+
+}

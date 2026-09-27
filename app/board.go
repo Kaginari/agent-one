@@ -47,7 +47,18 @@ func (a *App) boardOptions() board.Options {
 			return board.Session{ID: a.SessionID, Model: a.mountModel.Ref.Model, Provider: a.mountModel.Provider, Started: a.started, State: a.sessionState()}
 		},
 	}
-	return board.Options{WorkspaceRoot: a.Root, WorkspaceDir: a.Cfg.Dist.WorkspaceDir, Layout: a.Workspace.Ranks.Layout(a.Lex), Names: names, Sources: src}
+	names["bin"] = a.Cfg.Dist.Name
+	return board.Options{WorkspaceRoot: a.Root, WorkspaceDir: a.Cfg.Dist.WorkspaceDir, Layout: a.Workspace.Ranks.Layout(a.Lex), Names: names, Sources: src, Live: a.webBus()}
+}
+
+// webBus is the session's bus to the dashboard, made on first use.
+func (a *App) webBus() *webBus {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.web == nil {
+		a.web = newWebBus()
+	}
+	return a.web
 }
 
 func (a *App) sessionState() string {
@@ -135,6 +146,11 @@ func (a *App) startBoard(ctx context.Context) {
 	if a.Opt.NoBoard || a.Workspace == nil || !a.Cfg.UI.Board.Autostart {
 		return
 	}
+	a.serveBoard(ctx)
+}
+
+// serveBoard serves the board and the dashboard for this session on ui.board.port.
+func (a *App) serveBoard(ctx context.Context) {
 	addr := fmt.Sprintf("127.0.0.1:%d", a.Cfg.UI.Board.Port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -159,11 +175,11 @@ func (a *App) startBoard(ctx context.Context) {
 	a.mu.Lock()
 	a.boardAddr = addr
 	a.mu.Unlock()
-	fmt.Fprintf(a.Opt.Err, "board: http://%s/\n", addr)
+	fmt.Fprintf(a.Opt.Err, "board: http://%s/ · dashboard: http://%s/dash\n", addr, addr)
 }
 
 // cmdBoard serves the board alone, without a session, until interrupted.
-func (a *App) cmdBoard(ctx context.Context, io IO, sshAddr string) int {
+func (a *App) cmdBoard(ctx context.Context, io IO) int {
 	lg := newLogger(io.Err, a.Cfg.Dist.Name+" board")
 	if a.Workspace == nil {
 		lg.Error("no " + worldWord(a.Cfg.Dist.Name) + " to draw")
@@ -180,13 +196,11 @@ func (a *App) cmdBoard(ctx context.Context, io IO, sshAddr string) int {
 		cancel()
 	}()
 	opt := a.boardOptions()
+	opt.Live = nil // no session behind this board: the dashboard is read-only
 	opt.Logger = lg.StandardLog(stdLogWarn)
-	errc := make(chan error, 2)
+	errc := make(chan error, 1)
 	go func() { errc <- board.Serve(ctx, addr, opt) }()
-	lg.Info("serving", "url", "http://"+addr+"/", "stop", "ctrl+c")
-	if sshAddr != "" {
-		go func() { errc <- a.serveSSH(ctx, sshAddr, lg) }()
-	}
+	lg.Info("serving", "board", "http://"+addr+"/", "dashboard", "http://"+addr+"/dash", "stop", "ctrl+c")
 	select {
 	case <-ctx.Done():
 		lg.Info("stopped")

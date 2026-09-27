@@ -19,7 +19,7 @@ var officeRoles = map[string]string{"analyst": "reads", "judge": "verdicts", "dr
 // reasoned ontology, the roles as config resolves them, the usage journal.
 func (h *tuiHost) Board(rng string) tui.BoardView { return h.a.BoardView(rng) }
 
-// BoardView is the board as /board and the SSH board draw it.
+// BoardView is the board as /board draws it.
 func (a *App) BoardView(rng string) tui.BoardView {
 	now := time.Now()
 	opt := a.boardOptions()

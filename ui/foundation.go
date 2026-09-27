@@ -47,3 +47,9 @@ func Init(root, dir string) ([]string, error) {
 	})
 	return made, err
 }
+
+// FoundationFile is one file of the shipped foundation (tokens.css, palettes.css, layout.css …),
+// for a page that carries its own copy and must keep it equal.
+func FoundationFile(name string) ([]byte, error) {
+	return foundation.ReadFile("assets/foundation/" + name)
+}

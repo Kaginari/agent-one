@@ -95,6 +95,7 @@ type App struct {
 	mount      provider.Provider
 	mountModel config.Model
 	boardAddr  string
+	web        *webBus // the session, for the dashboard (web.go)
 	rules      []workspace.Rule
 	engines    []*loop.Engine
 	mu         sync.Mutex

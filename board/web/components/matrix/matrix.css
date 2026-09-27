@@ -1,0 +1,18 @@
+/* @component matrix — tokens: --surface, --surface-sunken, --line, --ink, --ink-muted, --accent, --series-1, --series-4, --series-2, --step--2, --step--1, --font-code, --space-3xs, --space-2xs, --radius-s, --hairline. Every relation at once: who bonds to whom, one row and one column per member, the cell coloured by bond; hover lights the cross. */
+@layer components {
+  .matrix-wrap { overflow: auto; max-block-size: 34rem; }
+  .matrix { border-collapse: separate; border-spacing: 2px; font-size: var(--step--2); }
+  .matrix th { font-weight: normal; color: var(--ink-muted); font-family: var(--font-code); white-space: nowrap; padding: var(--space-3xs); }
+  .matrix thead th { writing-mode: vertical-rl; transform: rotate(180deg); text-align: start; inline-size: 10rem; }
+  .matrix tbody th { text-align: end; position: sticky; inset-inline-start: 0; background: var(--surface); }
+  .matrix td { inline-size: 1.1rem; block-size: 1.1rem; background: var(--surface-sunken); border-radius: var(--radius-s); cursor: default; }
+  .matrix td[data-bond] { cursor: pointer; }
+  .matrix td[data-bond="truth"] { background: var(--series-1); }
+  .matrix td[data-bond="verdict"] { background: var(--series-4); }
+  .matrix td[data-bond="reports"], .matrix td[data-bond="above"] { background: var(--ink-muted); }
+  .matrix td[data-bond="holds"] { background: var(--accent); }
+  .matrix td[data-bond="owns"] { background: var(--series-2); }
+  .matrix tr:hover th, .matrix th[data-hot] { color: var(--ink); }
+  .matrix td[data-hot] { outline: var(--hairline) solid var(--line); }
+  .facets { display: grid; gap: var(--space-2xs); grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); font-size: var(--step--1); }
+}

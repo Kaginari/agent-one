@@ -42,9 +42,10 @@ type Component struct {
 	Classes  []string `json:"classes"`           // classes its CSS defines
 	IDs      []string `json:"ids,omitempty"`     // ids its CSS styles (a smell in a reusable piece)
 	Variants []string `json:"variants,omitempty"`
-	Consumes []string `json:"consumes"`       // system tokens its CSS reads (var(--x) not its own)
-	Own      []string `json:"own,omitempty"`  // custom properties it defines itself
-	Uses     []string `json:"uses,omitempty"` // classes its HTML uses
+	Consumes []string `json:"consumes"`         // system tokens its CSS reads (var(--x) not its own)
+	Own      []string `json:"own,omitempty"`    // custom properties it defines itself
+	Inputs   []string `json:"inputs,omitempty"` // --<name>-* it reads but a style attribute or JS sets (its api)
+	Uses     []string `json:"uses,omitempty"`   // classes its HTML uses
 }
 
 // Candidates are where a ui dir is looked for, in order, when none is named.
@@ -71,7 +72,7 @@ var (
 	reVarUse   = regexp.MustCompile(`var\(\s*(--[\w-]+)`)
 	reVarDef   = regexp.MustCompile(`(?:^|[;{\s])(--[\w-]+)\s*:`)
 	reTokens   = regexp.MustCompile(`--[\w-]+`)
-	reClassAt  = regexp.MustCompile(`\bclass\s*=\s*["']([^"']*)["']`)
+	reClassAt  = regexp.MustCompile(`(?:^|[\s<])class\s*=\s*["']([^"']*)["']`)
 	reURL      = regexp.MustCompile(`url\([^)]*\)`)
 	reString   = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 )
@@ -129,6 +130,10 @@ func scanComponent(root, dir, name string) (Component, error) {
 		own := setOf(c.Own)
 		c.Consumes = []string{}
 		for _, t := range uniq(submatches(body, reVarUse)) {
+			if !own[t] && strings.HasPrefix(t, "--"+name+"-") {
+				c.Inputs = append(c.Inputs, t) // set from outside: style="--meter-value: 42%", or by JS
+				continue
+			}
 			if !own[t] {
 				c.Consumes = append(c.Consumes, t) // what it reads from the system; its own aliases are listed apart
 			}

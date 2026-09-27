@@ -1,0 +1,42 @@
+/* @component console — tokens: --surface, --surface-2, --surface-sunken, --accent-wash, --line, --ink, --ink-muted, --danger, --warn, --accent, --radius-m, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --step--1, --step-0, --font-code, --leading, --hairline, --measure. The prompt, like the CLI: the transcript reads like a page, one input that never moves; data-state on .console-input is idle|running|waiting. */
+@layer components {
+  .console { display: flex; flex-direction: column; block-size: 100%; min-block-size: 0; }
+  .console-log { flex: 1; min-block-size: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-s); padding: var(--space-s) var(--space-m); scroll-behavior: smooth; }
+  .console-empty { margin: auto; text-align: center; color: var(--ink-muted); max-inline-size: var(--measure); }
+  .turn { display: flex; flex-direction: column; gap: var(--space-xs); }
+  .turn-ask {
+    align-self: stretch; padding: var(--space-2xs) var(--space-s);
+    font: var(--step-0) / var(--leading) var(--font-code); white-space: pre-wrap; overflow-wrap: anywhere;
+    color: var(--ink); background: var(--accent-wash); border-radius: var(--radius-m);
+  }
+  .turn-ask::before { content: "› "; color: var(--accent); }
+  .turn-ask[data-queued]::after { content: "  (queued for the running turn)"; color: var(--ink-muted); font-size: var(--step--1); }
+  .turn-answer { color: var(--ink); }
+  .thinking { font-size: var(--step--1); color: var(--ink-muted); }
+  .thinking summary { cursor: pointer; font-style: italic; }
+  .thinking-text { white-space: pre-wrap; margin-block-start: var(--space-3xs); padding-inline-start: var(--space-s); border-inline-start: var(--hairline) solid var(--line); }
+  .console-note { font-size: var(--step--1); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .console-note[data-tone="danger"] { color: var(--danger); }
+  .console-note[data-tone="warn"] { color: var(--warn); }
+  .console-lines { font: var(--step--1) / var(--leading) var(--font-code); white-space: pre-wrap; overflow-x: auto; margin: 0; padding: var(--space-xs); background: var(--surface-sunken); border-radius: var(--radius-m); }
+  .console-input {
+    display: grid; gap: var(--space-2xs); padding: var(--space-xs) var(--space-m) var(--space-s);
+    border-block-start: var(--hairline) solid var(--line); background: var(--surface-2);
+  }
+  .console-input { container-type: inline-size; }
+  .console-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-xs); }
+  .console-field {
+    flex: 1; min-inline-size: 0; resize: none; field-sizing: content; min-block-size: 2.5rem; max-block-size: 12rem;
+    padding: var(--space-2xs) var(--space-xs); font: var(--step-0) / var(--leading) var(--font-code);
+    color: var(--ink); background: var(--surface); border: var(--hairline) solid var(--line); border-radius: var(--radius-m);
+  }
+  .console-field:disabled { color: var(--ink-muted); }
+  .console-hint { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2xs); font-size: var(--step--1); color: var(--ink-muted); }
+  .console-hint kbd { font-family: var(--font-code); padding-inline: var(--space-3xs); border: var(--hairline) solid var(--line); border-radius: var(--radius-m); }
+  .console-input[data-state="waiting"] .console-field { border-color: var(--warn); }
+  .console-input[data-state="running"] .console-field { border-color: var(--accent); }
+  /* after the base rule: the flex shorthand above would reset the basis */
+  @container (max-width: 40rem) {
+    .console-field { flex-basis: 100%; }
+  }
+}

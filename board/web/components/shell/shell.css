@@ -1,0 +1,29 @@
+/* @component shell — tokens: --surface, --ink, --space-s, --space-m, --space-l. The dashboard's frame: header, view tabs, and the panel grid; data-view picks overview or one panel full size. .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
+@layer components {
+  .shell { container-type: inline-size; display: grid; grid-template-rows: auto auto 1fr; min-block-size: 100vh; background: var(--surface); color: var(--ink); }
+  .shell-main {
+    --shell-gap: var(--space-m);
+    display: grid; gap: var(--shell-gap); padding: var(--space-s) var(--space-m) var(--space-l);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "console" "net" "metrics" "relations";
+    align-content: start;
+  }
+  .shell-main > [data-panel="console"] { grid-area: console; }
+  .shell-main > [data-panel="net"] { grid-area: net; }
+  .shell-main > [data-panel="metrics"] { grid-area: metrics; }
+  .shell-main > [data-panel="relations"] { grid-area: relations; }
+  @container (min-width: 72rem) {
+    .shell-main[data-view="overview"] {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      grid-template-areas: "console net" "console metrics" "relations relations";
+    }
+  }
+  .shell-main > [data-panel="console"] { block-size: clamp(30rem, 78vh, 64rem); }
+  .shell-main[data-view="console"] > [data-panel="console"] { block-size: calc(100vh - 9rem); }
+  .shell-main:not([data-view="overview"]) { grid-template-areas: none; }
+  .shell-main:not([data-view="overview"]) > [data-panel] { display: none; grid-area: auto; }
+  .shell-main[data-view="console"] > [data-panel="console"],
+  .shell-main[data-view="net"] > [data-panel="net"],
+  .shell-main[data-view="metrics"] > [data-panel="metrics"],
+  .shell-main[data-view="relations"] > [data-panel="relations"] { display: flex; }
+}

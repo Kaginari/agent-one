@@ -1,0 +1,44 @@
+/* @component net — tokens: --surface, --surface-2, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-6, --accent-hero, --step--2, --step--1, --font-body, --time, --time-slow, --ease, --space-3xs, --space-s. The workspace as a neural net: layers from input (bottom) to crown (top), bonds as synapses, live bodies glow and their synapses carry a pulse; data-focus lights one node's neighbourhood and makes its bonds blink. */
+@layer components {
+  .net { position: relative; inline-size: 100%; }
+  .net svg { display: block; inline-size: 100%; block-size: auto; overflow: visible; font-family: var(--font-body); }
+  .net-row { fill: var(--net-row-tint, var(--surface-2)); }
+  .net-row-label { fill: var(--ink-muted); font-size: var(--step--2); letter-spacing: 0.06em; text-transform: uppercase; }
+  .net-node { --node: var(--ink-muted); cursor: pointer; transition: opacity var(--time) var(--ease); }
+  .net-node[data-rank="orchestrator"] { --node: var(--series-6); }
+  .net-node[data-rank="zone"] { --node: var(--series-1); }
+  .net-node[data-rank="domain"] { --node: var(--series-2); }
+  .net-node[data-rank="coord"] { --node: var(--series-4); }
+  .net-node[data-rank="service"] { --node: var(--series-3); }
+  .net-node-halo { fill: var(--node); opacity: 0; transition: opacity var(--time) var(--ease); }
+  .net-node-core { fill: var(--surface); stroke: var(--node); stroke-width: 2; }
+  .net-node[data-kind="skill"] .net-node-core { stroke-dasharray: 3 2; }
+  .net-node-dot { fill: var(--node); }
+  .net-node-label { fill: var(--ink); font-size: var(--step--2); text-anchor: middle; paint-order: stroke; stroke: var(--surface); stroke-width: 3; }
+  .net-node:hover .net-node-halo { opacity: 0.25; }
+  .net-node[data-live] .net-node-halo { opacity: 0.35; animation: net-glow calc(var(--time-slow) * 4) var(--ease) infinite; }
+  .net-edge { --edge: var(--line); fill: none; stroke: var(--edge); stroke-width: 1.5; opacity: 0.7; transition: opacity var(--time) var(--ease); }
+  .net-edge[data-bond="truth"] { --edge: var(--series-1); }
+  .net-edge[data-bond="verdict"] { --edge: var(--series-4); }
+  .net-edge[data-bond="reports"], .net-edge[data-bond="above"] { --edge: var(--ink-muted); opacity: 0.45; }
+  .net-edge[data-bond="holds"] { --edge: var(--accent); stroke-dasharray: 2 4; }
+  .net-edge[data-live] { stroke-dasharray: 5 10; opacity: 1; animation: net-flow calc(var(--time-slow) * 3) linear infinite; }
+  .net[data-focus] .net-node:not([data-near]) { opacity: 0.18; }
+  .net[data-focus] .net-edge { opacity: 0.08; }
+  .net[data-focus] .net-edge[data-lit] { opacity: 1; stroke-width: 2.2; animation: net-blink calc(var(--time-slow) * 2.4) var(--ease) infinite; }
+  .net-legend { display: flex; flex-wrap: wrap; gap: var(--space-3xs) var(--space-s); font-size: var(--step--1); color: var(--ink-muted); }
+  .net-legend i { display: inline-block; inline-size: 1.4em; block-size: 0; border-block-start: 2px solid var(--edge, var(--line)); vertical-align: middle; margin-inline-end: 0.35em; }
+  .net-legend i[data-bond="truth"] { --edge: var(--series-1); }
+  .net-legend i[data-bond="verdict"] { --edge: var(--series-4); }
+  .net-legend i[data-bond="reports"] { --edge: var(--ink-muted); }
+  .net-legend i[data-bond="holds"] { --edge: var(--accent); border-block-start-style: dashed; }
+  @keyframes net-flow { to { stroke-dashoffset: -30; } }
+  @keyframes net-blink { 50% { opacity: 0.25; } }
+  @keyframes net-glow { 50% { opacity: 0.12; } }
+  @media (prefers-reduced-motion: reduce) {
+    .net-edge[data-live], .net-node[data-live] .net-node-halo, .net[data-focus] .net-edge[data-lit] { animation: none; }
+  }
+}
+@layer components {
+  .net-pulse { fill: var(--accent-hero); }
+}

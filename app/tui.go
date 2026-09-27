@@ -39,7 +39,9 @@ func (a *App) TUI(ctx context.Context) int {
 	if v := a.Opt.Env(a.Cfg.Dist.EnvPrefix + "NO_INTRO"); v == "" || v == "0" || v == "false" {
 		ui.Model.SetIntro(true)
 	}
-	h.attach(ui)
+	h.attach(fanout{ui, a.webBus()})
+	a.webBus().attach(h)
+	defer a.webBus().close()
 	return h.run(ui.Run)
 }
 
@@ -252,6 +254,7 @@ func (h *tuiHost) Submit(text string) string {
 }
 
 func (h *tuiHost) Queue(text string) string {
+	h.a.webBus().note(map[string]any{"type": "ask", "text": text, "queued": true})
 	_ = h.a.Subagent.Send(workspace.Orchestrator, text)
 	return "reaches the agent at its next tool step"
 }
@@ -397,6 +400,8 @@ func (h *tuiHost) start(text string, auto bool) {
 	h.mu.Unlock()
 	if auto {
 		h.send(tui.EvTurnStart{Text: text, Auto: true})
+	} else {
+		h.a.webBus().note(map[string]any{"type": "ask", "text": text})
 	}
 	go func() {
 		r, err := h.s.Turn(tctx, text)

@@ -1,0 +1,13 @@
+/* @component meter — tokens: --surface-sunken, --line, --accent-hero, --warn, --danger, --ink, --radius-pill, --space-2xs, --step--2, --hairline, --font-code, --time, --ease. A bounded reading (context use); --meter-value sets the fill, data-level="warn|danger" recolours it. */
+@layer components {
+  .meter {
+    --meter-fill: var(--accent-hero);
+    position: relative; display: inline-grid; align-items: center;
+    inline-size: 9rem; block-size: 1.25rem; overflow: hidden;
+    background: var(--surface-sunken); border: var(--hairline) solid var(--line); border-radius: var(--radius-pill);
+  }
+  .meter-fill { position: absolute; inset: 0 auto 0 0; inline-size: var(--meter-value, 0%); background: var(--meter-fill); opacity: 0.55; transition: inline-size var(--time) var(--ease); }
+  .meter-label { position: relative; padding-inline: var(--space-2xs); font: var(--step--2) var(--font-code); color: var(--ink); }
+  .meter[data-level="warn"] { --meter-fill: var(--warn); }
+  .meter[data-level="danger"] { --meter-fill: var(--danger); }
+}

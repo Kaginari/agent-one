@@ -149,6 +149,18 @@ inherited, not designed. An agent console is a reading surface first and a contr
 - **Long sessions stay navigable:** headings per turn, a jump list, search; old turns fold.
 - **Interrupting and undoing are first-class** buttons, not hidden commands.
 
+## Traps the renders caught
+
+- An element never queries its own size: `container-type` goes on the PARENT of the grid a
+  `@container` rule rearranges.
+- A hidden grid item still owns its named area: in a one-panel view, reset `grid-template-areas`
+  and the items' `grid-area`, or the empty rows keep their gaps.
+- In `writing-mode: vertical-*` the logical axes turn: `inline-size` is the height, `block-size`
+  the width. Rotated table headers sized with `block-size` widen every column.
+- `field-sizing: content` shrinks a field to its placeholder: give it a `min-block-size` and let
+  the row wrap the buttons under it on narrow containers.
+- An API list can be `null`, not `[]`: normalise at the fetch, never in every renderer.
+
 ## Self-review before "done"
 
 - [ ] One primary action per screen; one headline; three hierarchy levels, not four.

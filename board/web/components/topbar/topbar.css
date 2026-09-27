@@ -1,0 +1,17 @@
+/* @component topbar — tokens: --surface-2, --line, --ink, --ink-muted, --space-2xs, --space-xs, --space-s, --space-m, --step--1, --step-0, --step-1, --weight-bold, --font-code, --hairline, --accent. The session at a glance: brand, world, model, state, context, cost, and the theme controls. */
+@layer components {
+  .topbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-m);
+    padding: var(--space-xs) var(--space-m);
+    background: var(--surface-2); border-block-end: var(--hairline) solid var(--line);
+    position: sticky; inset-block-start: 0; z-index: 5;
+  }
+  .topbar-brand { display: flex; align-items: baseline; gap: var(--space-2xs); font-size: var(--step-1); font-weight: var(--weight-bold); color: var(--ink); }
+  .topbar-brand small { font-size: var(--step--1); font-weight: normal; color: var(--ink-muted); }
+  .topbar-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-s); font-size: var(--step--1); color: var(--ink-muted); }
+  .topbar-meta b { color: var(--ink); font-weight: normal; font-family: var(--font-code); }
+  .topbar-tools { margin-inline-start: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-s); font-size: var(--step--1); color: var(--ink-muted); }
+  .topbar-tools select { font-size: var(--step--1); background: var(--surface-2); color: var(--ink); border: var(--hairline) solid var(--line); }
+  .topbar-tools select:focus-visible { outline-color: var(--accent); }
+  .topbar-link { font-size: var(--step-0); }
+}

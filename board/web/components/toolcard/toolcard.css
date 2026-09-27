@@ -1,0 +1,30 @@
+/* @component toolcard — tokens: --surface, --surface-sunken, --line, --ink, --ink-muted, --ok, --danger, --warn, --accent, --series-1, --series-2, --radius-m, --space-3xs, --space-2xs, --space-xs, --step--1, --step--2, --font-code, --hairline, --leading. A tool call, a Court, a step: a folded card with a status word and one line; the output or the diff opens on demand. data-class tints the edge (read|write|outward|destructive), data-status the pill. */
+@layer components {
+  .toolcard {
+    --tool-edge: var(--line);
+    background: var(--surface); border: var(--hairline) solid var(--line); border-inline-start: 0.2rem solid var(--tool-edge);
+    border-radius: var(--radius-m); font-size: var(--step--1); color: var(--ink);
+  }
+  .toolcard[data-class="read"] { --tool-edge: var(--series-1); }
+  .toolcard[data-class="write"] { --tool-edge: var(--accent); }
+  .toolcard[data-class="outward"] { --tool-edge: var(--warn); }
+  .toolcard[data-class="destructive"] { --tool-edge: var(--danger); }
+  .toolcard[data-kind="court"] { --tool-edge: var(--series-2); }
+  .toolcard > summary {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-xs);
+    padding: var(--space-2xs) var(--space-xs); cursor: pointer; list-style: none;
+  }
+  .toolcard > summary::-webkit-details-marker { display: none; }
+  .toolcard-name { font-family: var(--font-code); font-weight: bold; }
+  .toolcard-sum { flex: 1 1 12rem; min-inline-size: 0; color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolcard-ms { color: var(--ink-muted); font-family: var(--font-code); font-size: var(--step--2); }
+  .toolcard-body { display: grid; gap: var(--space-2xs); padding: 0 var(--space-xs) var(--space-xs); }
+  .toolcard-out { margin: 0; max-block-size: 20rem; overflow: auto; padding: var(--space-2xs) var(--space-xs); font: var(--step--2) / var(--leading) var(--font-code); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-sunken); border-radius: var(--radius-m); }
+  .toolcard-why { color: var(--danger); }
+  .diff { margin: 0; max-block-size: 24rem; overflow: auto; font: var(--step--2) / var(--leading) var(--font-code); background: var(--surface-sunken); border-radius: var(--radius-m); }
+  .diff-line { display: grid; grid-template-columns: 3.5ch 3.5ch 1fr; gap: var(--space-3xs); padding-inline: var(--space-2xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .diff-line > span:not(:last-child) { color: var(--ink-muted); text-align: end; }
+  .diff-line[data-kind="+"] { background: color-mix(in oklch, var(--ok) 16%, transparent); }
+  .diff-line[data-kind="-"] { background: color-mix(in oklch, var(--danger) 16%, transparent); }
+  .diff-line[data-kind="~"] { color: var(--ink-muted); }
+}

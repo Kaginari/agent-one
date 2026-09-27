@@ -1,0 +1,17 @@
+/* @component pill — tokens: --ink-muted, --ok, --warn, --danger, --accent, --line, --radius-pill, --space-3xs, --space-2xs, --step--1, --hairline, --time, --ease. A status word with a dot; data-tone="ok|warn|danger|info|muted", data-live makes the dot breathe. */
+@layer components {
+  .pill {
+    --pill-tone: var(--ink-muted);
+    display: inline-flex; align-items: center; gap: var(--space-2xs);
+    padding: var(--space-3xs) var(--space-2xs);
+    font-size: var(--step--1); line-height: 1.2; white-space: nowrap;
+    color: var(--pill-tone); border: var(--hairline) solid var(--line); border-radius: var(--radius-pill);
+  }
+  .pill::before { content: ""; inline-size: 0.5em; block-size: 0.5em; border-radius: var(--radius-pill); background: var(--pill-tone); flex: none; }
+  .pill[data-tone="ok"] { --pill-tone: var(--ok); }
+  .pill[data-tone="warn"] { --pill-tone: var(--warn); }
+  .pill[data-tone="danger"] { --pill-tone: var(--danger); }
+  .pill[data-tone="info"] { --pill-tone: var(--accent); }
+  .pill[data-live]::before { animation: pill-breathe calc(var(--time) * 6) var(--ease) infinite; }
+  @keyframes pill-breathe { 50% { opacity: 0.25; } }
+}

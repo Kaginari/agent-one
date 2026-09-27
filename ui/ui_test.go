@@ -128,6 +128,21 @@ func TestLegendIsDerivedAndStaleness(t *testing.T) {
 	}
 }
 
+func TestInputsAndDataClass(t *testing.T) {
+	root := seeded(t)
+	write(t, root, "ui/components/meter/meter.css", "/* @component meter — tokens: --ink. A reading. */\n.meter { color: var(--ink); inline-size: var(--meter-value, 0%); }\n")
+	write(t, root, "ui/components/meter/meter.html", `<span class="meter" data-class="read" style="--meter-value: 4%"></span>`)
+	m, _ := Scan(root, "ui")
+	if fs := Lint(root, m); len(fs) > 0 {
+		t.Fatalf("an input and a data-class attribute are not findings: %v", fs)
+	}
+	for _, c := range m.Components {
+		if c.Name == "meter" && (len(c.Inputs) != 1 || c.Inputs[0] != "--meter-value" || len(c.Uses) != 1) {
+			t.Fatalf("meter scanned wrong: %+v", c)
+		}
+	}
+}
+
 func TestParseHeader(t *testing.T) {
 	toks, sum := parseHeader(" — tokens: --a, --b-c, --step--1. What it is; data-variant=\"x\". ")
 	if strings.Join(toks, " ") != "--a --b-c --step--1" || sum != `What it is; data-variant="x"` {

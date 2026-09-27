@@ -33,7 +33,6 @@ type cliFlags struct {
 	json, quiet, noBoard, bench bool
 	plain                       bool
 	since                       string
-	ssh                         string // `board --ssh [addr]`: serve the board over SSH
 	goal                        goalContract
 }
 
@@ -84,12 +83,6 @@ func splitFlags(args []string) (cliFlags, []string) {
 			f.goal.constraints = take(&i, name)
 		case "--max-turns":
 			fmt.Sscan(take(&i, name), &f.goal.maxTurns)
-		case "--ssh":
-			f.ssh = defaultSSHAddr
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && strings.Contains(args[i+1], ":") {
-				i++
-				f.ssh = args[i]
-			}
 		default:
 			rest = append(rest, a)
 		}
@@ -99,6 +92,7 @@ func splitFlags(args []string) (cliFlags, []string) {
 
 var commands = []struct{ name, summary string }{
 	{"repl", "a live session (the default)"},
+	{"dash", "a live session in the browser: prompt, the neural net, metrics, relations — dash [--open]"},
 	{"run", "run one ask to its end: run [--json] [--format text|json|wire] \"<ask>\""},
 	{"resume", "resume a session: resume <id> [ask]"},
 	{"goal", "work to a goal until a command proves it: goal --validate \"<cmd>\" [--read …] [--constraints …] [--max-turns N] \"<objective>\""},
@@ -114,7 +108,7 @@ var commands = []struct{ name, summary string }{
 	{"bench", "a fixed task set on every configured model (mock always; real providers with keys)"},
 	{"selftest", "every package's selftest, one @S PASS n checks"},
 	{"init", "found a workspace here: init [--bench]"},
-	{"board", "serve the board without a session: board [--ssh [addr]]"},
+	{"board", "serve the board and the dashboard (read-only) without a session, on 127.0.0.1"},
 	{"guard", "the global dangerous-command guard: check, test, show, export, hook, install"},
 	{"ui", "the web ui system: init (tokens, layout, components), scan (the legend), check (lint + screenshots)"},
 	{"version", "print the version"},
@@ -208,6 +202,14 @@ func Main(dist string, args []string, io IO, v Version) int {
 	defer a.Close()
 	ctx := context.Background()
 	switch name {
+	case "dash":
+		open := false
+		for _, l := range leftover {
+			if l == "--open" || l == "open" {
+				open = true
+			}
+		}
+		return a.Dash(ctx, open)
 	case "repl":
 		a.startBoard(ctx)
 		if a.wantsTUI(f.plain) {
@@ -244,7 +246,7 @@ func Main(dist string, args []string, io IO, v Version) int {
 	case "bench":
 		return a.Bench(ctx, io)
 	case "board":
-		return a.cmdBoard(ctx, io, f.ssh)
+		return a.cmdBoard(ctx, io)
 	}
 	fmt.Fprintf(io.Err, "@S FAIL\n@? unknown command %q — `%s help` lists them\n", name, dist)
 	return 2

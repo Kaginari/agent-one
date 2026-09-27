@@ -110,7 +110,8 @@ reviews the change before the turn is done:
 | `handoff [focus]` | a handoff note for a fresh session (`/handoff read` picks it up) |
 | `guard check\|test\|show\|export\|hook\|install` | the global dangerous-command guard; `install --yes` wires it into Claude Code and OpenCode |
 | `ui init\|scan\|check` | web pages built from one token system: lay the foundation, regenerate the legend, lint and screenshot at 360/768/1280 in both themes |
-| `board [--ssh [addr]]` | the dashboard without a session — on the web, and over SSH (keys in `~/.ssh/authorized_keys` only) |
+| `dash [--open]` | the session in the browser: the console, the neural net, metrics, relations; approvals answered there |
+| `board` | the board and a read-only dashboard without a session, on 127.0.0.1 |
 | `--containered` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
 | `selftest` · `version` · `init` | |
 

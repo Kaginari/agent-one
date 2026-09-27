@@ -1,0 +1,11 @@
+/* @component tabs — tokens: --ink-muted, --ink, --accent, --line, --space-2xs, --space-s, --space-m, --step-0, --hairline, --weight-medium, --time-fast, --ease, --focus-width. The view switcher: one row that scrolls on its own when narrow; aria-selected marks the view. */
+@layer components {
+  .tabs { display: flex; gap: var(--space-2xs); padding-inline: var(--space-m); border-block-end: var(--hairline) solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .tab {
+    padding: var(--space-2xs) var(--space-s); font: var(--weight-medium) var(--step-0) / 1.4 inherit;
+    color: var(--ink-muted); background: none; border: 0; border-block-end: var(--focus-width) solid transparent;
+    cursor: pointer; white-space: nowrap; transition: color var(--time-fast) var(--ease);
+  }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--ink); border-block-end-color: var(--accent); }
+}

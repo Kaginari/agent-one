@@ -1,0 +1,73 @@
+/* layout.css — the page grid and the layout primitives. Components never re-implement layout:
+   they sit inside these. Every length is a token; every primitive adapts to the space it is
+   given (flex-wrap, auto-fit, container queries), not to the screen, so the same piece works in
+   a sidebar and in a hero. Change a primitive here and every page follows. */
+@layer layout {
+  /* the page: a centred measure with fluid gutters; .full-bleed escapes it */
+  .page {
+    display: grid;
+    grid-template-columns:
+      [full-start] minmax(var(--gutter), 1fr)
+      [content-start] min(100% - 2 * var(--gutter), var(--page-max)) [content-end]
+      minmax(var(--gutter), 1fr) [full-end];
+  }
+  .page > * { grid-column: content; }
+  .page > .full-bleed { grid-column: full; }
+
+  /* stack: vertical rhythm; the gap is the only spacing between siblings */
+  .stack { display: flex; flex-direction: column; gap: var(--stack-gap, var(--space-m)); }
+  .stack[data-gap="s"] { --stack-gap: var(--space-s); }
+  .stack[data-gap="l"] { --stack-gap: var(--space-l); }
+
+  /* cluster: a wrapping row (buttons, tags, toolbars) */
+  .cluster { display: flex; flex-wrap: wrap; gap: var(--cluster-gap, var(--space-s)); align-items: center; }
+  .cluster[data-justify="between"] { justify-content: space-between; }
+  .cluster[data-justify="end"] { justify-content: flex-end; }
+
+  /* grid: as many columns as fit at --grid-min each — responsive with no breakpoint */
+  .grid {
+    display: grid; gap: var(--grid-gap, var(--space-m));
+    grid-template-columns: repeat(auto-fit, minmax(min(var(--grid-min, 16rem), 100%), 1fr));
+  }
+
+  /* cols: an explicit 12-column grid for page layouts; spans collapse to full width on narrow
+     containers (the Bootstrap idea, driven by container width instead of the viewport) */
+  .cols { container-type: inline-size; }
+  .cols > .row { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--grid-gap, var(--space-m)); }
+  .cols > .row > * { grid-column: span 12; }
+  @container (min-width: 40rem) {
+    .cols > .row > [data-span="3"] { grid-column: span 3; }
+    .cols > .row > [data-span="4"] { grid-column: span 4; }
+    .cols > .row > [data-span="6"] { grid-column: span 6; }
+    .cols > .row > [data-span="8"] { grid-column: span 8; }
+    .cols > .row > [data-span="9"] { grid-column: span 9; }
+  }
+
+  /* sidebar: a fixed-ish side and a fluid main that wraps under it when the main would get
+     narrower than --sidebar-content-min */
+  .sidebar { display: flex; flex-wrap: wrap; gap: var(--space-l); }
+  .sidebar > :first-child { flex-basis: var(--sidebar-width, 16rem); flex-grow: 1; }
+  .sidebar > :last-child { flex-basis: 0; flex-grow: 999; min-inline-size: var(--sidebar-content-min, 55%); }
+
+  /* switcher: a row that becomes a column below --switch-at, all at once */
+  .switcher { display: flex; flex-wrap: wrap; gap: var(--space-m); }
+  .switcher > * { flex-grow: 1; flex-basis: calc((var(--switch-at, 40rem) - 100%) * 999); }
+
+  /* center: a readable measure */
+  .center { box-sizing: content-box; max-inline-size: var(--measure); margin-inline: auto; padding-inline: var(--gutter); }
+
+  /* cover: a full-height block with its principal child centred (heroes, empty states) */
+  .cover { display: flex; flex-direction: column; min-block-size: var(--cover-min, 70vh); padding: var(--space-l); }
+  .cover > [data-principal] { margin-block: auto; }
+
+  /* frame: media at a fixed aspect ratio */
+  .frame { aspect-ratio: var(--frame-ratio, 16 / 9); overflow: hidden; display: grid; place-items: center; }
+  .frame > img, .frame > video { inline-size: 100%; block-size: 100%; object-fit: cover; }
+}
+
+@layer utilities {
+  .visually-hidden {
+    position: absolute !important; inline-size: 1px; block-size: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+}

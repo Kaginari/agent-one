@@ -1,0 +1,15 @@
+<div class="net" data-focus>
+  <svg viewBox="0 0 600 300" role="img" aria-label="sample neural net">
+    <rect class="net-row" x="8" y="8" width="584" height="84" rx="12"/><text class="net-row-label" x="20" y="26">crown — coord</text>
+    <rect class="net-row" x="8" y="108" width="584" height="84" rx="12"/><text class="net-row-label" x="20" y="126">gate — domains</text>
+    <rect class="net-row" x="8" y="208" width="584" height="84" rx="12"/><text class="net-row-label" x="20" y="226">input — zones</text>
+    <path class="net-edge" data-bond="truth" data-lit d="M200 250 C200 200 300 200 300 150"/>
+    <path class="net-edge" data-bond="truth" data-live d="M400 250 C400 200 300 200 300 150"/>
+    <path class="net-edge" data-bond="verdict" data-lit d="M300 150 C300 100 300 100 300 50"/>
+    <g class="net-node" data-rank="coord" data-near><circle class="net-node-halo" cx="300" cy="50" r="22"/><circle class="net-node-core" cx="300" cy="50" r="14"/><circle class="net-node-dot" cx="300" cy="50" r="5"/><text class="net-node-label" x="300" y="84">coord-keeper</text></g>
+    <g class="net-node" data-rank="domain" data-near><circle class="net-node-halo" cx="300" cy="150" r="22"/><circle class="net-node-core" cx="300" cy="150" r="14"/><circle class="net-node-dot" cx="300" cy="150" r="5"/><text class="net-node-label" x="300" y="184">domain-security</text></g>
+    <g class="net-node" data-rank="zone" data-near><circle class="net-node-halo" cx="200" cy="250" r="22"/><circle class="net-node-core" cx="200" cy="250" r="14"/><circle class="net-node-dot" cx="200" cy="250" r="5"/><text class="net-node-label" x="200" y="284">zone-auth</text></g>
+    <g class="net-node" data-rank="zone" data-live><circle class="net-node-halo" cx="400" cy="250" r="22"/><circle class="net-node-core" cx="400" cy="250" r="14"/><circle class="net-node-dot" cx="400" cy="250" r="5"/><text class="net-node-label" x="400" y="284">zone-api</text></g>
+  </svg>
+  <div class="net-legend"><span><i data-bond="truth"></i>truth-current</span><span><i data-bond="verdict"></i>verdict-current</span><span><i data-bond="reports"></i>reports to</span><span><i data-bond="holds"></i>wears</span></div>
+</div>
