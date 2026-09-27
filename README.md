@@ -57,7 +57,7 @@ sandboxed shell has no network unless an `outward` act was approved.
 
 ```sh
 cd your-project
-agent-one init                    # onboard: .agent-one/ with the policies and a config
+agent-one init --level complex   # found a workspace — light: the policy only · medium: a team sketched from the tree · complex: the model reads all the code and hires the team
 export ANTHROPIC_API_KEY=…         # or any OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter)
 agent-one                         # the live session — the dashboard opens at http://127.0.0.1:7411
 agent-one run "add a health check endpoint and its test"
@@ -113,7 +113,8 @@ reviews the change before the turn is done:
 | `dash [--open]` | the session in the browser: the console, the neural net, metrics, relations; approvals answered there |
 | `board` | the board and a read-only dashboard without a session, on 127.0.0.1 |
 | `--containered` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
-| `selftest` · `version` · `init` | |
+| `init [--level light\|medium\|complex]` | found a workspace: the policy only; a team sketched from the tree (no model); or a founding session that reads all the code and decides the coordinators, domain owners, zone workers, service owners, skills, agents and relations |
+| `selftest` · `version` | |
 
 ## Configuration
 

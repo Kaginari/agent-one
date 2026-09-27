@@ -34,6 +34,7 @@ type cliFlags struct {
 	plain                       bool
 	since                       string
 	goal                        goalContract
+	level                       string // init --level light|medium|complex
 }
 
 func splitFlags(args []string) (cliFlags, []string) {
@@ -71,6 +72,8 @@ func splitFlags(args []string) (cliFlags, []string) {
 			f.quiet = true
 		case "--no-board":
 			f.noBoard = true
+		case "--level":
+			f.level = take(&i, name)
 		case "--bench":
 			f.bench = true
 		case "--plain":
@@ -107,7 +110,7 @@ var commands = []struct{ name, summary string }{
 	{"usage", "the usage journal: usage [--session <id>] [--since <date>]"},
 	{"bench", "a fixed task set on every configured model (mock always; real providers with keys)"},
 	{"selftest", "every package's selftest, one @S PASS n checks"},
-	{"init", "found a workspace here: init [--bench]"},
+	{"init", "found a workspace here: init [--level light|medium|complex] [--bench] — light: the policy only; medium: a team sketched from the tree; complex: the model reads all the code and founds the team"},
 	{"board", "serve the board and the dashboard (read-only) without a session, on 127.0.0.1"},
 	{"guard", "the global dangerous-command guard: check, test, show, export, hook, install"},
 	{"ui", "the web ui system: init (tokens, layout, components), scan (the legend), check (lint + screenshots)"},
@@ -167,7 +170,13 @@ func Main(dist string, args []string, io IO, v Version) int {
 	}
 	switch name {
 	case "init":
-		return cmdInit(dist, f, io)
+		code, level := cmdInit(dist, f, io)
+		if code != 0 || level != "complex" {
+			return code
+		}
+		name = "found" // the complex level goes on as a founding session, below
+		overrides = append(overrides, config.Override{Path: "policy.gate.rightAuthor", Value: "false", Flag: "init --level complex"})
+		opt.Flags = overrides
 	case "config":
 		cargs := []string{"--dist", dist}
 		if f.root != "" {
@@ -216,6 +225,10 @@ func Main(dist string, args []string, io IO, v Version) int {
 			return a.TUI(ctx)
 		}
 		return a.REPL(ctx)
+	case "found":
+		d, _ := parseDist(dist)
+		lex := lexiconFor()
+		return a.cmdRun(ctx, foundingAsk(a.Root, d, sketchTeam(a.Root, d), lex.Ranks, lex.Prefixes, lex.Display), io)
 	case "review":
 		merge, err := a.runReview(ctx, strings.Join(leftover, " "), func(l string) { fmt.Fprintln(io.Err, l) })
 		if err != nil {
@@ -254,7 +267,7 @@ func Main(dist string, args []string, io IO, v Version) int {
 
 // valueFlags are the config flags that take a value in the next token.
 var valueFlags = map[string]bool{"--model": true, "--mode": true, "--approve": true, "--format": true, "--max-steps": true, "--budget": true, "--small-model": true, "--log-level": true, "--profile": true, "--set": true,
-	"--validate": true, "--read": true, "--constraints": true, "--max-turns": true,
+	"--validate": true, "--read": true, "--level": true, "--constraints": true, "--max-turns": true,
 	"--root": true, "-root": true, "--dist": true, "--session": true, "-session": true, "--since": true}
 
 // command finds the subcommand in an argv where flags may come first (`agent-one --root x run
@@ -277,26 +290,36 @@ func versionLine(dist string, v Version) string {
 	return fmt.Sprintf("%s %s (%s, %s, %s/%s)", dist, orStr(v.Version, "dev"), orStr(v.Commit, "none"), orStr(v.Date, "unknown"), runtime.GOOS, runtime.GOARCH)
 }
 
-func cmdInit(dist string, f cliFlags, io IO) int {
+func cmdInit(dist string, f cliFlags, io IO) (int, string) {
 	root := f.root
 	if root == "" {
 		root, _ = os.Getwd()
 	}
 	root, _ = filepath.Abs(root)
+	level := normLevel(f.level)
+	if level == "" {
+		fmt.Fprintf(io.Err, "@S FAIL\n@? init: unknown level %q — light (or soft), medium, complex\n", f.level)
+		return 2, ""
+	}
 	made, err := Init(dist, root)
 	if err != nil {
 		fmt.Fprintf(io.Err, "@S FAIL\n@? init: %v\n", err)
-		return 2
+		return 2, ""
 	}
 	if len(made) == 0 {
 		fmt.Fprintf(io.Out, "@S OK %s already founded at %s — nothing touched\n", dist, root)
-		return 0
-	}
-	fmt.Fprintf(io.Out, "@S OK %s founded at %s\n", dist, root)
-	for _, m := range made {
-		fmt.Fprintln(io.Out, "@F "+m)
+	} else {
+		fmt.Fprintf(io.Out, "@S OK %s founded at %s\n", dist, root)
+		for _, m := range made {
+			fmt.Fprintln(io.Out, "@F "+m)
+		}
 	}
 	if wantsSetup(dist, root, f, io) {
+		if f.level == "" {
+			if l, err := askLevel(dist); err == nil {
+				level = l
+			}
+		}
 		switch p, err := runSetup(dist, root, io); {
 		case err != nil:
 			fmt.Fprintf(io.Err, "@? setup: %v — the %s is founded; its config can be written later\n", err, worldWord(dist))
@@ -304,10 +327,28 @@ func cmdInit(dist string, f cliFlags, io IO) int {
 			fmt.Fprintln(io.Out, "@F "+p)
 		}
 	}
+	d, _ := parseDist(dist)
+	lex := lexiconFor()
+	switch level {
+	case "medium":
+		s := sketchTeam(root, d)
+		wrote, err := writeSketch(root, d, s, lex.Ranks, lex.Prefixes, lex.Display)
+		if err != nil {
+			fmt.Fprintf(io.Err, "@S FAIL\n@? init --level medium: %v\n", err)
+			return 2, ""
+		}
+		for _, w := range wrote {
+			fmt.Fprintln(io.Out, "@F "+w)
+		}
+		fmt.Fprintf(io.Out, "@S OK a team sketched from the tree: %d members written (%d kept as they were) — refine their traits and verify lines, or run `%s init --level complex` to have the model read the code\n",
+			len(wrote), len(s.all())-len(wrote), dist)
+	case "complex":
+		fmt.Fprintf(io.Out, "@S OK the founding session starts: the model reads all the code and founds the team\n")
+	}
 	if f.bench {
 		fmt.Fprintln(io.Out, "@F bench: config comes from "+strings.ToUpper(strings.ReplaceAll(dist, "-", "_"))+"_CONFIG_CONTENT; the gate needs a TTY or a file-layer pre-approval")
 	}
-	return 0
+	return 0, level
 }
 
 // cmdInstrument delegates to the memory, toolbox and ontology CLIs under the distribution's

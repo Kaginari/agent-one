@@ -21,6 +21,11 @@ All notable changes to Agent-One are recorded here. The format follows
   dimensions — built on the ui system and held to `ui check`. Acts carry a per-run token and a
   loopback/same-origin check.
 
+- **Three ways to found a workspace**: `init --level light|medium|complex` (a terminal asks). Medium
+  sketches a team from the tree with no model; complex runs a founding session that reads all the
+  code and hires the team — coordinators, domain owners, zone workers, a service owner, skills and
+  agents, relations, verify lines that pass — until `onto check` is clean.
+
 ### Removed
 
 - The SSH board (`board --ssh`): the board is local only — 127.0.0.1, or the host's loopback from

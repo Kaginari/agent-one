@@ -145,3 +145,19 @@ func worldWord(dist string) string {
 	}
 	return "workspace"
 }
+
+// askLevel asks how deep to found the workspace (init --level).
+func askLevel(dist string) (string, error) {
+	level := "light"
+	w := worldWord(dist)
+	err := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().
+			Title("How should this "+w+" be founded?").
+			Options(
+				huh.NewOption("Light — the policy, the log and the instruments; members come later", "light"),
+				huh.NewOption("Medium — also a team sketched from the file tree (no model)", "medium"),
+				huh.NewOption("Complex — the model reads all the code and founds the team: skills, agents, relations", "complex"),
+			).Value(&level),
+	)).WithTheme(huh.ThemeFunc(huh.ThemeCatppuccin)).Run()
+	return level, err
+}
