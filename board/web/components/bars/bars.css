@@ -1,7 +1,9 @@
 /* @component bars — tokens: --surface-sunken, --accent-hero, --ink, --ink-muted, --radius-s, --space-2xs, --space-xs, --step--1, --font-code, --time, --ease. A ranked list of shares (spend by model, by body, by day): label, bar, figure; --bars-value sets each fill, data-series picks the colour. */
 @layer components {
-  .bars { display: grid; gap: var(--space-2xs); font-size: var(--step--1); }
-  .bars-row { display: grid; grid-template-columns: minmax(6rem, 1fr) minmax(4rem, 2fr) auto; align-items: center; gap: var(--space-xs); }
+  .bars { display: grid; grid-template-columns: minmax(6rem, max-content) minmax(4rem, 1fr) max-content; gap: var(--space-2xs) var(--space-xs); font-size: var(--step--1); }
+  /* rows share the list's columns, so every track starts and ends on the same line */
+  .bars-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; }
+  .bars-label { max-inline-size: 16rem; }
   .bars-label { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-code); }
   .bars-track { block-size: 0.6rem; background: var(--surface-sunken); border-radius: var(--radius-s); overflow: hidden; }
   .bars-fill { display: block; block-size: 100%; inline-size: var(--bars-value, 0%); background: var(--bars-color, var(--accent-hero)); border-radius: var(--radius-s); transition: inline-size var(--time) var(--ease); }

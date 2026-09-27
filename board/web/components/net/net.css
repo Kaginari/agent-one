@@ -1,15 +1,15 @@
-/* @component net — tokens: --surface, --surface-2, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-6, --accent-hero, --step--2, --step--1, --font-body, --time, --time-slow, --ease, --space-3xs, --space-s. The workspace as a neural net: layers from input (bottom) to crown (top), bonds as synapses, live bodies glow and their synapses carry a pulse; data-focus lights one node's neighbourhood and makes its bonds blink. */
+/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-6, --accent-hero, --step--2, --step--1, --font-body, --time, --time-slow, --ease, --space-3xs, --space-s. The workspace as a neural net: layers from input (bottom) to crown (top), bonds as synapses, live bodies glow and their synapses carry a pulse; data-focus lights one node's neighbourhood and makes its bonds blink. */
 @layer components {
   .net { position: relative; inline-size: 100%; }
   .net svg { display: block; inline-size: 100%; block-size: auto; overflow: visible; font-family: var(--font-body); }
-  .net-row { fill: var(--net-row-tint, var(--surface-2)); }
-  .net-row-label { fill: var(--ink-muted); font-size: var(--step--2); letter-spacing: 0.06em; text-transform: uppercase; }
+  .net-row { fill: color-mix(in oklch, var(--node, var(--accent)) 7%, transparent); stroke: color-mix(in oklch, var(--node, var(--accent)) 16%, transparent); stroke-width: 1; }
+  .net-row-label { fill: color-mix(in oklch, var(--node, var(--ink-muted)) 55%, var(--ink-muted)); font-size: var(--step--2); letter-spacing: 0.06em; text-transform: uppercase; }
   .net-node { --node: var(--ink-muted); cursor: pointer; transition: opacity var(--time) var(--ease); }
-  .net-node[data-rank="orchestrator"] { --node: var(--series-6); }
-  .net-node[data-rank="zone"] { --node: var(--series-1); }
-  .net-node[data-rank="domain"] { --node: var(--series-2); }
-  .net-node[data-rank="coord"] { --node: var(--series-4); }
-  .net-node[data-rank="service"] { --node: var(--series-3); }
+  .net [data-rank="orchestrator"] { --node: var(--series-6); }
+  .net [data-rank="zone"] { --node: var(--series-1); }
+  .net [data-rank="domain"] { --node: var(--series-2); }
+  .net [data-rank="coord"] { --node: var(--series-4); }
+  .net [data-rank="service"] { --node: var(--series-3); }
   .net-node-halo { fill: var(--node); opacity: 0; transition: opacity var(--time) var(--ease); }
   .net-node-core { fill: var(--surface); stroke: var(--node); stroke-width: 2; }
   .net-node[data-kind="skill"] .net-node-core { stroke-dasharray: 3 2; }

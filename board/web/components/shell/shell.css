@@ -1,6 +1,13 @@
-/* @component shell — tokens: --surface, --ink, --space-s, --space-m, --space-l. The dashboard's frame: header, view tabs, and the panel grid; data-view picks overview or one panel full size. .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
+/* @component shell — tokens: --surface, --ink, --accent-hero, --second, --space-s, --space-m, --space-l. The dashboard's frame: header, view tabs, and the panel grid; data-view picks overview or one panel full size. .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
 @layer components {
-  .shell { container-type: inline-size; display: grid; grid-template-rows: auto auto 1fr; min-block-size: 100vh; background: var(--surface); color: var(--ink); }
+  .shell {
+    container-type: inline-size; display: grid; grid-template-rows: auto auto 1fr; min-block-size: 100vh; color: var(--ink);
+    background:
+      radial-gradient(60rem 36rem at 0% 0%, color-mix(in oklch, var(--accent-hero) 10%, transparent), transparent 70%),
+      radial-gradient(50rem 30rem at 100% 100%, color-mix(in oklch, var(--second) 8%, transparent), transparent 70%),
+      var(--surface);
+    background-attachment: fixed;
+  }
   .shell-main {
     --shell-gap: var(--space-m);
     display: grid; gap: var(--shell-gap); padding: var(--space-s) var(--space-m) var(--space-l);

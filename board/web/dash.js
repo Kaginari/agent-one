@@ -46,17 +46,21 @@
   };
   for (const n of document.querySelectorAll('[data-word]')) n.textContent = word(n.dataset.word, n.textContent);
 
-  // ---------- preferences: theme, palette, density ----------
-  const PALETTES = ['calm', 'trust', 'warm', 'earth', 'neon', 'pastel', 'mono', 'retro', 'forest', 'ocean', 'sunset', 'ink'];
-  const palSel = $('#pref-palette');
-  for (const p of PALETTES) palSel.append(el('option', { value: p, text: p }));
-  function pref(name, attr) {
-    const sel = $('#pref-' + name);
-    const apply = v => { if (v) document.documentElement.setAttribute(attr, v); else document.documentElement.removeAttribute(attr); };
-    sel.value = store.get(name); apply(sel.value);
-    sel.addEventListener('change', () => { store.set(name, sel.value); apply(sel.value); if (name !== 'density') netDraw(); });
+  // ---------- the theme: one design, light and dark; the system decides unless the reader does ----------
+  const THEMES = [['', 'theme · system', 'follows the system'], ['light', 'theme · light', 'light'], ['dark', 'theme · dark', 'dark']];
+  const themeBtn = $('#theme');
+  function theme(v) {
+    const t = THEMES.find(x => x[0] === v) || THEMES[0];
+    if (t[0]) document.documentElement.setAttribute('data-theme', t[0]); else document.documentElement.removeAttribute('data-theme');
+    themeBtn.textContent = t[1];
+    themeBtn.setAttribute('aria-label', 'theme: ' + t[2] + ' — change');
+    store.set('theme', t[0]);
   }
-  pref('theme', 'data-theme'); pref('palette', 'data-palette'); pref('density', 'data-density');
+  themeBtn.addEventListener('click', () => {
+    const i = THEMES.findIndex(x => x[0] === (document.documentElement.getAttribute('data-theme') || ''));
+    theme(THEMES[(i + 1) % THEMES.length][0]);
+  });
+  theme(store.get('theme'));
 
   // ---------- views ----------
   const main = $('#main');
@@ -406,13 +410,13 @@
     const RH = 104, top = 8, H = top + rows.length * RH + 8;
     const pos = new Map();
     const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'the ' + word('world', 'workspace') + ' as a neural net' });
-    const tints = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-5', '--series-6'];
     rows.forEach((row, i) => {
       const y = top + i * RH;
-      const r = svg('rect', { class: 'net-row', x: 4, y, width: W - 8, height: RH - 10, rx: 12 });
-      r.style.setProperty('--net-row-tint', `color-mix(in oklch, var(${tints[lanes.indexOf(row.lane) % tints.length] || '--series-1'}) 9%, transparent)`);
-      g.append(r);
-      if (row.first) g.append(svg('text', { class: 'net-row-label', x: 16, y: y + 16 }, document.createTextNode(label(row.lane) + ' · ' + byLane.get(row.lane).length)));
+      // a layer wears its rank's colour (net.css maps data-rank → --node), a skill layer the accent
+      const band = svg('g', { 'data-rank': row.lane },
+        svg('rect', { class: 'net-row', x: 4, y, width: W - 8, height: RH - 10, rx: 12 }),
+        row.first ? svg('text', { class: 'net-row-label', x: 16, y: y + 16 }, document.createTextNode(label(row.lane) + ' · ' + byLane.get(row.lane).length)) : null);
+      g.append(band);
       row.nodes.forEach((n, j) => pos.set(n.id, { x: pad + (W - 2 * pad) * (j + 0.5) / row.nodes.length, y: y + RH / 2, n }));
     });
     const edgeLayer = svg('g', { 'data-layer': 'edges' }), pulseLayer = svg('g', { 'data-layer': 'pulses' }), nodeLayer = svg('g', { 'data-layer': 'nodes' });
@@ -537,8 +541,8 @@
   }
 
   // ---------- metrics ----------
-  function kpi(label, value, sub, silent) {
-    return el('div', { class: 'kpi', 'data-silent': !!silent }, el('span', { class: 'kpi-label', text: label }), el('span', { class: 'kpi-value', text: value }), el('span', { class: 'kpi-sub', text: sub }));
+  function kpi(label, value, sub, silent, tone) {
+    return el('div', { class: 'kpi', 'data-silent': !!silent, 'data-tone': tone || false }, el('span', { class: 'kpi-label', text: label }), el('span', { class: 'kpi-value', text: value }), el('span', { class: 'kpi-sub', text: sub }));
   }
   function bars(box, rows, figure) {
     const max = Math.max(1, ...rows.map(r => r.v));
@@ -558,15 +562,25 @@
       const ctx = live.ctxKnown ? live.ctxPct + '%' : '—';
       $('#kpis').replaceChildren(
         kpi('tokens', num(tokens(t)), num(t.input) + ' in · ' + num(t.output) + ' out', !t.calls),
-        kpi('cost', t.calls ? priced(t) : '—', t.unpriced ? t.unpriced + ' calls unpriced (a floor)' : 'priced from config', !t.calls),
+        kpi('cost', t.calls ? priced(t) : '—', t.unpriced ? t.unpriced + ' calls unpriced (a floor)' : 'priced from config', !t.calls, 'second'),
         kpi('calls', num(t.calls), 'range ' + (u.range || range), !t.calls),
-        kpi('context', ctx, live.ctxKnown ? 'the session window' : 'silent: no turn yet', !live.ctxKnown),
-        kpi(word('bodies', 'agents') + ' live', String(court.filter(b => b.state && b.state !== 'done').length), court.length + ' in this session', !live.session),
-        kpi('cache', tokens(t) ? Math.round(100 * (t.cacheRead || 0) / tokens(t)) + '%' : '—', 'of tokens read from cache', !t.calls));
+        kpi('context', ctx, live.ctxKnown ? 'the session window' : 'silent: no turn yet', !live.ctxKnown, live.ctxPct >= 85 ? 'warn' : false),
+        kpi(word('bodies', 'agents') + ' live', String(live.live || 0), court.length + ' in this session', !live.session),
+        cacheKpi(t));
       daySpark(u.byDay || []);
       bars($('#by-model'), (u.byModel || []).map(s => ({ k: s.key, v: tokens(s), s })), r => num(r.v) + ' · ' + priced(r.s));
       bars($('#by-body'), (u.byAgent || []).slice(0, 12).map(s => ({ k: s.key, v: tokens(s), s })), r => num(r.v) + ' · ' + priced(r.s));
     }).catch(() => { $('#metrics-note').textContent = 'the usage journal is silent'; });
+  }
+  // the prompt cache hit rate: the share of the INPUT the provider served from its cache (output
+  // is never cached, so it is not in the denominator); what it saved is the reused tokens
+  function cacheKpi(t) {
+    const prompt = (t.input || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
+    if (!prompt) return kpi('prompt cache hit', '—', 'silent: no input measured', true);
+    const hit = (t.cacheRead || 0) / prompt;
+    const sub = t.cacheRead ? num(t.cacheRead) + ' input tokens reused' + (t.cacheWrite ? ' · ' + num(t.cacheWrite) + ' written' : '')
+      : 'no cache hits reported — the provider may not cache or not report it';
+    return kpi('prompt cache hit', Math.round(100 * hit) + '%', sub, !t.cacheRead && !t.cacheWrite, hit >= 0.5 ? 'ok' : hit >= 0.2 ? false : 'warn');
   }
   function daySpark(days) {
     const box = $('#by-day');

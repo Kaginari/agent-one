@@ -1,12 +1,17 @@
-/* @component kpi — tokens: --surface-2, --line, --ink, --ink-muted, --radius-m, --space-3xs, --space-xs, --space-s, --step--1, --step-3, --leading-tight, --font-code, --hairline, --weight-bold. One key figure: label above, value large, source and age below; data-silent greys a figure nobody measured. */
+/* @component kpi — tokens: --surface, --line, --accent-hero, --second, --ok, --warn, --radius-s, --ink, --ink-muted, --radius-m, --space-3xs, --space-xs, --space-s, --step--1, --step-3, --leading-tight, --font-code, --hairline, --weight-bold. One key figure: label above, value large, source and age below; data-silent greys a figure nobody measured. */
 @layer components {
   .kpis { display: grid; gap: var(--space-xs); grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr)); }
   .kpi {
     display: grid; gap: var(--space-3xs); align-content: start;
     padding: var(--space-xs) var(--space-s);
-    background: var(--surface-2); border: var(--hairline) solid var(--line); border-radius: var(--radius-m);
+    background: color-mix(in oklch, var(--surface) 55%, transparent); border: var(--hairline) solid var(--line); border-radius: var(--radius-m);
   }
-  .kpi-label { font-size: var(--step--1); color: var(--ink-muted); }
+  .kpi { --kpi-tone: var(--accent-hero); }
+  .kpi-label { display: flex; align-items: center; gap: var(--space-3xs); font-size: var(--step--1); color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .kpi-label::before { content: ""; inline-size: 0.45em; block-size: 0.45em; border-radius: var(--radius-s); background: var(--kpi-tone); box-shadow: 0 0 0.5rem var(--kpi-tone); }
+  .kpi[data-tone="second"] { --kpi-tone: var(--second); }
+  .kpi[data-tone="ok"] { --kpi-tone: var(--ok); }
+  .kpi[data-tone="warn"] { --kpi-tone: var(--warn); }
   .kpi-value { font: var(--weight-bold) var(--step-3) / var(--leading-tight) var(--font-code); color: var(--ink); font-variant-numeric: tabular-nums; }
   .kpi-sub { font-size: var(--step--1); color: var(--ink-muted); overflow-wrap: anywhere; }
   .kpi[data-silent] .kpi-value { color: var(--ink-muted); }

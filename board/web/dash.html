@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-palette="aurora">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -30,7 +30,7 @@
 <body data-words="{{WORDS}}">
 <div class="shell">
   <header class="topbar">
-    <div class="topbar-brand"><span id="brand">{{DIST}}</span> <small>dashboard</small></div>
+    <div class="topbar-brand"><span class="topbar-mark" aria-hidden="true"></span><span id="brand">{{DIST}}</span> <small>dashboard</small></div>
     <div class="topbar-meta" aria-live="polite">
       <span>workspace <b id="world">—</b></span>
       <span>model <b id="model">—</b></span>
@@ -40,10 +40,8 @@
       <span id="live-count" class="pill" hidden></span>
     </div>
     <div class="topbar-tools">
-      <label>theme <select id="pref-theme"><option value="">system</option><option value="light">light</option><option value="dark">dark</option></select></label>
-      <label>palette <select id="pref-palette"><option value="">default</option></select></label>
-      <label>density <select id="pref-density"><option value="">regular</option><option value="compact">compact</option><option value="comfortable">airy</option></select></label>
-      <a class="topbar-link" href="./">board</a>
+      <button class="button" data-size="s" data-variant="quiet" type="button" id="theme" aria-label="theme: follows the system — change">theme · system</button>
+      <a class="topbar-link" href="./">board pages</a>
     </div>
   </header>
   <nav class="tabs" role="tablist" aria-label="views">

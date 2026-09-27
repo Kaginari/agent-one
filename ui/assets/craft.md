@@ -160,6 +160,10 @@ inherited, not designed. An agent console is a reading surface first and a contr
 - `field-sizing: content` shrinks a field to its placeholder: give it a `min-block-size` and let
   the row wrap the buttons under it on narrow containers.
 - An API list can be `null`, not `[]`: normalise at the fetch, never in every renderer.
+- Rows that must align (label · bar · figure) share one grid: the list defines the columns, each
+  row is `grid-template-columns: subgrid` — separate row grids start every track somewhere else.
+- A child that declares a custom property overrides the one it would inherit: put the default in
+  the `var(--x, default)` fallback, not in a declaration on the child.
 
 ## Self-review before "done"
 
