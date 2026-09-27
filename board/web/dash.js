@@ -494,7 +494,7 @@
     return getJSON('api/team').then(c => {
       c.nodes = c.nodes || []; c.edges = c.edges || []; c.lanes = c.lanes || []; c.labels = c.labels || [];
       // a skill's lane is drawn as skill:<lane> (the lane order and labels speak that way)
-      for (const n of c.nodes) if (n.kind === 'skill' && !c.lanes.includes(n.lane) && c.lanes.includes('skill:' + n.lane)) n.lane = 'skill:' + n.lane;
+      for (const n of c.nodes) if (n.kind === 'skill' && c.lanes.includes('skill:' + n.lane)) n.lane = 'skill:' + n.lane; // a lane may share a rank's name
       team = c; netDraw(); relations();
     }).catch(() => { $('#net-note').textContent = 'the ontology is silent'; });
   }
