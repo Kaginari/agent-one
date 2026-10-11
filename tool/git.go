@@ -59,8 +59,10 @@ func (e Env) ClassifyGit(args []string) Classification {
 		c = Classification{Class: Destructive, Why: "git branch delete/rename"}
 	case sub == "tag" && has("-d", "--delete"):
 		c = Classification{Class: Destructive, Why: "git tag delete"}
-	case sub == "stash" && len(flags) > 0 && (flags[0] == "drop" || flags[0] == "clear" || flags[0] == "pop"):
-		c = Classification{Class: Destructive, Why: "git stash " + flags[0]}
+	case sub == "stash" && len(flags) > 0 && (flags[0] == "drop" || flags[0] == "clear" || flags[0] == "pop" || flags[0] == "push" || flags[0] == "save" || flags[0] == "apply"):
+		// a stash mutation quiets or rewrites the working tree — the tree under judgment is
+		// never hidden to learn whether a failure pre-exists (Operator 2026-09-28)
+		c = Classification{Class: Destructive, Why: "git stash " + flags[0] + " hides the tree under judgment"}
 	case (sub == "checkout" || sub == "restore") && (has("--", ".") || (len(flags) > 0 && flags[len(flags)-1] == ".")):
 		c = Classification{Class: Destructive, Why: "git " + sub + " discards working changes"}
 	case sub == "remote" && len(flags) > 0 && flags[0] != "-v" && flags[0] != "show" && flags[0] != "get-url":
@@ -70,7 +72,9 @@ func (e Env) ClassifyGit(args []string) Classification {
 	case sub == "worktree" && len(flags) > 0 && flags[0] != "list":
 		c = Classification{Class: Write, Why: "git worktree " + flags[0]}
 	case sub == "stash" && (len(flags) == 0 || (flags[0] != "list" && flags[0] != "show")):
-		c = Classification{Class: Write, Why: "git stash"}
+		// bare `git stash` and flag-first stashes (`stash -u`) mean push: they quiet the working
+		// tree under judgment just the same
+		c = Classification{Class: Destructive, Why: "git stash hides the tree under judgment"}
 	case sub == "tag" && len(flags) > 0 && !has("-l", "--list") && !strings.HasPrefix(flags[0], "-"):
 		c = Classification{Class: Write, Why: "git tag create"}
 	case sub == "branch" && len(flags) > 0 && !has("-a", "-r", "-v", "-vv", "--list", "-l", "--show-current"):

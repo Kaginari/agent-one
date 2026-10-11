@@ -95,6 +95,7 @@ func hostReadOnly(dist, home string) []string {
 	rel := []string{
 		".config/" + dist, "." + dist,
 		".claude/CLAUDE.md", ".claude/skills", ".claude/commands", ".claude/agents",
+		".agent-one/base-skills", ".agent-one/crafted-skills",
 		".config/opencode", ".agents/skills",
 		".gitconfig", ".config/git",
 	}
@@ -186,6 +187,9 @@ func Containered(dist string, args []string, io IO) (code int, handled bool) {
 			return fail("%v", err)
 		}
 	}
+	if err := dockerLoginIfConfigured(docker, image, reg.Containers, io.Env, io.Err); err != nil {
+		return fail("registry login: %v", err)
+	}
 	exe, err := os.Executable()
 	if err == nil {
 		exe, err = filepath.EvalSymlinks(exe)
@@ -228,6 +232,30 @@ func Containered(dist string, args []string, io IO) (code int, handled bool) {
 		return fail("%v", err)
 	}
 	return 0, true
+}
+
+// dockerLoginIfConfigured logs into the registry the runtime image lives on, when container creds
+// are configured. Env-first (usernameEnv/tokenEnv), literal fallback (username/token); the token
+// rides stdin, never argv, never logs.
+func dockerLoginIfConfigured(docker, image string, c config.Containers, env func(string) string, w io.Writer) error {
+	pick := func(envname, literal string) string {
+		if envname != "" && env != nil && env(envname) != "" {
+			return env(envname)
+		}
+		return literal
+	}
+	user, token := pick(c.UsernameEnv, c.Username), pick(c.TokenEnv, c.Token)
+	if user == "" || token == "" {
+		return nil
+	}
+	host := image
+	if i := strings.Index(image, "/"); i > 0 {
+		host = image[:i]
+	}
+	cmd := exec.Command(docker, "login", host, "-u", user, "--password-stdin")
+	cmd.Stdin = strings.NewReader(token + "\n")
+	cmd.Stdout, cmd.Stderr = io.Discard, w
+	return cmd.Run()
 }
 
 // ensureImage builds the runtime image from the embedded Dockerfile when it is not there yet.

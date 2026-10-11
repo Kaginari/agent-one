@@ -71,11 +71,39 @@ func TestShots(t *testing.T) {
 	shot("gating", m.Render())
 	m.Update(EvSubagent{Subagent: SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Ask: "@ASK draft\nshorten the TTL to 15 minutes", State: "tool"}})
 	m.Update(EvStream{Agent: "zone-auth", Kind: "thinking", Text: "The constant is in token.go; the doc must change in the same turn."})
-	m.Update(EvBodyStep{Agent: "zone-auth", Tool: ToolView{ID: "s1", Name: "read", Summary: "src/auth/token.go", Class: "read", Status: "done", Ms: 2, Output: "package auth\n\nconst ttl = time.Hour"}, End: true})
-	m.Update(EvBodyStep{Agent: "zone-auth", Tool: ToolView{ID: "s2", Name: "edit", Summary: "src/auth/token.go", Class: "write", Status: "running"}})
+	m.Update(EvAgentStep{Agent: "zone-auth", Tool: ToolView{ID: "s1", Name: "read", Summary: "src/auth/token.go", Class: "read", Status: "done", Ms: 2, Output: "package auth\n\nconst ttl = time.Hour"}, End: true})
+	m.Update(EvAgentStep{Agent: "zone-auth", Tool: ToolView{ID: "s2", Name: "edit", Summary: "src/auth/token.go", Class: "write", Status: "running"}})
 	m.Update(EvState{Agent: m.words.Session(), State: "thinking"})
 	shot("subagent-live", m.Render())
-	m.openBodies()
+	// slice 1: the pulse states, frozen mid-frame so the colour shows (the goldens strip it)
+	pulseShots := []string{
+		m.theme.Subagent(SubagentView{Name: "orchestrator", Rank: "orchestrator", Model: "kimi-3-conduit", State: "thinking", Elapsed: 28 * time.Second, Ask: "coordinate the files-panel slices"}, m.width,
+			Pulse{Lane: m.theme.lane("orchestrator"), Phase: 7}),
+		m.theme.Subagent(SubagentView{Name: "coord-agent-one", Rank: "coord", Model: "kimi-3-conduit", State: "thinking", Elapsed: 9 * time.Second, Ask: "weave the witness chain"}, m.width,
+			Pulse{Lane: m.theme.lane("coord"), Phase: 3}),
+		m.theme.Subagent(SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Model: "glm-latest", State: "tool", Elapsed: 12 * time.Second, Ask: "land the token file"}, m.width,
+			Pulse{Lane: m.theme.lane("zone"), Phase: 3, Tool: "edit", Frames: []string{"⠋", "⠙", "⠹", "⠸"}}),
+		m.theme.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "glm-5-3-conduit", State: "waiting on gate", Elapsed: 31 * time.Second, Ask: "verdict on the import"}, m.width,
+			Pulse{Lane: m.theme.lane("domain"), Phase: 9, Bob: 1.4}),
+		m.theme.Subagent(SubagentView{Name: "zone-auth", Rank: "zone", Model: "glm-latest", State: "done", Elapsed: 24 * time.Second, Ask: "land the token file",
+			Report: &ReportView{Status: "PASS", Findings: []string{"src/auth/token.go:1 token ttl is 15m", "src/auth/login.go:12 the session cookie is httpOnly"}}}, m.width,
+			Pulse{Lane: m.theme.lane("zone"), Flash: 0.9}),
+		m.theme.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Model: "glm-5-3-conduit", State: "done", Elapsed: 41 * time.Second, Failed: true, Exit: "FAIL", Ask: "verdict on the import",
+			Report: &ReportView{Status: "FAIL — provider: HTTP 503", Holes: []string{"provider: HTTP 503 after 3 retries"}}}, m.width,
+			Pulse{Lane: m.theme.lane("domain"), Flash: 0.6}),
+	}
+	shot("subagent-pulse", strings.Join(pulseShots, "\n\n"))
+	// the pane frame: chat | divider | sidebar, with a live subagent, the ledger lit, mascot up top
+	m2 := New(h, th, DefaultWords())
+	m2.Update(tea.WindowSizeMsg{Width: 130, Height: 36})
+	m2.Update(EvToolEnd{Tool: ToolView{ID: "s1", Name: "edit", Summary: "tui/blocks.go", Class: "write", Status: "done", Ms: 3, Wrote: []string{"tui/blocks.go"}}})
+	m2.Update(EvSubagent{Subagent: SubagentView{Name: "coord-agent-one", Rank: "coord", Role: "drafter", Model: "glm-latest", State: "thinking", Ask: "coordinate the files-panel slices"}})
+	m2.Update(EvSubagent{Subagent: SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Model: "glm-latest", State: "tool", Ask: "land the token file"}})
+	m2.pulses["coord-agent-one"].active = time.Now()
+	m2.pulses["zone-auth"].active = time.Now()
+	m2.footer = FooterView{Model: "kimi-3-conduit", Ctx: "ctx 42%", Cost: "$0.0123", Workspace: "/w", CtxPct: 42, CtxKnown: true, Zone: "NEAR", Tokens: 15420}
+	shot("panes", m2.Render())
+	m.openAgents()
 	shot("agents", m.Render())
 	m.bview = nil
 	var faces []string

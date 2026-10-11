@@ -1,0 +1,48 @@
+# config.local.yaml example for an agent-one workspace behind an OpenAI-compatible model gateway — the
+# shape the bench runs. The gateway serves bare model ids directly over the OpenAI-compatible
+# API — no local proxy hop in between.
+#
+# Legend — where each entry goes: [coded] the engine reads it and acts (routing, dialing,
+# gating — never text to the model) · [system prompt] injected as text into the system prompt
+# (app/workspace.go → Prompt.Rules) · [coded→result] coded feature whose speech is injected
+# mid-loop inside a tool result.
+
+providers:
+  gateway:
+    enabled: true              # [coded] only enabled providers get dialed
+    type: openai               # [coded] anthropic | openai | mock — the bare wire ids answer
+                               # on OpenAI-compatible natively
+    baseURL: https://gateway.example.com/v1/  # [coded] the one behind the bare wire ids
+    apiKeyEnv: GATEWAY_API_KEY # [coded] the env var's NAME; the value never lands in files
+    # apiKey: "<value>"        # [coded] only where an env var can't exist (headless containers)
+    toolCalls: native          # [coded] native | text — native: the API's tool-calling channel;
+                               # text: tools asked as tags inside the reply, parsed out of the
+                               # message (so "text" also shapes prompt+parse, still a wire knob)
+    contextWindow: auto        # [coded] auto | <n> — auto reads /v1/models (max_model_len);
+                               # a number pins it. Feeds budget/compaction math, not prompt
+
+models:
+  default: gateway/kimi-latest  # [coded] provider/model — the routing table, never prompt
+  # roles ride their own models when it pays: a cheap id to read, a strong id to judge
+  # mounts: { analyst: gateway/glm-latest, gate: gateway/glm-5-3-llmd, … }
+
+rules:
+  # [system prompt] a `text:` rule is injected into the system prompt and the ontology;
+  # a rule carrying `check:` instead is a command the gate runs — coded, not prompt.
+  # An agent's transform changes exactly what it was ordered to change — what it was not ordered to
+  # touch stays as found, to the byte: filters that prove clean input untouched, never reserialize.
+  - text: "A filter or transform never reserializes input it did not change: a clean file stays byte-identical."
+  # The wire and journal carry the detail; an agent's voice names intent in one line and acts.
+  - text: "Speak tersely: one line of intent before a step, then act — never restate diffs, logs or output a step just printed; reasoning depth belongs in the work, not the report."
+
+policy:
+  humanGate: { enabled: true }    # [coded] a human answers asks while you're at the keyboard
+  closingCheck: { enabled: true } # [coded] the loop re-asks once at closing — headless/bench path;
+                                  # a close earns itself on evidence; files written + invariance
+                                  # asks admit only a byte-level compare witness on input held clean
+  guts: { enabled: true }         # [coded→result] the per-step value sense (window/floor tunable);
+                                  # scores acts at verify, speaks once inside a slide so an agent
+                                  # does not repeat its own failure twice
+# The Nine Principles ride in `AGENT-ONE.md` — the policy every agent reads per turn (the system prompt);
+# keep them as the convention, not a config field.
+

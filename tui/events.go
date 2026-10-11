@@ -57,6 +57,25 @@ type ChoiceAnswer struct {
 	Aborted bool   // the program went away before an answer
 }
 
+// EvChoiceAnswered lands on the event bus (and its instruments tap) after every answered
+// choice — the evidence ledger a review lane reads later to graduate rules from patterns
+// ("you always allow class X" wants a rule, not a faster cursor). It never steers a live
+// choice: the gate stays silent, and no value function touches the human's pacing.
+type EvChoiceAnswered struct {
+	Class, Tool, Answer, Recommended string
+}
+
+// EvPlanOutcome closes the scenario funnel's loop at a turn's end (crafted-skill
+// scenario-3-2-1): each deck that updated during that turn lands as one row naming the agent,
+// the end verdict, the cards it carried and the chosen slice. The scorecard's tomorrow reads
+// yesterday's rows — instruments, never weights.
+type EvPlanOutcome struct {
+	Agent, Verdict string // the deck's owner, the turn's end verdict
+	Cards          int    // deck items the deck carried
+	Chosen         string // id of the in_progress/done item the turn worked ("" when none named)
+	Why            string // the score's evidence, quoted ("" = no score carded)
+}
+
 // EvQuit ends the program.
 type EvQuit struct{}
 

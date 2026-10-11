@@ -55,7 +55,7 @@ func TestInitComplexNeedsAModelFirst(t *testing.T) {
 	if code != 2 || strings.Contains(out, "founding session starts") {
 		t.Fatalf("%d %q %q", code, out, errs)
 	}
-	if !strings.Contains(errs, "ANTHROPIC_API_KEY") || !strings.Contains(errs, "init --level complex") || !strings.Contains(out, "founded at") {
+	if !strings.Contains(errs, "ANTHROPIC_API_KEY") || !strings.Contains(errs, "init --level complex") || !strings.Contains(errs, "founded with the policy only") {
 		t.Fatalf("the next step is not named: %q %q", out, errs)
 	}
 }

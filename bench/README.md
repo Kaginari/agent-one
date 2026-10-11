@@ -18,6 +18,12 @@ per task, the agent inside it, the task's own tests deciding pass or fail.
 - `smoke.sh` — the €0 smoke run: the fake vLLM scripted right must score 1.0, wrong must score 0.0.
 - `harbor.sh` — the real run: agent-one and OpenCode on the same tasks and gateway models, head to
   head; see [HARBOR.md](HARBOR.md).
+- `harbor/base/` — the shared task-image base: node 22 + opencode baked from the Artifactory npm
+  remote; tb2 wraps lift from it (staged by `tb2-base/build.sh`, never a second FROM against
+  docker.io — the bench net routes through Artifactory only).
+- `tb2-base/` + `tasks-tb2/` — the terminal-bench-2 slice: alexgshaw prebuilts raised with the
+  verifier toolchain (curl, uv, pytest + each task's pins) from Artifactory apt/pypi/CRAN remotes
+  at build time; every task checked honest before a run: nop fails, oracle passes.
 - `jobs/` — Harbor's raw output, not tracked.
 
 Run the runner with the repository mounted at the same absolute path, so the paths Harbor hands

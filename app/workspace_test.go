@@ -101,23 +101,33 @@ func agentOneMembers() map[string]string {
 		".agent-one/log.md":                    "# Chronicle\n\nAppend-only.\n\n---\n",
 		".agent-one/coord/core/README.md":      "# coord-core\n\n- **Rank:** Coordinator\n- **Owns:** `src/`\n- **Purpose:** the shared skill\n",
 		".agent-one/domain/security/README.md": "# domain-security\n\n- **Rank:** Domain owner\n- **Owns:** `src/auth/`, `src/api/`\n- **Reports to:** coord-core\n",
-		".agent-one/zone/auth/README.md":       "# zone-auth\n\n- **Rank:** Zone worker\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n\n## Invariants\n- tokens expire after one hour\n",
-		".agent-one/zone/api/README.md":        "# zone-api\n\n- **Rank:** Zone worker\n- **Owns:** `src/api/`\n- **Reports to:** domain-security\n",
+		".agent-one/zone/auth/README.md":       "# zone-auth\n\n- **Rank:** Zone worker\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n- **Verify:** `test -d src/auth`\n\n## Invariants\n- tokens expire after one hour\n",
+		".agent-one/zone/api/README.md":        "# zone-api\n\n- **Rank:** Zone worker\n- **Owns:** `src/api/`\n- **Reports to:** domain-security\n- **Verify:** `test -d src/api`\n",
 		"src/auth/login.go":                    "package auth\n",
 		"src/api/server.go":                    "package api\n",
 		"README.md":                            "hello\n",
 	}
 }
 
-// TestDispatchJunction is rung 3's junction: the real shelf (rung 2) under the real workspace —
-// a subagent dispatched with role routing to a distinct model, ownership enforced, the gate's
-// verdict in log.md, the unsaid landed.
+// TestDispatchJunction is layer 3's junction: the real shelf (layer 2) under the real workspace —
+// a Subagent dispatched with role routing to a distinct model, ownership enforced, the gate's
+// verdict in log.md, the unsaid landed. Since strictFlow is the default, the orchestrator hands
+// work one hop down (orchestrator → coord-core), and each subagent re-dispatches to the rank below.
 func TestDispatchJunction(t *testing.T) {
 	files := agentOneMembers()
 	w := newTestWorkspace(t, "agent-one", files)
 	w.script(".agent-one/tmp/session.json",
-		when("do the work", call("dispatch", map[string]string{"agent": "zone-auth", "ask": "findings on the login zone: land the token file", "scope": "src/auth"})),
+		when("do the work", call("dispatch", map[string]string{"agent": "coord-core", "ask": "draft on the login zone: land the token file", "scope": "src/auth"})),
 		text("@S DONE\n@F the subagent reported\n@E 34"),
+	)
+	// the ladder one hop at a time; each hop carries its role word so model routing is distinct
+	w.script(".agent-one/tmp/coord.json",
+		when("draft on the login zone", call("dispatch", map[string]string{"agent": "domain-security", "ask": "verdict on the login zone: land the token file", "scope": "src/auth"})),
+		text("@S DONE the domain owner reported\n@U team coordinator hands work one hop down to the domain owner\n@E 40"),
+	)
+	w.script(".agent-one/tmp/domain.json",
+		when("verdict on the login zone", call("dispatch", map[string]string{"agent": "zone-auth", "ask": "findings on the login zone: land the token file", "scope": "src/auth"})),
+		text("@S DONE the zone worker reported\n@U team domain owner hands work one hop down to the zone worker\n@E 40"),
 	)
 	w.script(".agent-one/tmp/analyst.json",
 		when("@ASK findings", map[string]interface{}{"calls": []interface{}{
@@ -130,11 +140,14 @@ func TestDispatchJunction(t *testing.T) {
 	w.write(".agent-one/config.yaml", `
 models:
   default: m1/mount
-  roles: {analyst: m2/analyst}
+  roles: {analyst: m2/analyst, judge: m4/domain, drafter: m3/coord}
 providers:
   m1: {type: mock, script: .agent-one/tmp/session.json}
   m2: {type: mock, script: .agent-one/tmp/analyst.json}
-tools: {bash: {sandbox: none}}
+  m3: {type: mock, script: .agent-one/tmp/coord.json}
+  m4: {type: mock, script: .agent-one/tmp/domain.json}
+ # the gate's subagent is role-keyed; the roles themselves tell the hops apart
+tools: {bash: {sandbox: none}, dispatch: {maxDepth: 3}}
 ui: {board: {autostart: false}}
 `)
 	a := w.open()
@@ -156,7 +169,7 @@ ui: {board: {autostart: false}}
 		t.Fatalf("session: %s %v", r.Status, r.Holes)
 	}
 	report := r.Steps[0].Result.Output
-	if !strings.Contains(report, "@S PASS") || !strings.Contains(report, "@U domain the token TTL is 15m") {
+	if !strings.Contains(report, "@S DONE") || !strings.Contains(report, "domain owner reported") {
 		t.Errorf("subagent report: %q", report)
 	}
 	if w.read("src/auth/token.go") == "" {
@@ -165,7 +178,7 @@ ui: {board: {autostart: false}}
 	if _, err := os.Stat(filepath.Join(w.root, "src/api/rogue.go")); err == nil {
 		t.Error("a write outside the subagent's ownership landed")
 	}
-	// role routing: the subagent ran on m2 (analyst), the session on m1
+	// role routing: the zone worker ran under the same m2 as the original (same role word reaches it)
 	recs, _ := ReadUsage(a.Journal.Dir)
 	byAgent := map[string]UsageRecord{}
 	for _, rec := range recs {
@@ -201,6 +214,70 @@ ui: {board: {autostart: false}}
 	}
 	if lines := a.StatusLines(); len(lines) == 0 || strings.Contains(strings.Join(lines, "\n"), "@? off ") {
 		t.Errorf("status: %v", lines)
+	}
+}
+
+// TestCourierEnvelope: a subagent's substantive report (>600 B) is filed on the instruments
+// shelf by the harness; the dispatcher's context carries only the envelope (@R path, @H
+// checksum, @W wrote set + a digest head). Small reports ride whole — the courier tax would
+// exceed the relay tax there.
+func TestCourierEnvelope(t *testing.T) {
+	files := agentOneMembers()
+	w := newTestWorkspace(t, "agent-one", files)
+	w.script(".agent-one/tmp/session.json",
+		when("map the auth zone", call("dispatch", map[string]string{"agent": "coord-core", "ask": "findings on the auth zone", "scope": "src/auth"})),
+		text("@S DONE\n@F see the envelope\n@U team the session watched the courier\n@E 40"),
+	)
+	longWire := "@S DONE\n@F src/auth/login.go:1 the handler is there\n"
+	for len(longWire) < 800 {
+		longWire += "@F src/auth/login.go:1 finding filler finding filler finding filler finding filler\n"
+	}
+	longWire += "@U team coordinator saw it run\n@E 900"
+	w.script(".agent-one/tmp/coord.json",
+		when("findings on the auth zone", text(longWire)),
+	)
+	w.write(".agent-one/config.yaml", `
+models:
+  default: m1/mount
+  roles: {analyst: m3/coord-analyst}
+providers:
+  m1: {type: mock, script: .agent-one/tmp/session.json}
+  m3: {type: mock, script: .agent-one/tmp/coord.json}
+tools: {bash: {sandbox: none}, dispatch: {maxDepth: 3}}
+ui: {board: {autostart: false}}
+`)
+	a := w.open()
+	e, err := a.Engine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.Run(context.Background(), "map the auth zone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := r.Steps[0].Result.Output
+	if !strings.Contains(report, "@S DONE") || !strings.Contains(report, "@R .agent-one/instruments/loop/coord-core-") ||
+		!strings.Contains(report, "@H fnv64:") || !strings.Contains(report, "digest:") {
+		t.Fatalf("the dispatcher's context must carry the envelope, not the flesh:\n%s", report)
+	}
+	filler := 0
+	for _, l := range strings.Split(report, "\n") {
+		if strings.Contains(l, "finding filler") {
+			filler++
+		}
+	}
+	if filler > 8 {
+		t.Fatalf("the flesh rode up whole — %d filler lines in an envelope that may head 8:\n%s", filler, report)
+	}
+	// the filed report is the full wire text — integrity line unchanged since filing
+	matches := filepath.Join(w.root, ".agent-one/instruments/loop/coord-core-*.report.md")
+	g, _ := filepath.Glob(matches)
+	if len(g) != 1 {
+		t.Fatalf("report files on the shelf: %v", g)
+	}
+	b, _ := os.ReadFile(g[0])
+	if !strings.Contains(string(b), "finding filler") || !strings.Contains(string(b), "@U team coordinator saw it run") {
+		t.Fatalf("the filed report must hold the flesh, got %d bytes", len(b))
 	}
 }
 
@@ -290,11 +367,11 @@ func TestReplaceRanks(t *testing.T) {
 		text("@S PASS\n@U team coders write under src/auth\n@E 50"),
 	)
 	w.write(".agent-one/config.yaml", `
-models: {default: m1/mount, ranks: {coder: m2/coder}}
+models: {default: m1/mount, roles: {analyst: m2/coder}}
 providers:
   m1: {type: mock, script: .agent-one/tmp/session.json}
   m2: {type: mock, script: .agent-one/tmp/coder.json}
-tools: {bash: {sandbox: none}}
+tools: {bash: {sandbox: none}, dispatch: {strictFlow: false}}
 rankSet: replace
 ranks:
   lead:   {reportsTo: orchestrator, job: coordinates, agent: ephemeral, role: drafter}
@@ -355,13 +432,15 @@ ui: {board: {autostart: false}}
 
 // TestAgentOneWorkspace: the same engine under the other distribution — .agent-one/, AGENT-ONE.md,
 // zone-/domain- prefixes, the wire's kind tokens, memory and toolbox in the renamed dir.
+// Since strictFlow is the default, the orchestrator hands work one hop down (Orchestrator → Coordinator).
 func TestAgentOneWorkspace(t *testing.T) {
 	lex := workspace.Default()
 	policy := strings.Replace(testPolicy, "## Core principles", "## "+lex.Principles, 1)
 	w := newTestWorkspace(t, "", map[string]string{
 		".agent-one/AGENT-ONE.md":              policy,
 		".agent-one/log.md":                    "# Chronicle\n\n---\n",
-		".agent-one/domain/security/README.md": "# domain-security\n\n- **Rank:** Domain owner\n- **Owns:** `src/auth/`\n",
+		".agent-one/coord/security/README.md":  "# coord-security\n\n- **Rank:** Coordinator\n- **Owns:** `src/security/`\n",
+		".agent-one/domain/security/README.md": "# domain-security\n\n- **Rank:** Domain owner\n- **Owns:** `src/auth/`\n- **Reports to:** coord-security\n",
 		".agent-one/zone/auth/README.md":       "# zone-auth\n\n- **Rank:** Zone worker\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n",
 		"src/auth/a.go":                        "package auth\n",
 	})
@@ -370,17 +449,25 @@ func TestAgentOneWorkspace(t *testing.T) {
 			map[string]interface{}{"name": "remember", "input": map[string]string{"text": "the login zone rotates keys weekly", "kind": "team"}},
 			map[string]interface{}{"name": "recall", "input": map[string]string{"question": "login zone keys"}},
 			map[string]interface{}{"name": "onto", "input": map[string]string{"path": "src/auth/a.go"}},
-			map[string]interface{}{"name": "dispatch", "input": map[string]string{"agent": "zone-auth", "ask": "findings: look around"}},
+			map[string]interface{}{"name": "dispatch", "input": map[string]string{"agent": "coord-security", "ask": "draft: look around"}},
 		}}),
 		text("@S DONE\n@E 12"),
 	)
-	w.script(".agent-one/tmp/zone.json", when("@ASK findings", text("@S PASS\n@U domain keys rotate weekly\n@E 40")))
+	w.script(".agent-one/tmp/coord.json", when("@ASK draft", call("dispatch", map[string]string{"agent": "domain-security", "ask": "verdict: look around"})))
+	w.script(".agent-one/tmp/zone.json",
+		when("@ASK verdict", call("dispatch", map[string]string{"agent": "zone-auth", "ask": "findings: look around"})),
+		text("@S PASS\n@U domain keys rotate weekly\n@E 40"),
+	)
 	w.write(".agent-one/config.yaml", `
-models: {default: m1/mount, roles: {analyst: m2/zone}}
+models:
+  default: m1/mount
+  roles: {analyst: m2/zone, judge: m4/zone, drafter: m3/coord}
 providers:
   m1: {type: mock, script: .agent-one/tmp/session.json}
   m2: {type: mock, script: .agent-one/tmp/zone.json}
-tools: {bash: {sandbox: none}}
+  m3: {type: mock, script: .agent-one/tmp/coord.json}
+  m4: {type: mock, script: .agent-one/tmp/zone.json}
+tools: {bash: {sandbox: none}, dispatch: {maxDepth: 3}}
 ui: {board: {autostart: false}}
 `)
 	a := w.open()

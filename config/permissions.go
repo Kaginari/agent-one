@@ -16,7 +16,7 @@ const (
 )
 
 // pathTools match their subject as a slash path: `*` stops at `/`, `**` crosses it.
-var pathTools = map[string]bool{"read": true, "write": true, "edit": true, "multiedit": true, "patch": true, "glob": true, "grep": true, "ls": true}
+var pathTools = map[string]bool{"read": true, "write": true, "edit": true, "delete": true, "multiedit": true, "patch": true, "glob": true, "grep": true, "ls": true}
 
 // Specificity orders matching rules: an exact tool beats `*`; more literal characters beat
 // fewer; fewer `*`/`**` runs beat more; fewer `?` beat more. Ties fall to deny > ask >

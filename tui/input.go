@@ -26,11 +26,43 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.paletteKey(k)
 	}
 	if k.String() == "ctrl+t" {
-		return m, m.openBodies()
+		return m, m.openAgents()
+	}
+	// rail card collapse toggles: alt+p / alt+c / alt+f fold the plan, subagents, files cards
+	if k.String() == "alt+p" || k.String() == "alt+c" || k.String() == "alt+f" {
+		key := map[string]string{"alt+p": "plan", "alt+c": "subagents", "alt+f": "files"}[k.String()]
+		if m.railCollapsed == nil {
+			m.railCollapsed = map[string]bool{}
+		}
+		m.railCollapsed[key] = !m.railCollapsed[key]
+		return m, nil
 	}
 	if k.String() == "ctrl+k" {
 		m.openPalette()
 		return m, nil
+	}
+	if k.String() == "ctrl+p" && len(m.plans) > 0 {
+		m.planIdx = (m.planIdx + 1) % len(m.plans)
+		m.planSticky = true
+		m.say(fmt.Sprintf("plan · %s (%d/%d)", m.plans[m.planIdx].Agent, m.planIdx+1, len(m.plans)))
+		return m, nil
+	}
+	// c — current (LEC-2026-10-04-STALE-PLANS Order 2): only when the viewed deck is stale or
+	// archived AND the viewer deliberately pinned it (planSticky — coord-agent-one relay 2026-10-13)
+	// do we snap back to this session's own live deck; a boot-default stale view never eats the
+	// rune. Placed before the paging branch so a long stale deck cannot swallow it.
+	if k.String() == "c" && m.planSticky && len(m.plans) > 0 && (m.plans[m.planIdx].Stale || m.plans[m.planIdx].Archived) {
+		m.snapPlanToCurrent()
+		return m, nil
+	}
+	// C — shift+c escape hatch (2026-10-13): snaps to the current deck from ANY view, sticky or
+	// boot-default, whenever a live deck exists — banner distinct from the lowercase chord's.
+	if k.String() == "C" && len(m.plans) > 0 {
+		m.snapPlanToCurrent()
+		return m, nil
+	}
+	if cmd, ok := m.vpKey(k); ok {
+		return m, cmd
 	}
 	ks := k.String()
 	if m.shortcuts && ks != "ctrl+c" {
@@ -134,6 +166,32 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.grow()
 	m.refreshMenus()
 	return m, cmd
+}
+
+// snapPlanToCurrent — 'c' "current" switch (LEC-2026-10-04-STALE-PLANS Order 2). Snaps planIdx
+// back to the running session's OWN live deck: the orchestrator-card (orchestrator/orchestrator) deck that
+// is neither Archived nor Stale — without leaving the plan view. planSticky resets so the coordinator
+// default resumes; stale and archived decks stay browsable (ctrl+p and the subagent-row click
+// still reach them). Stale decks are rejected as snap targets (2026-10-13 relay): re-snapping
+// onto another stale deck kept the chord's gate condition true and looped the swallow forever.
+func (m *Model) snapPlanToCurrent() {
+	m.planSticky = false
+	for i := range m.plans {
+		p := m.plans[i]
+		if !p.Archived && !p.Stale && (p.Rank == "orchestrator") {
+			m.planIdx = i
+			m.say(fmt.Sprintf("plan · %s (%d/%d) · current", p.Agent, i+1, len(m.plans)))
+			return
+		}
+	}
+	for i := range m.plans { // no live orchestrator deck: fall back to the first non-archived, non-stale deck
+		if !m.plans[i].Archived && !m.plans[i].Stale {
+			m.planIdx = i
+			m.say(fmt.Sprintf("plan · %s (%d/%d) · current", m.plans[i].Agent, i+1, len(m.plans)))
+			return
+		}
+	}
+	m.say("plan · no live deck")
 }
 
 func (m *Model) menu_name(line string) string {

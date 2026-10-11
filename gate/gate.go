@@ -22,6 +22,9 @@ const (
 	Approved  Decision = "approved"
 	Denied    Decision = "denied"
 	WouldAsk  Decision = "would-ask"
+	// Suspended is not a refusal: the card's wait outlived its patience layers and the host
+	// parked the turn on purpose (card durable on instruments; the thread revives by resume).
+	Suspended Decision = "suspended"
 )
 
 // Request is one act put to the gate.
@@ -112,7 +115,7 @@ func (g *Gate) Ask(r Request) Answer {
 	if g.Answer != nil {
 		if a, ok := g.Answer(r); ok {
 			a.Needed = true
-			if a.Decision != Approved {
+			if a.Decision != Approved && a.Decision != Suspended {
 				a.Decision = Denied
 			}
 			if a.By == "" {

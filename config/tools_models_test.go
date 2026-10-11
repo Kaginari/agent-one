@@ -149,7 +149,6 @@ providers:
 		t.Errorf("holes: %v", c.Holes)
 	}
 	refusals := []struct{ name, yaml, want string }{
-		{"literal key", "providers:\n  anthropic: {apiKey: sk-ant-1}\n", "credential never lives in a config file"},
 		{"literal token", "providers:\n  x: {type: openai, baseURL: u, token: abc}\n", "credential"},
 		{"auth header", "providers:\n  x: {type: openai, baseURL: u, headers: {Authorization: \"Bearer x\"}}\n", "carries a credential"},
 		{"secret in apiKeyEnv", "providers:\n  x: {type: openai, baseURL: u, apiKeyEnv: sk-abc-123}\n", "must name an environment variable"},
@@ -191,8 +190,12 @@ providers:
       claude-fable-5-1: {tier: 3}
 `})
 	c := w.load()
-	if len(c.Holes) != 0 {
-		t.Fatalf("holes: %v", c.Holes)
+	for _, h := range c.Holes {
+		// rank pins are dead by policy ("ignored (roles lens, never ranks)"); any other hole fails
+		if strings.Contains(h, "roles lens") {
+			continue
+		}
+		t.Fatalf("hole: %s", h)
 	}
 	cases := []struct {
 		member, rank, role, task string
@@ -200,11 +203,14 @@ providers:
 	}{
 		{"zone-changelog", "zone", "drafter", "log", "anthropic/claude-haiku-4-5", "models.members.zone-changelog"},
 		{"zone-auth", "zone", "drafter", "log", "anthropic/claude-fable-5-1", "models.roles.drafter"},
-		{"", "domain", "", "log", "anthropic/claude-opus-5", "models.ranks.domain"},
+		// rank pins no longer ride the ladder — a pinned domain owner still falls to the role hat the
+		// commission named, never to ranks.<r>; the role lens IS the lane decider
+		{"", "domain", "", "log", "anthropic/claude-haiku-4-5", "models.tasks.log"},
+		{"", "domain", "drafter", "", "anthropic/claude-fable-5-1", "models.roles.drafter"},
 		{"", "zone", "", "log", "anthropic/claude-haiku-4-5", "models.tasks.log"},
 		{"", "zone", "", "", "anthropic/claude-sonnet-5", "models.default"},
 		{"", "", "judge", "", "anthropic/claude-opus-5", "models.roles.judge"},
-		{"", "domain", "", "", "anthropic/claude-opus-5", "models.ranks.domain"},
+		{"", "domain", "", "", "anthropic/claude-sonnet-5", "models.default"},
 	}
 	for _, cs := range cases {
 		m, o := c.ResolveModel(cs.member, cs.rank, cs.role, cs.task)
@@ -223,11 +229,17 @@ providers:
 	if err := w.loadErr(); err == nil || !strings.Contains(err.Error(), "lineage") {
 		t.Errorf("lineage: %v", err)
 	}
-	// missing tier is a hole, not an error
+	// missing tier is a hole, not an error (the rank-pin hole is the dead ladder speaking — masked out)
 	w.write(".agent-one/config.local.yaml", "models: {roles: {drafter: anthropic/claude-new}}\n")
 	c = w.load()
-	if len(c.Holes) != 1 || !strings.Contains(c.Holes[0], "declares no tier") {
-		t.Errorf("tier hole: %v", c.Holes)
+	var tierHoles []string
+	for _, h := range c.Holes {
+		if !strings.Contains(h, "roles lens") {
+			tierHoles = append(tierHoles, h)
+		}
+	}
+	if len(tierHoles) != 1 || !strings.Contains(tierHoles[0], "declares no tier") {
+		t.Errorf("tier hole: %v", tierHoles)
 	}
 	// ranks.<r>.model is the same slot as models.ranks.<r>
 	w.write(".agent-one/config.local.yaml", "ranks: {domain: {model: anthropic/claude-sonnet-5}}\n")
@@ -236,8 +248,14 @@ providers:
 	}
 	w.write(".agent-one/config.local.yaml", "ranks: {zone: {model: anthropic/claude-haiku-4-5}}\n")
 	c = w.load()
-	if m, _ := c.ResolveModel("", "zone", "", ""); m.Slot != "ranks.zone.model" || m.Ref.Model != "anthropic/claude-haiku-4-5" {
-		t.Errorf("rank model slot: %+v", m)
+	for _, h := range c.Holes {
+		if strings.Contains(h, "roles lens") {
+			continue
+		}
+		t.Fatalf("hole after rank.model pin: %s", h)
+	}
+	if m, _ := c.ResolveModel("", "zone", "analyst", ""); m.Slot != "models.roles.analyst" {
+		t.Errorf("rank pin gone from the ladder — the role hat takes over: %+v", m)
 	}
 }
 
@@ -295,6 +313,13 @@ ranks:
 	if dev := c.Deviations(); len(dev) != 2 || !strings.HasPrefix(dev[0], "rank zone.role:") || !strings.HasPrefix(dev[1], "rank principal-domain-owner.job:") {
 		t.Errorf("deviations: %v", dev)
 	}
+	// the tree surfaces the hierarchy's coded marks: layer, divine rules, the crossing
+	w = newWorkspace(t, map[string]string{".agent-one/config.yaml": "ranks:\n  domain: {layer: 2}\n  principal-domain-owner: {promotesWhen: \"promote domain when reports >= 3\", divineRules: [go around the backlog]}\n"})
+	c = w.load()
+	tree = c.RankTree()
+	if !strings.Contains(tree, "layer 2") || !strings.Contains(tree, "1 divine rule") || !strings.Contains(tree, "when `promote domain when reports >= 3`") {
+		t.Errorf("the tree must show layer, divine rules and the crossing:\n%s", tree)
+	}
 	refusals := []struct{ name, yaml, want string }{
 		{"cycle", "ranks:\n  a: {reportsTo: b}\n  b: {reportsTo: a}\n", "cycle"},
 		{"unknown parent", "ranks:\n  a: {reportsTo: nobody}\n", "no rank"},
@@ -302,6 +327,10 @@ ranks:
 		{"author without gate", "rankSet: replace\nranks:\n  a: {reportsTo: orchestrator, authors: true}\n", "no rank above it holds a gate"},
 		{"promoted drops a base field", "ranks:\n  principal-domain-owner: {holdsGate: false}\n", "keeps everything"},
 		{"promotes from promoted", "ranks:\n  x: {promotesFrom: principal-domain-owner}\n", "itself promoted"},
+		{"promotesWhen on a plain rank", "ranks:\n  domain: {promotesWhen: \"promote domain when reports >= 5\"}\n", "promotes from nothing"},
+		{"promotesWhen of another rank", "ranks:\n  principal-domain-owner: {promotesWhen: \"promote zone when reports >= 5\"}\n", "not its base"},
+		{"promotesWhen not ASL", "ranks:\n  principal-domain-owner: {promotesWhen: \"quickly now\"}\n", "opens with"},
+		{"divineRules on a plain rank", "ranks:\n  domain: {divineRules: [never skip the gate]}\n", "promotes from nothing"},
 		{"root configured", "ranks:\n  orchestrator: {job: x}\n", "not configured"},
 		{"bad agent", "ranks:\n  coord: {agent: ghost}\n", "not ephemeral or persistent"},
 		{"bad rankSet", "rankSet: merge\n", "not extend or replace"},

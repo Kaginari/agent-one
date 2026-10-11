@@ -230,42 +230,123 @@ func (m *Model) stepToasts() bool {
 	return moving
 }
 
-// overlay composes the live area with the palette and the toasts as layers.
+// overlay composes the live area with the palette, the floating ask card, the verdict burst
+// and the toasts as layers (lipgloss canvases do real cell compositing — the top layer's blank
+// cells let the frame show through; there is no alpha anywhere). POLICY: the overlay never adds a
+// row to the frame — toasts and palette draw over the base's own rows. The inline renderer
+// tracks height exactly; a frame whose height waves at it leaves ghosts in the scrollback.
 func (m *Model) overlay(base string) string {
-	if m.palette == nil && len(m.toasts) == 0 {
+	if m.palette == nil && len(m.toasts) == 0 && !m.choiceFloat() && !m.burstOn {
 		return base
 	}
 	var layers []*lipgloss.Layer
-	top := 0
-	if len(m.toasts) > 0 {
-		// a line per toast above the live area, the toasts right-aligned over them
-		top = len(m.toasts)
-		base = strings.Repeat("\n", top) + base
-		for i, tt := range m.toasts {
-			pill := tt.style.Padding(0, 1).Render(tt.text)
-			x := m.width - lipgloss.Width(pill) - 1 + int(tt.x)
-			if x >= m.width {
-				continue
-			}
-			layers = append(layers, lipgloss.NewLayer(ansi.Truncate(pill, m.width-x, "")).X(x).Y(i).Z(2))
+	baseH := strings.Count(base, "\n") + 1
+	for i, tt := range m.toasts {
+		// toasts slide over the frame's top-right rows — the base keeps its height
+		pill := tt.style.Padding(0, 1).Render(tt.text)
+		x := m.width - lipgloss.Width(pill) - 1 + int(tt.x)
+		if x >= m.width {
+			continue
 		}
+		layers = append(layers, lipgloss.NewLayer(ansi.Truncate(pill, m.width-x, "")).X(x).Y(i).Z(2))
+	}
+	if m.choiceFloat() {
+		// the darkened backdrop: the frame, stripped and held again in dim — an honest
+		// darkening of real text, not a transparency trick
+		dl := strings.Split(base, "\n")
+		for i, l := range dl {
+			dl[i] = m.theme.dim.Render(ansi.Strip(l))
+		}
+		base = strings.Join(dl, "\n")
+		box := m.theme.Choice(m.view, min(m.width*3/5, 100))
+		// elevation cue: the card's top edge gradients accent → border
+		first, rest, _ := strings.Cut(box, "\n")
+		box = Gradient(ansi.Strip(first), false, m.theme.accent.GetForeground(), m.theme.border.GetForeground()) + "\n" + rest
+		box = m.pinChoice(box) // growth-only pin: the card never reflows as the cursor moves
+		bw, bh := lipgloss.Width(box), strings.Count(box, "\n")+1
+		x, y := centerRect(m.width, m.height, bw, bh)
+		y += dropOffset(time.Since(m.choiceAt))
+		if y+bh > m.height {
+			y = max(0, m.height-bh)
+		}
+		layers = append(layers, lipgloss.NewLayer(box).X(x).Y(y).Z(3))
 	}
 	if m.palette != nil {
 		pv := m.paletteView()
 		h := strings.Count(pv, "\n") + 1
-		baseH := strings.Count(base, "\n") + 1
-		// the input box and the footer are the live area's last four lines
-		if need := h - (baseH - 4 - top); need > 0 {
-			// room above the input box for the palette to float in
-			base = strings.Repeat("\n", need) + base
-			baseH += need
-		}
+		// the palette floats over the rows above the input — idle frames give it blank chat to
+		// ride, busy frames it simply covers (it is a modal focus)
+		y := max(0, baseH-4-h)
 		x := max(0, (m.width-lipgloss.Width(pv))/2)
-		y := max(top, baseH-4-h) // it sits over the space above the input
-		layers = append(layers, lipgloss.NewLayer(pv).X(x).Y(y).Z(3))
+		layers = append(layers, lipgloss.NewLayer(pv).X(x).Y(y).Z(4))
+	}
+	if burst := m.burstRain(baseH); burst != nil {
+		layers = append(layers, burst...)
 	}
 	all := append([]*lipgloss.Layer{lipgloss.NewLayer(base)}, layers...)
 	return lipgloss.NewCompositor(all...).Render()
+}
+
+// pinChoice growth-pads the modal card to the biggest size it has reached since it opened —
+// state economy so the card's centre never reflows when the cursor moves between options or
+// into the free-text row (Operator 2026-10-03: the popup was floating choice to choice).
+func (m *Model) pinChoice(box string) string {
+	lines := strings.Split(box, "\n")
+	w := 0
+	for _, l := range lines {
+		if lw := ansi.StringWidth(l); lw > w {
+			w = lw
+		}
+	}
+	if w > m.choiceW {
+		m.choiceW = w
+	}
+	if len(lines) > m.choiceH {
+		m.choiceH = len(lines)
+	}
+	for i, l := range lines {
+		if pad := m.choiceW - ansi.StringWidth(l); pad > 0 {
+			lines[i] = l + strings.Repeat(" ", pad)
+		}
+	}
+	for len(lines) < m.choiceH {
+		lines = append(lines, strings.Repeat(" ", m.choiceW))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// burstRain is the verdict burst's glyph rain over the frame (rows lines tall): deterministic
+// columns out of the arm's instant, staggered starts, two rows of fall a tick; it switches
+// itself off once the fall is spent. The glyphs rain where the landed Subagent cards just left
+// the scrollback.
+func (m *Model) burstRain(rows int) []*lipgloss.Layer {
+	if !m.burstOn {
+		return nil
+	}
+	age := time.Since(m.burstAt)
+	tick := int(age / (time.Second / pulseFPS))
+	if age < 0 || tick >= burstTicks {
+		m.burstOn = false
+		return nil
+	}
+	st := m.theme.ok
+	if !m.burstGood {
+		st = m.theme.bad
+	}
+	glyph := st.Render(burstGlyph)
+	seed := uint32(m.burstAt.UnixNano()>>20) * 2654435761 // knuth: stable scatter per arm
+	n := min(18, m.width/7)
+	var out []*lipgloss.Layer
+	for i := 0; i < n; i++ {
+		h := seed*uint32(i+3) ^ (seed >> 7)
+		x := int(h % uint32(max(m.width, 1)))
+		y := int(h>>8%3) + tick*2
+		if y > rows-2 {
+			continue
+		}
+		out = append(out, lipgloss.NewLayer(glyph).X(x).Y(y).Z(2))
+	}
+	return out
 }
 
 // pill is a toast's style: dark text on the verdict's colour.

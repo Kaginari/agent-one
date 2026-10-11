@@ -2,9 +2,9 @@
 │ Question                                                                                         │
 │ Which storage should the session index use?                                                      │
 │                                                                                                  │
-│   1. sqlite                                                                                      │
-│ ❯ 2. jsonl                                                                                       │
-│   … or type an answer                                                                            │
+│  1 · sqlite                                                                                      │
+│  2 · jsonl                                                                                       │
+│  …   type an answer                                                                              │
 │                                                                                                  │
 │ ↑↓ or a digit picks · enter confirms                                                             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

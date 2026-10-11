@@ -1,0 +1,2 @@
+◆ subagent domain-security · domain · judge · mock/m                                            WAITING ON GATE · 31s 
+  └ verdict on the import

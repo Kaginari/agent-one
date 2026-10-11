@@ -90,3 +90,41 @@ func TestNormLevel(t *testing.T) {
 		}
 	}
 }
+
+func TestSketchTeamChunksFlatDirs(t *testing.T) {
+	// the zone-sizing policy at provisioning (2026-10-09): a big flat dir chunks into bounded file
+	// sets — one persistent agent per whole flat tree puts every new file's creation on one agent
+	root := tree(t, "go.mod", "README.md", "main.go",
+		"flat/a.go", "flat/b.go", "flat/c.go", "flat/d.go", "flat/e.go", "flat/f.go",
+		"flat/g.go", "flat/h.go", "flat/i.go", "flat/j.go", "flat/k.go", "flat/l.go")
+	d, _ := parseDist("agent-one")
+	s := sketchTeam(root, d)
+	names := map[string]plan{}
+	for _, p := range s.all() {
+		names[p.Rank+"-"+p.Short] = p
+	}
+	a, aok := names["zone-flat-a"]
+	b, bok := names["zone-flat-b"]
+	if !aok || !bok {
+		t.Fatalf("a 12-file flat dir must chunk into two zone workers: %s", s.table(lexiconFor().Prefixes))
+	}
+	if len(a.Ownership) != 8 || len(b.Ownership) != 4 {
+		t.Fatalf("chunks of 8 then the rest: a=%d b=%d", len(a.Ownership), len(b.Ownership))
+	}
+	if a.Parent != "domain-flat" || b.Parent != "domain-flat" {
+		t.Fatalf("the chunks report to the area's domain owner: %s / %s", a.Parent, b.Parent)
+	}
+	for _, x := range append(append([]string{}, a.Ownership...), b.Ownership...) {
+		if !strings.HasPrefix(x, "flat/") || strings.Count(x, "/") != 1 {
+			t.Fatalf("a chunk entry is one file in the flat dir: %q", x)
+		}
+	}
+	// a small flat dir keeps the single-zone provisioning (the old shape)
+	small := tree(t, "go.mod", "tiny/x.go", "tiny/y.go")
+	s2 := sketchTeam(small, d)
+	for _, p := range s2.all() {
+		if p.Rank == "zone" && p.Short == "tiny" && len(p.Ownership) != 1 {
+			t.Fatalf("a 2-file dir stays one zone: %+v", p)
+		}
+	}
+}

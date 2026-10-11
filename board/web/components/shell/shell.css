@@ -12,17 +12,24 @@
     --shell-gap: var(--space-m);
     display: grid; gap: var(--shell-gap); padding: var(--space-s) var(--space-m) var(--space-l);
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "console" "net" "metrics" "relations";
+    grid-template-areas: "console" "net" "metrics" "relations" "tree";
     align-content: start;
   }
   .shell-main > [data-panel="console"] { grid-area: console; }
   .shell-main > [data-panel="net"] { grid-area: net; }
   .shell-main > [data-panel="metrics"] { grid-area: metrics; }
   .shell-main > [data-panel="relations"] { grid-area: relations; }
+  .shell-main > [data-panel="tree"] { grid-area: tree; }
   @container (min-width: 72rem) {
     .shell-main[data-view="overview"] {
       grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-      grid-template-areas: "console net" "console metrics" "relations relations";
+      grid-template-areas: "console net" "console metrics" "relations relations" "tree tree";
+    }
+  }
+  @container (min-width: 96rem) {
+    .shell-main[data-view="overview"] {
+      grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 3fr);
+      grid-template-areas: "net console tree" "net console tree" "metrics relations relations";
     }
   }
   .shell-main > [data-panel="console"] { block-size: clamp(30rem, 78vh, 64rem); }
@@ -32,5 +39,6 @@
   .shell-main[data-view="console"] > [data-panel="console"],
   .shell-main[data-view="net"] > [data-panel="net"],
   .shell-main[data-view="metrics"] > [data-panel="metrics"],
-  .shell-main[data-view="relations"] > [data-panel="relations"] { display: flex; }
+  .shell-main[data-view="relations"] > [data-panel="relations"],
+  .shell-main[data-view="tree"] > [data-panel="tree"] { display: flex; }
 }

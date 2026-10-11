@@ -10,6 +10,7 @@ import (
 	"github.com/Kaginari/agent-one/loop"
 	"github.com/Kaginari/agent-one/provider"
 	"github.com/Kaginari/agent-one/provider/mock"
+	"github.com/Kaginari/agent-one/tool"
 )
 
 func TestRankTable(t *testing.T) {
@@ -150,7 +151,7 @@ func TestCustomRanksReplace(t *testing.T) {
 	// no gate holder on the roster: n/a wording is generic, check 4 still runs
 	os.RemoveAll(filepath.Join(dir, ".agent-one/persistent"))
 	w2, _ := Open(dir, Default(), Options{Ontology: true, Ranks: customRanks()})
-	if v := w2.Gate(context.Background(), DefaultHooks().Gate, "coder-auth", []string{"src/auth/q.go", doc}, nil, true, "x"); v.Word != "Gate: n/a (no gate holder)" {
+	if v := w2.Gate(context.Background(), nil, DefaultHooks().Gate, "coder-auth", []string{"src/auth/q.go", doc}, nil, true, "x"); v.Word != "Gate: n/a (no gate holder)" {
 		t.Fatalf("n/a: %+v", v)
 	}
 	// dispatch: the coordinator dispatches down; the role rides the ask; an upward dispatch is refused
@@ -207,5 +208,46 @@ func TestHomes(t *testing.T) {
 	}
 	if w.ScopeOf("coder-auth") != "coder" {
 		t.Error("ScopeOf")
+	}
+}
+
+// A completed Subagent agent's closer fires before the dispatch tool returns: the agent's shell and
+// its jobs die with the task (Policy 2's hierarchy spends an agent, it never leaves one running).
+// The shelf's closer is the shell-killer (tool.NewBashTool); here it is counted, and the count
+// must reach 1 both through the dispatch tool and through the raw runner.
+func TestSubagentClosedWhenReportTaken(t *testing.T) {
+	_, w := customWorkspace(t)
+	var closed int
+	b := build(mock.New(
+		mock.Call("d1", "dispatch", map[string]interface{}{"agent": "coder-auth", "ask": "read the auth code", "role": "analyst"}),
+		mock.Text("@S DONE\n@F login.go:1 reads fine\n@U team x\n@E 0"),
+		mock.Text("@S DONE\n@U team x\n@E 0"),
+	))
+	b.Shelf = func(as string, depth int) (*tool.Registry, func()) {
+		return tool.NewRegistry(), func() { closed++ }
+	}
+	e := w.Engine("lead-main", b)
+	r, err := e.Run(context.Background(), "@ASK findings\nreview auth")
+	if err != nil || r.Status != loop.Done {
+		t.Fatalf("dispatch turn: %v %+v", err, r)
+	}
+	if closed != 1 {
+		t.Fatalf("completed domain/coord/zone must be closed when its report is taken: closers ran %d times", closed)
+	}
+
+	// the runner closes even without the tool path (a background Subagent takes the same runner)
+	_, w2 := customWorkspace(t)
+	var closed2 int
+	b2 := build(mock.New(mock.Text("@S DONE\n@F login.go:1 x\n@U team x\n@E 0")))
+	b2.Shelf = func(as string, depth int) (*tool.Registry, func()) {
+		return tool.NewRegistry(), func() { closed2++ }
+	}
+	parent := w2.Engine("lead-main", b2)
+	runner := w2.Dispatcher(parent, b2)
+	if _, err := runner(context.Background(), tool.Env{Root: w2.Root}, tool.Commission{Agent: "coder-auth", Ask: "findings x"}); err != nil {
+		t.Fatal(err)
+	}
+	if closed2 != 1 {
+		t.Fatalf("raw Subagent runner: closer ran %d times, want 1", closed2)
 	}
 }

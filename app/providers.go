@@ -164,13 +164,12 @@ func (p *Providers) build(name, id, effort string) (provider.Provider, error) {
 			Effort: effort, MaxTokens: e.MaxOutputTokens}
 		return c, nil
 	case "openai":
-		key := ""
-		if e.APIKeyEnv != "" {
-			k, err := e.ProviderKey(p.Env)
-			if err != nil {
-				return nil, err
-			}
-			key = k
+		// ProviderKey honors the literal when the env var is unset or undeclared —
+		// the machine-local/headless escape. Reaching for it only under APIKeyEnv
+		// sent an empty Bearer whenever the literal was the only key (conduit 401).
+		key, err := e.ProviderKey(p.Env)
+		if err != nil {
+			return nil, err
 		}
 		hc, err := p.httpClient(e)
 		if err != nil {
@@ -262,7 +261,9 @@ func (f *fallback) Complete(ctx context.Context, req provider.Request) (provider
 
 func retryable(err error) bool {
 	s := err.Error()
-	for _, code := range []string{"HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 529"} {
+	// 404 is retryable-for-fallback: a model group absent on the gateway is exactly what a
+	// fallback exists for — availability. The surfacing still names both failures when both fail.
+	for _, code := range []string{"HTTP 404", "HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 529"} {
 		if strings.Contains(s, code) {
 			return true
 		}

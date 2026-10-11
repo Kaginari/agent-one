@@ -4,7 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"runtime/debug"
 	"strings"
+	"time"
+
+	"github.com/Kaginari/agent-one/wire"
 )
 
 // Commission is what the dispatch tool hands its runner: an agent to register and the wire
@@ -15,9 +20,12 @@ type Commission struct {
 	Scope  string
 	Root   string
 	Unsaid bool
-	Cap    int
-	Depth  int    // the Subagent's nesting depth (1 for an agent dispatched by the session)
-	Role   string // the role the ask names: findings → analyst, verdict → judge, draft → drafter
+	// UnsaidExplicit marks a demand made on purpose (the caller passed unsaid:true), vs the
+	// policy's ambient default. Only explicit demands make the close-out bounce for a missing @U.
+	UnsaidExplicit bool
+	Cap            int
+	Depth          int    // the Subagent's nesting depth (1 for an agent dispatched by the session)
+	Role           string // the role the ask names: findings → analyst, verdict → judge, draft → drafter
 }
 
 // RoleOf reads the role off an @ASK word (the triad: perceive, judge, speak); "" if none.
@@ -72,6 +80,17 @@ type DispatchReport struct {
 	Holes   []string // the engine's own holes
 	Wrote   []string // paths the Subagent wrote (gated on its own account)
 	Journal string
+	// ReportPath/ReportBytes/ReportHash are the courier envelope: the harness filed the
+	// report on the instruments shelf, and the dispatcher's context carries the digest
+	// (@R path · size · @H fnv64) with the wrote list (@W) inline. The parent reads the
+	// file when the verdict needs the flesh — relaying prose up the layers is the tax this
+	// closes.
+	ReportPath  string
+	ReportBytes int
+	ReportHash  string
+	// Forges are the run's drafts: skills or tools the agent proved on the wire (@FORGE). They
+	// ride up unminted — the layer curates, the working notes registers.
+	Forges []wire.Forge
 }
 
 // Dispatcher runs one commission as a Ephemeral subagent: a fresh loop with its own context, tools cut
@@ -88,6 +107,14 @@ type DispatchOptions struct {
 	Unsaid     bool     // commission +unsaid by default
 	Agents     []string // allowed agent names; nil = any
 	Background bool     // `background: true` may run the Subagent asynchronously (tools.dispatch.background)
+	// BackgroundTimeout bounds a background Subagent's run (0: 30m). The provider's own
+	// timeout bounds each model call; nothing else stopped a background run from
+	// outliving everything around it.
+	BackgroundTimeout time.Duration
+	// SessionBackground: at the session's own depth a commission defaults to background — the
+	// orchestrator stays free; the Subagent rides on and its report wakes the session. A commission may
+	// still name background:false to ride in the foreground.
+	SessionBackground bool
 	// Wake receives a background Subagent's report when it lands; nil: background is refused.
 	Wake func(agent, report string, failed bool)
 }
@@ -110,7 +137,7 @@ func DispatchTool(opt DispatchOptions, run Dispatcher) *Tool {
 				Agent, Ask, Scope, Role string
 				Cap                     int
 				Unsaid                  *bool
-				Background              bool
+				Background              *bool
 			}
 			if err := decode(in, &a); err != nil {
 				return fail("dispatch: %v", err)
@@ -126,6 +153,8 @@ func DispatchTool(opt DispatchOptions, run Dispatcher) *Tool {
 				max = 1
 			}
 			if opt.Depth >= max {
+				// the workspace floors its own ceiling at the rank chain's length (workspace.Engine), so this
+				// refusal only answers at the floor rank or under a human-set MaxDepth below it
 				return fail("dispatch: nesting limit reached (depth %d of %d) — a Subagent at this depth may not dispatch; answer with @? one hop up instead", opt.Depth, max)
 			}
 			if opt.Agents != nil && !inList(opt.Agents, a.Agent) {
@@ -146,20 +175,68 @@ func DispatchTool(opt DispatchOptions, run Dispatcher) *Tool {
 			}
 			if a.Unsaid != nil {
 				c.Unsaid = *a.Unsaid
+				c.UnsaidExplicit = true // the caller named +unsaid in words — not the ambient policy
+			}
+			background := opt.Background && opt.SessionBackground && opt.Depth == 0
+			if a.Background != nil {
+				background = *a.Background
 			}
 			render := func(rep DispatchReport) string {
-				out := strings.TrimSpace(rep.Text)
+				// subagent-card-exit-verdict policy (harness leg 2b): the exit verdict is the run
+				// journal's t:end status (rep.Status), stamped as the payload's first line so
+				// any renderer that reads only the returned string still shows DONE/FAIL/
+				// ESCALATE — never a collapsed lifecycle "done". The agent's own @S follows.
+				var b strings.Builder
+				if rep.Status != "" {
+					b.WriteString("@S " + rep.Status + "\n")
+				}
+				text := strings.TrimSpace(rep.Text)
+				if rep.ReportPath != "" {
+					// the courier envelope: the report is filed on the instruments shelf; the
+					// parent's context buys only the digest — @R where it lives, @H its
+					// integrity, @W what the subagent wrote, a head-digest of the first lines.
+					fmt.Fprintf(&b, "@R %s — the report is filed there (%d bytes); read it when the verdict needs the flesh\n", rep.ReportPath, rep.ReportBytes)
+					fmt.Fprintf(&b, "@H fnv64:%s\n", rep.ReportHash)
+					for _, p := range rep.Wrote {
+						b.WriteString("@W " + p + "\n")
+					}
+					if text != "" {
+						head := text
+						if ls := strings.Split(text, "\n"); len(ls) > 8 {
+							head = strings.Join(ls[:8], "\n") + "\n…"
+						}
+						b.WriteString("digest:\n" + head + "\n")
+					}
+				} else {
+					b.WriteString(text)
+				}
+				out := b.String()
 				if rep.Unsaid == 0 {
 					out += fmt.Sprintf("\n@? dispatch %s: report carries no @U line — nothing unsaid, or the duty failed; ask again with +unsaid", c.Agent)
 				}
 				return out
 			}
-			if a.Background {
+			if background {
 				if !opt.Background || opt.Wake == nil {
-					return fail("dispatch: background Subagents are off (tools.dispatch.background: false) — dispatch %s in the foreground", c.Agent)
+					return fail("dispatch: background Subagents are off here (tools.dispatch.background: false, or no inbox delivery wired at depth %d) — dispatch %s in the foreground", opt.Depth, c.Agent)
 				}
+				dispatchedAt := time.Now().UnixNano()
+				go spawnWatch(env, c.Agent, dispatchedAt, opt.Wake)
 				go func() {
-					rep, err := run(context.Background(), env, c)
+					defer func() {
+						// a background runner panicking must never take the process down
+						if rec := recover(); rec != nil {
+							debug.PrintStack()
+							opt.Wake(c.Agent, fmt.Sprintf("@S FAIL\n@? dispatch %s: panic: %v\n@E 0", c.Agent, rec), true)
+						}
+					}()
+					t := opt.BackgroundTimeout
+					if t <= 0 {
+						t = 30 * time.Minute
+					}
+					bctx, cancel := context.WithTimeout(context.Background(), t)
+					defer cancel()
+					rep, err := run(bctx, env, c)
 					if err != nil {
 						opt.Wake(c.Agent, fmt.Sprintf("@S FAIL\n@? dispatch %s: %v\n@E 0", c.Agent, err), true)
 						return
@@ -185,6 +262,45 @@ func oneLineAsk(s string) string {
 		s = s[:80] + "…"
 	}
 	return s
+}
+
+// spawnWatch is the phantom-dispatch guard (audit N5, 2026-10-02 evening): an acked background
+// dispatch once returned ok while the child never registered its journal — the parent closed DONE
+// believing the slice was staffed and the work was nobody's. Within spawnGrace of the ack, the
+// child's journal must exist under <root>/<workspaceDir>/instruments/loop/<body>-<ts>-<id>.jsonl
+// and have a first event. No journal, no first event → the dispatcher is woken with a
+// spawn-failed FAIL on the wire, naming what to trust instead.
+const spawnGrace = 10 * time.Second
+
+func spawnWatch(env Env, agent string, dispatchedAt int64, wake func(agent, report string, failed bool)) {
+	if wake == nil || agent == "" {
+		return
+	}
+	dir := env.Root + "/" + env.workspaceDir() + "/instruments/loop"
+	deadline := time.Now().Add(spawnGrace)
+	for time.Now().Before(deadline) {
+		ents, err := os.ReadDir(dir)
+		if err == nil {
+			for _, ent := range ents {
+				if ent.IsDir() || !strings.HasPrefix(ent.Name(), agent+"-") || !strings.HasSuffix(ent.Name(), ".jsonl") {
+					continue
+				}
+				info, err := ent.Info()
+				if err != nil {
+					continue
+				}
+				if info.ModTime().UnixNano() < dispatchedAt {
+					continue // a stale journal from an earlier run of the same agent
+				}
+				if info.Size() == 0 {
+					continue // created but no first event yet
+				}
+				return // alive and writing
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	wake(agent, fmt.Sprintf("@S FAIL\n@? dispatch %s: spawn failed — %s passed and no journal with a first event appeared in %s. The slice was never staffed; re-dispatch or escalate with @?, do not assume the child is alive.\n@E 0", agent, dir, spawnGrace), true)
 }
 
 func inList(xs []string, x string) bool {

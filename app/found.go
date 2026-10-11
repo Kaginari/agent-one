@@ -47,7 +47,7 @@ type sketch struct {
 
 type plan struct {
 	Rank, Short, Purpose string
-	Territory            []string
+	Ownership            []string
 	Parent               string
 	Verify               []string
 	Zones                []plan
@@ -127,7 +127,7 @@ func sketchTeam(root string, d config.Dist) sketch {
 			manifests = append(manifests, m)
 		}
 	}
-	s.Coord = plan{Rank: "coord", Short: s.Project, Parent: "orchestrator", Territory: manifests, Verify: test(""),
+	s.Coord = plan{Rank: "coord", Short: s.Project, Parent: "orchestrator", Ownership: manifests, Verify: test(""),
 		Purpose: "the shared skill and voice of " + filepath.Base(root) + ": keeps the cross-domain rules, routes work to the domain owners, speaks back up."}
 	// areas: top-level dirs holding source, largest first
 	type area struct {
@@ -165,12 +165,12 @@ func sketchTeam(root string, d config.Dist) sketch {
 	for i, a := range areas {
 		if a.n < 3 || i >= 6 {
 			c := coreOrc()
-			c.Territory = append(c.Territory, a.name+"/")
-			c.Zones = append(c.Zones, plan{Rank: "zone", Short: slug(a.name), Parent: "domain-core", Territory: []string{a.name + "/"}, Verify: test(a.name),
+			c.Ownership = append(c.Ownership, a.name+"/")
+			c.Zones = append(c.Zones, plan{Rank: "zone", Short: slug(a.name), Parent: "domain-core", Ownership: []string{a.name + "/"}, Verify: test(a.name),
 				Purpose: "the ground truth of `" + a.name + "/`."})
 			continue
 		}
-		o := plan{Rank: "domain", Short: slug(a.name), Parent: "coord-" + s.Project, Territory: []string{a.name + "/"}, Verify: test(a.name),
+		o := plan{Rank: "domain", Short: slug(a.name), Parent: "coord-" + s.Project, Ownership: []string{a.name + "/"}, Verify: test(a.name),
 			Purpose: "rules the `" + a.name + "/` domain and holds its gate."}
 		subs, _ := os.ReadDir(filepath.Join(root, a.name))
 		for _, sub := range subs {
@@ -179,20 +179,36 @@ func sketchTeam(root string, d config.Dist) sketch {
 			}
 			rel := a.name + "/" + sub.Name()
 			if n, _ := sourceFiles(filepath.Join(root, rel)); n > 0 {
-				o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(sub.Name()), Parent: "domain-" + o.Short, Territory: []string{rel + "/"}, Verify: test(rel),
+				o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(sub.Name()), Parent: "domain-" + o.Short, Ownership: []string{rel + "/"}, Verify: test(rel),
 					Purpose: "the ground truth of `" + rel + "/`."})
 			}
 		}
 		if len(o.Zones) == 0 {
-			o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(a.name), Parent: "domain-" + o.Short, Territory: []string{a.name + "/"}, Verify: test(a.name),
-				Purpose: "the ground truth of `" + a.name + "/`."})
+			// zone width at provisioning (the 2026-10-09 policy): a big flat dir chunks into bounded
+			// file sets — one persistent agent holding a whole flat tree puts every new file's
+			// creation on one agent, and a single-prefix zone cannot split but by its tree
+			files := dirFiles(filepath.Join(root, a.name), a.name)
+			if len(files) > 8 {
+				for i, n := 0, 0; i < len(files) && n < 6; i, n = i+8, n+1 {
+					end := i + 8
+					if n >= 5 || end > len(files) {
+						end = len(files) // the sixth chunk (or a short tail) absorbs the rest — never slice past len into cap
+					}
+					chunk := files[i:end]
+					o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(a.name) + "-" + string(rune('a'+n)), Parent: "domain-" + o.Short, Ownership: chunk, Verify: test(a.name),
+						Purpose: fmt.Sprintf("the ground truth of %d files in `%s/`.", len(chunk), a.name)})
+				}
+			} else {
+				o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(a.name), Parent: "domain-" + o.Short, Ownership: []string{a.name + "/"}, Verify: test(a.name),
+					Purpose: "the ground truth of `" + a.name + "/`."})
+			}
 		}
 		s.Domains = append(s.Domains, o)
 	}
 	if len(rootFiles) > 0 {
 		c := coreOrc()
-		c.Territory = append(c.Territory, rootFiles...)
-		c.Zones = append(c.Zones, plan{Rank: "zone", Short: "entry", Parent: "domain-core", Territory: rootFiles, Purpose: "the ground truth of the entry point (" + strings.Join(rootFiles, ", ") + ")."})
+		c.Ownership = append(c.Ownership, rootFiles...)
+		c.Zones = append(c.Zones, plan{Rank: "zone", Short: "entry", Parent: "domain-core", Ownership: rootFiles, Purpose: "the ground truth of the entry point (" + strings.Join(rootFiles, ", ") + ")."})
 	}
 	for _, ci := range []string{".github/workflows", ".gitlab-ci.yml", ".circleci", "Jenkinsfile", ".drone.yml"} {
 		if has(ci) {
@@ -200,13 +216,30 @@ func sketchTeam(root string, d config.Dist) sketch {
 			if st, err := os.Stat(filepath.Join(root, ci)); err == nil && st.IsDir() {
 				t += "/"
 			}
-			k := plan{Rank: "service", Short: "release", Parent: "orchestrator", Territory: []string{t}, Verify: test(""),
+			k := plan{Rank: "service", Short: "release", Parent: "orchestrator", Ownership: []string{t}, Verify: test(""),
 				Purpose: "owns CI and releases end to end, across sessions; anything that tags, publishes or provisions waits for the operator."}
 			s.Service = &k
 			break
 		}
 	}
 	return s
+}
+
+// dirFiles lists a directory's direct source files as ownership entries, sorted — the
+// flat-dir chunker's input.
+func dirFiles(dir, area string) []string {
+	ents, _ := os.ReadDir(dir)
+	var out []string
+	for _, e := range ents {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if _, ok := sourceExt[filepath.Ext(e.Name())]; ok {
+			out = append(out, area+"/"+e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // doc is a member's README in the shape the ontology reads.
@@ -219,9 +252,9 @@ func (p plan) doc(prefix, display map[string]string, level string) string {
 		rank = strings.ToUpper(p.Rank[:1]) + p.Rank[1:]
 	}
 	fmt.Fprintf(&b, "- **Rank:** %s\n", rank)
-	if len(p.Territory) > 0 {
-		t := make([]string, len(p.Territory))
-		for i, x := range p.Territory {
+	if len(p.Ownership) > 0 {
+		t := make([]string, len(p.Ownership))
+		for i, x := range p.Ownership {
 			t[i] = "`" + x + "`"
 		}
 		fmt.Fprintf(&b, "- **Territory:** %s\n", strings.Join(t, ", "))
@@ -279,7 +312,7 @@ func writeSketch(root string, d config.Dist, s sketch, dirs, prefix, display map
 func (s sketch) table(prefix map[string]string) string {
 	var b strings.Builder
 	for _, p := range s.all() {
-		fmt.Fprintf(&b, "- %s%s → %s · %s\n", prefix[p.Rank], p.Short, p.Parent, strings.Join(p.Territory, ", "))
+		fmt.Fprintf(&b, "- %s%s → %s · %s\n", prefix[p.Rank], p.Short, p.Parent, strings.Join(p.Ownership, ", "))
 	}
 	return b.String()
 }

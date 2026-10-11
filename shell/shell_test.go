@@ -12,9 +12,21 @@ import (
 	"github.com/Kaginari/agent-one/sandbox"
 )
 
+// evalRoot resolves symlink components in a scratch root: darwin's TMPDIR lives under /var, a
+// symlink to /private/var, and the shell's cwd — pwd's say — names the physical path. The
+// expectations must compare against the same spell.
+func evalRoot(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 func newSession(t *testing.T, sb *sandbox.Sandbox) (*Session, string) {
 	t.Helper()
-	root := t.TempDir()
+	root := evalRoot(t, t.TempDir())
 	_ = os.MkdirAll(filepath.Join(root, "sub"), 0o755)
 	s, err := New(Options{Root: root, Sandbox: sb, Timeout: 5 * time.Second, OutputCap: 200, Env: []string{"PATH=" + os.Getenv("PATH"), "MY_API_KEY=leak", "HOME=" + root}})
 	if err != nil {
@@ -190,7 +202,7 @@ func checkPid(pid int) error {
 func itoa(i int) string { return strconv.Itoa(i) }
 
 func TestSandboxedNetworkOneShot(t *testing.T) {
-	root := t.TempDir()
+	root := evalRoot(t, t.TempDir())
 	sb := sandbox.New(sandbox.Options{Enabled: true, Root: root})
 	if sb.Mode() != sandbox.Bwrap {
 		t.Skip("bwrap unavailable: " + sb.Why())

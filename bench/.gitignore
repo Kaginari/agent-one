@@ -2,3 +2,5 @@ jobs/
 __pycache__/
 .smoke-config.yaml
 .fakevllm-*.log
+tb2-base/.stage/
+tb2-base/.stage-task/

@@ -1,6 +1,6 @@
 Found the team of this {{WORLD}} — you are hiring a team of experts for `{{PROJECT}}` ({{LANG}}).
-The law is `{{WORLD}}/agent-one.md`; its sections "Skills & Agents" and "The workspace" are the rules for
-what you create. Nothing outside `{{WORLD}}/`, `.claude/skills/` and `.claude/agents/` is written;
+The policy is `{{WORLD}}/AGENT-ONE.md`; its sections "Skills & Agents" and "The workspace" are the rules for
+what you create. Nothing outside `{{WORLD}}/` and `{{WORLD}}/base-skills/` is written;
 the project's code is read, never changed.
 
 ## 1. Read everything first
@@ -22,16 +22,21 @@ points, packages, models, services, tests, build and CI files, the README. Note 
   for a small tool. Merge domains too thin to judge on their own; never make a domain owner per folder
   when the folders are layers of one feature.
 - **Zone workers** (`{{TRUTH}}<zone>`) — one per vertical slice: the files that change together (e.g. a
-  command, its service, its model and its tests). Each zone reports to exactly one domain (its truth
-  link); its territory is those files, precisely.
+  command, its service, its model and its tests). Each zone worker reports to exactly one domain owner (its truth
+  link); its ownership is those files, precisely.
+- **Zone width policy** — size an ownership to what its persistent agent actually works: not so wide that every
+  new file's creation lands on one owner (that persistent agent becomes the bottleneck and its edges go
+  stale), not so narrow that one change always crosses zones. A single-prefix zone (one whole dir)
+  can only be narrowed later by splitting the tree under it — prefer several precise claims
+  (sub-dirs, or file sets for a flat dir) over one wide dir when the area is big.
 - **A service owner** (`{{LEAD}}<subsystem>`) — only for a standing subsystem someone must own across
   sessions (CI and releases, deploy, infrastructure). Reports to orchestrator.
 - **Skills** (skills) — know-how worth wearing: a contract or convention two or more members share
   (zone skills, worn by zone workers), a review checklist a domain owner applies (verdict skills), a pipeline or
   cross-domain practice (global skills). Three to six is usual. A skill is instructions, concrete and
   specific to this code — paths, names, commands — never generic advice.
-- **Agents** (agents) — mint the coord, each domain (subagent) and each service owner (keeper, `mode: all`). Zone workers
-  run as subagent when dispatched; mint one only if it will run often on its own.
+- **Agents** — no extra card: each member doc you write IS the agent. Zone worker docs likewise —
+  a zone worker runs as subagent when dispatched; nothing extra is registered for it.
 
 Before writing, show the plan as a table: member · rank · reports to · territory · skills.
 
@@ -58,12 +63,12 @@ A member doc, at `{{WORLD}}/<rank dir>/<short>/README.md` (dirs: coord `{{VOICE_
 ## Working notes
 ```
 
-A skill, at `.claude/skills/<name>/SKILL.md`: front matter `name` and `description` (one line: what
-it knows and when to wear it), then the know-how as terse bullets, then an empty `## Working notes`.
+A skill, at `{{WORLD}}/base-skills/<name>/SKILL.md`: front matter `name` and `description` (one line: what
+it knows and when to hold it), then the know-how as terse bullets, then an empty `## Working notes`.
 
-A agent, at `.claude/agents/<member>.md`: front matter `name` (the member's name), `description`,
-and `mode: all` for a keeper; the agent text says whom it is, which doc to read first, which skills to
-wear, and what waits for the operator.
+The agent needs no card of its own: the member doc IS the agent — `{{WORLD}}/<rank dir>/<member>/README.md`
+carries the member's name, purpose and skills. Nothing is written outside the workspace; a persistent agent is the
+member whose rank is Persistent agent (its doc says so), not a file with `mode: all`.
 
 Rules that make the team true:
 - Territories do not overlap between zone workers; a domain owner's territory is its zone workers' union (or omitted).

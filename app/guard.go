@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Kaginari/agent-one/guard"
+	"github.com/Kaginari/agent-one/loop"
 )
 
 // theGuard is the effective denylist: built-in, the machine-wide file, config's files.
@@ -26,26 +27,53 @@ func (a *App) theGuard() *guard.Guard {
 	return g
 }
 
-// guardHook refuses a bash command the guard matches, before the policy and the gate.
-func (a *App) guardHook() func(tool string, input json.RawMessage) string {
-	g := a.theGuard()
-	if g == nil {
-		return nil
+// guardHook composes the scratch redirect, the in-place-sed refusal, and the catastrophic
+// denylist, before the policy and the gate: tmp first (the more common, redirecting refusal),
+// then sed (policy: anchored file edits ride the edit tool's verification), then the denylist.
+func (a *App) guardHook() func(s *loop.Session, tool string, input json.RawMessage) string {
+	tmp := a.tmpGuardHook()
+	sed := a.sedGuardHook()
+	var deny func(string, json.RawMessage) string
+	if g := a.theGuard(); g != nil {
+		deny = func(name string, input json.RawMessage) string {
+			if name != "bash" {
+				return ""
+			}
+			var in struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal(input, &in) != nil || in.Command == "" {
+				return ""
+			}
+			if r := g.Match(in.Command); r != nil {
+				return guard.Refusal(r)
+			}
+			return ""
+		}
 	}
-	return func(name string, input json.RawMessage) string {
-		if name != "bash" {
+	chain := []func(s *loop.Session, tool string, input json.RawMessage) string{}
+	for _, h := range []func(s *loop.Session, tool string, input json.RawMessage) string{tmp, sed} {
+		if h != nil {
+			chain = append(chain, h)
+		}
+	}
+	if deny != nil {
+		chain = append(chain, func(s *loop.Session, name string, input json.RawMessage) string { return deny(name, input) })
+	}
+	switch len(chain) {
+	case 0:
+		return nil
+	case 1:
+		return chain[0]
+	default:
+		return func(s *loop.Session, name string, input json.RawMessage) string {
+			for _, h := range chain {
+				if m := h(s, name, input); m != "" {
+					return m
+				}
+			}
 			return ""
 		}
-		var in struct {
-			Command string `json:"command"`
-		}
-		if json.Unmarshal(input, &in) != nil || in.Command == "" {
-			return ""
-		}
-		if r := g.Match(in.Command); r != nil {
-			return guard.Refusal(r)
-		}
-		return ""
 	}
 }
 

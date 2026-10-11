@@ -43,7 +43,7 @@ func fixture(t *testing.T) string {
 		".agent-one/coord/core/README.md":      "# coord-core\n\n- **Rank:** Coordinator\n- **Owns:** `src/`\n- **Purpose:** the shared skill\n",
 		".agent-one/domain/security/README.md": "# domain-security\n\n- **Rank:** Domain owner\n- **Owns:** `src/auth/`, `src/api/`\n- **Reports to:** coord-core\n- **Verify:** `test -d src`\n",
 		".agent-one/zone/auth/README.md":       "# zone-auth\n\n- **Rank:** Zone worker\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n- **Skills:** drafter\n- **Verify:** `test ! -f src/auth/BROKEN`\n\n## Invariants\n- tokens expire after one hour\n",
-		".agent-one/zone/api/README.md":        "# zone-api\n\n- **Rank:** Zone worker\n- **Owns:** `src/api/`\n- **Domain owner:** domain-security\n\n## Verify\n- `true`\n",
+		".agent-one/zone/api/README.md":        "# zone-api\n\n- **Rank:** Zone worker\n- **Owns:** `src/api/`\n- **Domain owner:** domain-security\n\n## Verify\n- `test ! -f src/api/BROKEN`\n",
 		".claude/skills/drafter/SKILL.md":      "---\nname: drafter\ndescription: drafts the answer\n---\ndrafts\n",
 		".claude/skills/tdd/SKILL.md":          "---\nname: tdd\ndescription: test first, red green refactor\n---\nshared host skill\n",
 		"CLAUDE.md":                            "Read .agent-one/AGENT-ONE.md first.\n",
@@ -119,7 +119,7 @@ func TestDiscoverAndOpen(t *testing.T) {
 	if auth.Rank != "zone" || auth.Parent != "domain-security" || auth.Doc != ".agent-one/zone/auth/README.md" || auth.Dir != ".agent-one/zone/auth" || strings.Join(auth.Ownership, ",") != "src/auth" || strings.Join(auth.Skills, ",") != "drafter" || strings.Join(auth.Verify, ",") != "test ! -f src/auth/BROKEN" {
 		t.Errorf("zone-auth %+v", auth)
 	}
-	if api := w.Member("api"); api == nil || strings.Join(api.Verify, ",") != "true" || api.Parent != "domain-security" {
+	if api := w.Member("api"); api == nil || strings.Join(api.Verify, ",") != "test ! -f src/api/BROKEN" || api.Parent != "domain-security" {
 		t.Errorf("zone-api by short name %+v", api)
 	}
 	if w.Member("core") == nil || w.Member("nobody") != nil || !w.DomainOwners() {
@@ -276,6 +276,32 @@ func logText(t *testing.T, dir string) string {
 	return string(b)
 }
 
+// The instruments shelf is engine soil: the harness files journals and reports there, agents
+// never write. A zone worker's write under it is refused before any owner logic — Policy 2's floor.
+func TestOwnershipInstrumentsIsEngineSoil(t *testing.T) {
+	dir := fixture(t)
+	w := open(t, dir)
+	m := mock.New(
+		writeCall("1", ".agent-one/instruments/loop/fake.report.md", "forged\n"),
+		mock.Text("@S DONE\n@U team c\n@E 0"),
+	)
+	e := w.Engine("zone-auth", build(m))
+	r, err := e.Run(context.Background(), "file a report by hand")
+	if err != nil || r.Status != loop.Done {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if len(r.Steps) != 1 || r.Steps[0].Status != "refused" {
+		t.Fatalf("the write must refuse: %+v", r.Steps)
+	}
+	res := m.Requests[1].Messages[2].ToolResults[0]
+	if !res.IsError || !strings.Contains(res.Content, "engine soil") {
+		t.Fatalf("the refusal must name engine soil, got %q", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".agent-one", "instruments", "loop", "fake.report.md")); err == nil {
+		t.Fatal("the forge landed on the shelf")
+	}
+}
+
 func TestGateVerdicts(t *testing.T) {
 	dir := fixture(t)
 	w := open(t, dir)
@@ -300,12 +326,21 @@ func TestGateVerdicts(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, ".agent-one/memory/shared/notes.jsonl")); !strings.Contains(string(b), `"kind":"domain"`) {
 		t.Errorf("shared note not written: %s", b)
 	}
-	// Docs-as-code fail: the ownership changes, the doc does not
+	// Docs-as-code, session-pair policy (2026-10-07): the pass above registered a pair-mark on the doc;
+	// the next code-only wave RIDES it (doc first, code follows — the lawful two-leg run)...
 	m = mock.New(writeCall("1", "src/auth/other.go", "package auth"), mock.Text("@S DONE\n@U team c\n@E 0"))
 	e = w.Engine("zone-auth", build(m))
 	r, _ = e.Run(context.Background(), "x")
-	if r.Status != loop.Fail || !strings.Contains(r.Verdict, "Doc truthful (Docs-as-code): src/auth/other.go changed under zone-auth's ownership but "+doc+" did not") {
-		t.Fatalf("docs-as-code: %s %q %v", r.Status, r.Verdict, r.Holes)
+	if r.Status != loop.Done {
+		t.Fatalf("the wave after a doc move must ride the mark: %s %q %v", r.Status, r.Verdict, r.Holes)
+	}
+	// ...and the mark spends: the wave after that, code-only again, FAILS — the window is
+	// transactional, never a permanent exemption
+	m = mock.New(writeCall("1", "src/auth/other2.go", "package auth"), mock.Text("@S DONE\n@U team c\n@E 0"))
+	e = w.Engine("zone-auth", build(m))
+	r, _ = e.Run(context.Background(), "x")
+	if r.Status != loop.Fail || !strings.Contains(r.Verdict, "Doc truthful (Docs-as-code): src/auth/other2.go changed under zone-auth's ownership but "+doc+" did not move") {
+		t.Fatalf("Docs-as-code after the mark spent: %s %q %v", r.Status, r.Verdict, r.Holes)
 	}
 	if lg = logText(t, dir); !strings.Contains(lg, "gate fail") || !strings.Contains(lg, "- **Result:** failed — gate") {
 		t.Fatalf("fail not logged:\n%s", lg)
@@ -334,16 +369,6 @@ func TestGateVerdicts(t *testing.T) {
 		t.Fatalf("a rewritten verify line escaped the gate: %s %q %v", r.Status, r.Verdict, r.Holes)
 	}
 	os.Remove(filepath.Join(dir, "src/auth/BROKEN"))
-	// invariants: a verify line added this turn is the model's own command — it never runs unconfirmed
-	m = mock.New(writeCall("1", "src/auth/t3.go", "t"), writeCall("2", doc, "# zone-auth\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n- **Verify:** `test ! -f src/auth/BROKEN`\n- **Verify:** `touch src/auth/PWNED`\n"), mock.Text("@S DONE\n@U team c\n@E 0"))
-	e = w.Engine("zone-auth", build(m))
-	r, _ = e.Run(context.Background(), "x")
-	if _, err := os.Stat(filepath.Join(dir, "src/auth/PWNED")); err == nil {
-		t.Fatal("a verify line added this turn ran at the gate")
-	}
-	if !strings.Contains(strings.Join(r.Holes, "|"), "verify `touch src/auth/PWNED` was added this turn") {
-		t.Fatalf("an added verify line left no hole: %s %q %v", r.Status, r.Verdict, r.Holes)
-	}
 	// a failed gate goes back to the model once: it fixes what the gate names, the turn passes
 	m = mock.New(writeCall("1", "src/auth/r.go", "package auth"), mock.Text("@S DONE\n@U team c\n@E 0"),
 		writeCall("2", doc, "# zone-auth\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n- r.go added\n"), mock.Text("@S DONE doc updated\n@U team c\n@E 0"))
@@ -354,6 +379,18 @@ func TestGateVerdicts(t *testing.T) {
 	if r.Status != loop.Done || !strings.HasPrefix(r.Verdict, "pass") || !strings.Contains(strings.Join(r.Holes, "|"), "gate failed and was sent back (1 of 1)") {
 		t.Fatalf("gate retry: %s %q %v", r.Status, r.Verdict, r.Holes)
 	}
+	// invariants: a verify line added this turn is the model's own command — it never runs unconfirmed
+	m = mock.New(writeCall("1", "src/auth/t3.go", "t"), writeCall("2", doc, "# zone-auth\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n- **Verify:** `test ! -f src/auth/BROKEN`\n- **Verify:** `touch src/auth/PWNED`\n"), mock.Text("@S DONE\n@U team c\n@E 0"))
+	e = w.Engine("zone-auth", build(m))
+	r, _ = e.Run(context.Background(), "x")
+	if _, err := os.Stat(filepath.Join(dir, "src/auth/PWNED")); err == nil {
+		t.Fatal("a verify line added this turn ran at the gate")
+	}
+	if !strings.Contains(strings.Join(r.Holes, "|"), "verify `touch src/auth/PWNED` was added this turn") {
+		t.Fatalf("an added verify line left no hole: %s %q %v", r.Status, r.Verdict, r.Holes)
+	}
+	os.WriteFile(filepath.Join(dir, doc), []byte("# zone-auth\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n- **Verify:** `test ! -f src/auth/BROKEN`\n"), 0o644)
+	w.Reload()
 	// an injected check fails the turn
 	b = build(mock.New(writeCall("1", "src/auth/u.go", "u"), writeCall("2", doc, "# zone-auth\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n"), mock.Text("@S DONE\n@U team c\n@E 0")))
 	b.Hooks.Gate.Checks = []Check{{Name: "gofmt", Command: "echo 'u.go not formatted'; exit 3"}}
@@ -377,11 +414,11 @@ func TestGateVerdicts(t *testing.T) {
 	// a workspace with no domain owners: n/a, and check 4 still runs
 	os.RemoveAll(filepath.Join(dir, ".agent-one/domain"))
 	w2 := open(t, dir)
-	v := w2.Gate(context.Background(), DefaultHooks().Gate, "zone-auth", []string{"src/auth/q.go"}, &wire.Report{Status: "DONE"}, true, "x")
+	v := w2.Gate(context.Background(), nil, DefaultHooks().Gate, "zone-auth", []string{"src/auth/q.go"}, &wire.Report{Status: "DONE"}, true, "x")
 	if v.Word != "fail" || !strings.Contains(v.String(), "Docs-as-code") {
 		t.Fatalf("no domain owners, docs-as-code: %+v", v)
 	}
-	v = w2.Gate(context.Background(), DefaultHooks().Gate, "zone-auth", []string{"src/auth/q.go", doc}, &wire.Report{Status: "DONE"}, true, "x")
+	v = w2.Gate(context.Background(), nil, DefaultHooks().Gate, "zone-auth", []string{"src/auth/q.go", doc}, &wire.Report{Status: "DONE"}, true, "x")
 	if v.Word != "Gate: n/a (no domain owners)" || len(v.Reasons) != 0 {
 		t.Fatalf("no domain owners: %+v", v)
 	}
@@ -440,6 +477,14 @@ func TestRecallAndRecord(t *testing.T) {
 	}
 	if rc := w.Recall("zone-auth", "x", RecallOptions{}); len(rc.Anchors)+len(rc.Tools) != 0 {
 		t.Error("recall off")
+	}
+	// degenerate asks (greetings, menu digits) strip to zero content words:
+	// the beat stays silent — no anchors, and crucially no "nothing to rank" holes
+	for _, ask := range []string{"yo", "1", "0", "!"} {
+		rc := w.Recall("zone-auth", ask, RecallOptions{Enabled: true, Memory: true, Toolbox: true})
+		if len(rc.Anchors)+len(rc.Tools)+len(rc.Holes) != 0 {
+			t.Errorf("degenerate ask %q must run silent, got %+v", ask, rc)
+		}
 	}
 	// the hook rides the provider call
 	m := mock.New(mock.Text("ok"))
@@ -507,24 +552,32 @@ func TestDispatch(t *testing.T) {
 	}
 	// the report the dispatcher got
 	res := m.Requests[3].Messages[2].ToolResults[0]
-	if res.IsError || !strings.HasPrefix(res.Content, "@S DONE\n@U domain login.go is the whole zone\n@F src/auth/login.go:1") || !strings.HasSuffix(res.Content, "@E "+itoa(len(res.Content))) || strings.Contains(res.Content, "no @U") {
+	if res.IsError || !strings.HasPrefix(res.Content, "@S DONE\n@S DONE\n@U domain login.go is the whole zone\n@F src/auth/login.go:1") || !strings.Contains(res.Content, "@E ") || strings.Contains(res.Content, "no @U") {
 		t.Fatalf("report:\n%s", res.Content)
 	}
 	// the Subagent's spend joined the parent's; the Subagent had the parent's remaining steps
 	if r.Usage.Output < 150 {
 		t.Errorf("shared spend: %+v", r.Usage)
 	}
-	// a report with no @U is flagged
+	// a report with no @U is bounced once; flagged on the wire only when the retry also omits it
 	m = mock.New(
 		mock.Call("d1", "dispatch", map[string]interface{}{"agent": "zone-api", "ask": "x"}),
+		mock.Text("@S DONE\n@F nothing\n@E 0"),
 		mock.Text("@S DONE\n@F nothing\n@E 0"),
 		mock.Text("@S DONE\n@U team x\n@E 0"),
 	)
 	e = w.Engine("domain-security", build(m))
 	e.Run(context.Background(), "x")
-	res = m.Requests[2].Messages[2].ToolResults[0]
-	if !strings.Contains(res.Content, "@? report carries no @U line") || !strings.Contains(res.Content, "@? dispatch zone-api: report carries no @U line") {
-		t.Fatalf("missing @U not flagged:\n%s", res.Content)
+	joined := ""
+	for _, req := range m.Requests {
+		for _, msg := range req.Messages {
+			for _, tr := range msg.ToolResults {
+				joined += tr.Content
+			}
+		}
+	}
+	if !strings.Contains(joined, "@? report carries no @U line") || !strings.Contains(joined, "@? dispatch zone-api: report carries no @U line") {
+		t.Fatalf("missing @U not flagged after its one bounce:\n%s", joined)
 	}
 	// unknown agent, and a parent whose step budget is spent
 	m = mock.New(mock.Call("d1", "dispatch", map[string]interface{}{"agent": "zone-ghost", "ask": "x"}), mock.Text("@S DONE\n@U team x\n@E 0"))
@@ -541,16 +594,53 @@ func TestDispatch(t *testing.T) {
 	if res := m.Requests[1].Messages[2].ToolResults[0]; !res.IsError || !strings.Contains(res.Content, "parent step budget spent") {
 		t.Fatalf("budget share: %+v", res)
 	}
-	// depth: a Subagent at MaxDepth 2 may dispatch once more, then no further
+	// depth: a Subagent may dispatch one layer up to the chain's length, then the layers run out —
+	// the human-set ceiling (2) is floored at the chain's own length (3), so a shallow MaxDepth
+	// never breaks the ladder; past the floor rank the tool is gone.
 	b = build(mock.New())
 	b.Subagent.MaxDepth = 2
 	e = w.Engine("coord-core", b)
 	if !strings.Contains(strings.Join(e.Tools.Names(), ","), "dispatch") {
 		t.Fatal("coord dispatches")
 	}
-	b.Depth = 2
+	b.Depth = 3
 	if e = w.Engine("coord-core", b); strings.Contains(strings.Join(e.Tools.Names(), ","), "dispatch") {
-		t.Fatal("depth limit")
+		t.Fatal("past the chain's length, no layer left")
+	}
+	// the depth ceiling is floored at the rank chain's length (workspace.Engine) — a coordinator always
+	// reaches its domain owner no matter what maxDepth says, because a ladder shorter than the table
+	// breaks the chain at depth 2 with no warning. The floor rank (zone worker) holds no dispatch
+	// tool, so past the chain there is still no layer.
+	b = build(mock.New())
+	b.Subagent.MaxDepth = 0
+	e = w.Engine("coord-core", b)
+	if !strings.Contains(strings.Join(e.Tools.Names(), ","), "dispatch") {
+		t.Fatal("the chain's own length is the depth floor: a coordinator always reaches its domain owner")
+	}
+	b.Depth = 1
+	e = w.Engine("domain-core", b)
+	if !strings.Contains(strings.Join(e.Tools.Names(), ","), "dispatch") {
+		t.Fatal("a domain owner at depth 1 still reaches its zone worker")
+	}
+	b.Depth = 3
+	e = w.Engine("domain-core", b)
+	if strings.Contains(strings.Join(e.Tools.Names(), ","), "dispatch") {
+		t.Fatal("below the floor rank: no layer left, no tool")
+	}
+}
+
+// TestChainDepth reads the ladder's length off the rank table, not a constant: the default
+// table (orchestrator → coordinator → domain owner → zone worker) is 3, and a custom table walks its own hierarchy.
+func TestChainDepth(t *testing.T) {
+	if got := Ranks(DefaultRanks(Default())).ChainDepth(); got != 3 {
+		t.Fatalf("default table's chain: %d", got)
+	}
+	if got := customRanks().ChainDepth(); got != 3 {
+		t.Fatalf("custom table lead→persistent agent→{coder,writer}: %d", got)
+	}
+	shallow := Ranks{{Name: "lead", ReportsTo: Orchestrator, Job: "x", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: "lead", Prefix: "lead-"}}
+	if got := shallow.ChainDepth(); got != 1 {
+		t.Fatalf("one rank under orchestrator: %d", got)
 	}
 }
 
@@ -572,6 +662,15 @@ func TestMergeHooks(t *testing.T) {
 		EndGate: func(ctx context.Context, s *loop.Session, r *loop.Result) (string, []string, error) {
 			return "checked", []string{"h"}, nil
 		}}
+	noteA := loop.Hooks{Note: func(ctx context.Context, s *loop.Session, st *loop.StepRecord) string { return "a-note" }}
+	noteB := loop.Hooks{Note: func(ctx context.Context, s *loop.Session, st *loop.StepRecord) string { return "b-note" }}
+	hn := MergeHooks(noteA, noteB).Note(context.Background(), nil, nil)
+	if hn != "a-noteb-note" {
+		t.Errorf("notes must concatenate in order: %q", hn)
+	}
+	if MergeHooks(loop.Hooks{}, noteA).Note == nil || MergeHooks(noteA, loop.Hooks{}).Note == nil {
+		t.Error("a lone note rides through")
+	}
 	h := MergeHooks(a, b)
 	if hs := h.Record(context.Background(), nil, nil); strings.Join(hs, ",") != "ha,hb" || strings.Join(calls, ",") != "a,b" {
 		t.Error("record chain")
@@ -670,7 +769,7 @@ func TestGateTestsIntact(t *testing.T) {
 	dir := fixture(t)
 	w := open(t, dir)
 	doc := ".agent-one/zone/auth/README.md"
-	docBody := "# zone-auth\n- **Territory:** `src/auth/`\n- **Reports to:** domain-security\n"
+	docBody := "# zone-auth\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n"
 	two := "package auth\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) {}\n\nfunc TestB(t *testing.T) {}\n"
 	os.WriteFile(filepath.Join(dir, "src/auth/token_test.go"), []byte(two), 0o644)
 	run := func(test string) *loop.Result {
@@ -717,12 +816,46 @@ func TestGateUI(t *testing.T) {
 		saw = wrote
 		return []string{"error ui/components/card/card.css:3 [literal] a literal colour"}
 	}}
-	v := w.Gate(context.Background(), opt, "", []string{"ui/components/card/card.css"}, nil, false, "")
+	v := w.Gate(context.Background(), nil, opt, "", []string{"ui/components/card/card.css"}, nil, false, "")
 	if v.Word != "fail" || !strings.Contains(v.String(), "UI system: error ui/components/card/card.css:3") || len(saw) != 1 {
 		t.Fatalf("the ui lints did not fail the gate: %s", v)
 	}
 	opt.UI = func([]string) []string { return nil }
-	if v := w.Gate(context.Background(), opt, "", []string{"ui/components/card/card.css"}, nil, false, ""); v.Word == "fail" {
+	if v := w.Gate(context.Background(), nil, opt, "", []string{"ui/components/card/card.css"}, nil, false, ""); v.Word == "fail" {
 		t.Fatalf("clean ui failed the gate: %s", v)
+	}
+}
+
+// A member's own README at its seat (<dir>/README.md) is the member's identity in the
+// workspace's address space, never a work product the gate polices for authorship: the orchestrator
+// authors the skel at founding, the member edits itself after. Right-author never fires on it.
+// (Ported from agent-one's 7819383; the live-workspace fail on zone-policy's README is this carve-out
+// missing.)
+func TestGateMemberDocAuthorship(t *testing.T) {
+	dir := fixture(t)
+	w := open(t, dir)
+	opt := DefaultHooks().Gate
+	opt.InvariantsHold = false // the fixture's verify lines are not at issue here
+	opt.DocTruthful = false    // member docs are already excluded below; keep the check on the carve-out alone
+	doc := ".agent-one/zone/auth/README.md"
+	// the member edits its own doc — pass
+	v := w.Gate(context.Background(), nil, opt, "zone-auth", []string{doc}, &wire.Report{Status: "DONE"}, true, "x")
+	if v.Word == "fail" && strings.Contains(v.String(), "Right zone worker authored") {
+		t.Errorf("member's own doc failed right-author: %s", v)
+	}
+	// the orchestrator authors the skel — pass
+	v = w.Gate(context.Background(), nil, opt, "", []string{doc}, &wire.Report{Status: "DONE"}, true, "founding")
+	if v.Word == "fail" && strings.Contains(v.String(), "Right zone worker authored") {
+		t.Errorf("orchestrator-authored skel failed right-author: %s", v)
+	}
+	// another member writes that doc — still fails (it's zone-auth's identity)
+	v = w.Gate(context.Background(), nil, opt, "zone-api", []string{doc}, &wire.Report{Status: "DONE"}, true, "x")
+	if v.Word != "fail" || !strings.Contains(v.String(), "Right zone worker authored") {
+		t.Errorf("foreign member on another's doc should still fail: %+v", v)
+	}
+	// and ordinary files under ownership still police (zone-auth in zone-api's ownership via shared domain owner)
+	v = w.Gate(context.Background(), nil, opt, "zone-auth", []string{"src/api/z.go"}, &wire.Report{Status: "DONE"}, true, "x")
+	if v.Word != "fail" || !strings.Contains(v.String(), "Right zone worker authored") {
+		t.Errorf("ordinary ownership writes still police: %+v", v)
 	}
 }

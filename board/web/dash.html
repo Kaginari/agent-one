@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="web/layout.css">
 <link rel="stylesheet" href="web/components/shell/shell.css">
 <link rel="stylesheet" href="web/components/topbar/topbar.css">
+<link rel="stylesheet" href="web/components/tree/tree.css">
 <link rel="stylesheet" href="web/components/tabs/tabs.css">
 <link rel="stylesheet" href="web/components/panel/panel.css">
 <link rel="stylesheet" href="web/components/pill/pill.css">
@@ -38,6 +39,7 @@
       <span class="meter" id="ctx" role="meter" aria-label="context used" aria-valuemin="0" aria-valuemax="100"><span class="meter-fill"></span><span class="meter-label">ctx —</span></span>
       <span>cost <b id="cost">—</b></span>
       <span id="live-count" class="pill" hidden></span>
+      <span id="gatewait" class="pill" hidden data-live title="a card waits for a human answer — the workspace is blocked on you"></span>
     </div>
     <div class="topbar-tools">
       <button class="button" data-size="s" data-variant="quiet" type="button" id="theme" aria-label="theme: follows the system — change">theme · system</button>
@@ -50,6 +52,7 @@
     <button class="tab" role="tab" data-view="net" aria-selected="false" type="button">Neural net</button>
     <button class="tab" role="tab" data-view="metrics" aria-selected="false" type="button">Metrics</button>
     <button class="tab" role="tab" data-view="relations" aria-selected="false" type="button">Relations</button>
+    <button class="tab" role="tab" data-view="tree" aria-selected="false" type="button">Tree</button>
   </nav>
   <main class="shell-main" id="main" data-view="overview">
     <section class="panel" data-panel="console" aria-labelledby="h-console">
@@ -105,6 +108,12 @@
           <div class="facets" id="facets"></div>
           <div class="matrix-wrap" id="matrix"></div>
         </div>
+      </div>
+    </section>
+    <section class="panel" data-panel="tree" aria-labelledby="h-tree">
+      <header class="panel-head"><h2 class="panel-title" id="h-tree">Folder tree</h2><span class="panel-note" data-note="tree">workspace ownership — files light as tools touch them</span></header>
+      <div class="panel-body">
+        <div class="tree" id="tree" role="tree" aria-label="workspace tree"><p class="tree-empty">reading the workspace…</p></div>
       </div>
     </section>
   </main>

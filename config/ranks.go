@@ -20,7 +20,10 @@ type RankDef struct {
 	Dir          string   `json:"dir"`
 	Prefix       string   `json:"prefix"`
 	PromotesFrom string   `json:"promotesFrom"`
-	Sideways     *bool    `json:"sideways"` // may speak to its own rank (domain ⇄ domain)
+	Sideways     *bool    `json:"sideways"`     // may speak to its own rank (domain owner ↔ domain owner) and name its layer-mates
+	Layer        int      `json:"layer"`        // a layer, 0 when unset; two ranks share a layer iff equal and nonzero
+	DivineRules  []string `json:"divineRules"`  // a promoted rank's absolute rules, laced into the base rank's prompt
+	PromotesWhen string   `json:"promotesWhen"` // the ASL condition under which a body of this rank promotes ("" = never)
 }
 
 // Rank is one resolved rank with the origin of each field ("policy" for the built-in table).
@@ -38,6 +41,9 @@ type Rank struct {
 	Prefix       string
 	PromotesFrom string
 	Sideways     bool
+	Layer        int
+	DivineRules  []string
+	PromotesWhen string
 	Origins      map[string]string // field → origin
 	Builtin      bool
 }
@@ -116,6 +122,9 @@ func (c *Config) buildRanks() error {
 		set("prefix", func() { r.Prefix = def.Prefix })
 		set("promotesFrom", func() { r.PromotesFrom = def.PromotesFrom })
 		set("sideways", func() { r.Sideways = *def.Sideways })
+		set("layer", func() { r.Layer = def.Layer })
+		set("divineRules", func() { r.DivineRules = def.DivineRules })
+		set("promotesWhen", func() { r.PromotesWhen = def.PromotesWhen })
 		if def.Agent != "" && def.Agent != "ephemeral" && def.Agent != "persistent" {
 			return fmt.Errorf("%s: ranks.%s.agent: %q is not ephemeral or persistent", c.Where("ranks."+name+".agent"), name, def.Agent)
 		}
@@ -155,10 +164,36 @@ func (c *Config) buildRanks() error {
 		inherit("dir", func() { r.Dir = base.Dir })
 		inherit("prefix", func() { r.Prefix = base.Prefix })
 		inherit("model", func() { r.Model = base.Model })
+		inherit("layer", func() { r.Layer = base.Layer })
 		for f, dropped := range map[string]bool{"authors": base.Authors && !r.Authors, "holdsGate": base.HoldsGate && !r.HoldsGate, "sideways": base.Sideways && !r.Sideways} {
 			if dropped {
 				return fmt.Errorf("ranks.%s.%s: an promoted rank keeps everything %s held (%s)", name, f, base.Name, r.Origins[f])
 			}
+		}
+		// divineRules and promotesWhen are the promoted rank's own — never inherited from a base
+		// (a base does not carry its overload's rules or its evolution condition).
+	}
+	// Validations that need every name resolved (promotesWhen parses and must name its base).
+	for _, name := range order {
+		r := byName[name]
+		if r.PromotesWhen != "" {
+			if r.PromotesFrom == "" {
+				return fmt.Errorf("ranks.%s.promotesWhen: a promoted rank's field — %s promotes from nothing", name, name)
+			}
+			// the condition's shape is checked at decode; the workspace parses it again before use.
+			fields := strings.Fields(r.PromotesWhen)
+			if len(fields) < 3 || fields[0] != "promote" {
+				return fmt.Errorf("ranks.%s.promotesWhen %q: opens with `promote <rank> when …`", name, r.PromotesWhen)
+			}
+			if fields[2] != "when" {
+				return fmt.Errorf("ranks.%s.promotesWhen %q: missing `when` after the promoted rank", name, r.PromotesWhen)
+			}
+			if fields[1] != r.PromotesFrom {
+				return fmt.Errorf("ranks.%s.promotesWhen: promotes %s, not its base %s", name, fields[1], r.PromotesFrom)
+			}
+		}
+		if len(r.DivineRules) > 0 && r.PromotesFrom == "" {
+			return fmt.Errorf("ranks.%s.divineRules: a promoted rank's field — %s promotes from nothing", name, name)
 		}
 	}
 	// Defaults for new ranks.
@@ -215,7 +250,7 @@ func (c *Config) buildRanks() error {
 	return nil
 }
 
-var rankFields = []string{"reportsTo", "job", "authors", "holdsGate", "agent", "role", "tools", "model", "dir", "prefix", "promotesFrom", "sideways"}
+var rankFields = []string{"reportsTo", "job", "authors", "holdsGate", "agent", "role", "tools", "model", "dir", "prefix", "promotesFrom", "sideways", "layer", "divineRules", "promotesWhen"}
 
 func (c *Config) rankWhere(name, field string) string { return c.Where("ranks." + name + "." + field) }
 
@@ -279,8 +314,17 @@ func (c *Config) RankTree() string {
 			if r.Sideways {
 				marks = append(marks, "sideways")
 			}
+			if r.Layer != 0 {
+				marks = append(marks, fmt.Sprintf("layer %d", r.Layer))
+			}
 			if r.PromotesFrom != "" {
 				marks = append(marks, "promotes "+r.PromotesFrom)
+			}
+			if len(r.DivineRules) > 0 {
+				marks = append(marks, fmt.Sprintf("%d divine rules", len(r.DivineRules)))
+			}
+			if r.PromotesWhen != "" {
+				marks = append(marks, "when `"+r.PromotesWhen+"`")
 			}
 			marks = append(marks, r.Agent)
 			if r.Role != "" {

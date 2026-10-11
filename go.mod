@@ -10,10 +10,12 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	charm.land/log/v2 v2.0.1
 	github.com/alecthomas/chroma/v2 v2.20.0
+	github.com/blacktop/go-termimg v0.1.26
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260927004216-9c77d672503d
+	golang.org/x/image v0.36.0
 )
 
 require (
@@ -22,10 +24,12 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/catppuccin/go v0.2.0 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260906173415-0277a179edd9 // indirect
+	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/exp/golden v0.0.0-20251109135125-8916d276318f // indirect
 	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20250327172914-2fdc97757edf // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
+	github.com/charmbracelet/x/mosaic v0.0.0-20260216111343-536eb63c1f4c // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
@@ -37,11 +41,15 @@ require (
 	github.com/go-logfmt/logfmt v0.6.1 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
+	github.com/makeworld-the-better-one/dither/v2 v2.4.0 // indirect
 	github.com/mattn/go-runewidth v0.0.30 // indirect
+	github.com/mattn/go-sixel v0.0.8 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/soniakeys/quant v1.0.0 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
 	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
@@ -49,5 +57,6 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Kaginari/agent-one/loop"
 	"github.com/Kaginari/agent-one/memory"
@@ -44,6 +45,10 @@ type Workspace struct {
 	Lex          Lexicon
 	Ranks        Ranks
 	Policy       *Policy
+	// System is the parsed `.agent-one/system.yaml` (nil when absent or malformed — the
+	// hole sits in Notes). It grounds the git self-init at open: a manifest root outside any
+	// work-tree is versioned once, at provisioning.
+	Manifest     *System
 	Onto         *onto.Workspace
 	Members      []Member
 	Instructions []Instruction
@@ -56,9 +61,40 @@ type Workspace struct {
 	mu       sync.Mutex
 	sessions map[*loop.Engine]*loop.Session
 	closers  map[*loop.Engine]func()
-	// subagentWrote is what the Subagents of a dispatcher's engine wrote and gated on their own
-	// account; the dispatcher's end gate leaves those paths alone (never a second gate).
-	subagentWrote map[*loop.Engine]map[string]bool
+	// subagentWrote is the subagent-write ledger's SAME-ENGINE LANE: what the Subagents of a
+	// dispatcher's engine wrote and gated on their own account, kept as path → {writer, at};
+	// the dispatcher's end gate leaves those paths alone (never a second gate), and the
+	// orchestrator's second pairing arm (gate.go, decree 2026-10-01) reads this lane to attribute
+	// a doc on disk to this session's own subagents when the code lands a turn later.
+	subagentWrote map[*loop.Engine]map[string]subagentWrite
+	// subagentWrites is the subagent-write ledger's CROSS-SESSION LANE (3rd-strike fix,
+	// 2026-10-03): the same record doubled under the session member's name, workspace-resident
+	// instead of engine-keyed. Subagent authoring at turn N survives both the subagent engine's
+	// and the dispatcher engine's Close, so when the orchestrator lands code on that soil at turn
+	// N+1 the right-author arm can pair code and doc by member name. Every write mirrors
+	// into subagentWrote — gate.go's read stays put (OUT-2); Close clears per-engine state
+	// only and never this lane. Bounded per member (subagentWritesBound entries) because an
+	// unbounded map gains an entry every subagent turn forever.
+	subagentWrites map[string]map[string]subagentWrite
+	// promote is the promotion engine: per-agent report metrics and the register when a condition
+	// crosses. nil when no rank declares promotesWhen.
+	promote *promoteState
+	// the council ledger: per-agent governance strain — a sum of the runs' sent-backs (failed
+	// acts standing, gate re-asks, wire re-asks) plus one per failed or stalled run, reset by a
+	// clean landing. At policy.stress.escalateAt the dispatcher stamps a council warrant into the
+	// report so the agent's manager answers; consults bounds the warrants an agent may carry.
+	stress   map[string]int
+	consults map[string]int
+	// stressDeaths records which member last died under the subagent clock on which lane —
+	// the memo the dispatcher consults before re-dispatching the same agent. Configuration
+	// mutation is advisory (the memo's next-lane hint is printed into the report), never
+	// silent: Operator's 2026-10-02 policy — the agents carry the memory, they don't swap DNA alone.
+	stressDeaths map[string]stressEnd
+	// pairMarks + gateStreaks carry the 2026-10-07 session policies: doc-move marks (arm-3
+	// pairing, transactional — the gate spends them) and circuit-breaker streaks (the
+	// same gate failing on the same files for the same agent hardens into a spec directive).
+	pairMarks   map[string]time.Time
+	gateStreaks map[string]*gateStreak
 }
 
 // Discover walks up from dir for the workspace dir.
@@ -82,18 +118,30 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 	if st, err := os.Stat(filepath.Join(abs, lex.WorkspaceDir)); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("no %s/ under %s", lex.WorkspaceDir, abs)
 	}
-	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]bool{}}
+	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]subagentWrite{}, subagentWrites: map[string]map[string]subagentWrite{}, stress: map[string]int{}, consults: map[string]int{}, stressDeaths: map[string]stressEnd{}, pairMarks: map[string]time.Time{}, gateStreaks: map[string]*gateStreak{}}
 	if w.Ranks == nil {
 		w.Ranks = DefaultRanks(lex)
 	}
 	if err := w.Ranks.Validate(); err != nil {
 		return nil, fmt.Errorf("ranks: %v", err)
 	}
+	w.promote = newPromoteState(w.Ranks)
+	w.loadLedgers() // the scars come home before the first agent runs (freeze policy 2026-10-07)
 	policyPath := filepath.Join(abs, lex.WorkspaceDir, lex.Policy)
 	if w.Policy, err = LoadPolicy(policyPath, lex.WorkspaceDir+"/"+lex.Policy, lex.Principles); err != nil {
 		w.Notes = append(w.Notes, err.Error())
 	} else if w.Policy.Principles == "" {
 		w.Notes = append(w.Notes, w.Policy.Path+" has no principles section")
+	}
+	dimPath := filepath.Join(abs, lex.WorkspaceDir, "system.yaml")
+	if _, serr := os.Stat(dimPath); serr == nil {
+		if w.Manifest, err = LoadSystem(dimPath); err != nil {
+			w.Notes = append(w.Notes, err.Error())
+		} else if ran, err := GitSelfInit(abs); err != nil {
+			w.Notes = append(w.Notes, err.Error())
+		} else if ran {
+			w.Notes = append(w.Notes, "system self-init: git init -b main at "+abs)
+		}
 	}
 	if opt.Ontology {
 		if err := w.Reload(); err != nil {
@@ -197,6 +245,12 @@ func membersOf(root string, ow *onto.Workspace, ranks Ranks) []Member {
 		if c.Doc != "" {
 			text = memory.RdOr(filepath.Join(root, filepath.FromSlash(c.Doc)))
 		}
+		if docRetired(text) {
+			// the council's relief mark: this seat keeps its graph memory but claims no
+			// soil — the roster drops it, its ownership prefixes open again (policy known since
+			// the first relief wave: an ended zone worker is not an invisible zone worker)
+			continue
+		}
 		if m := reRank.FindStringSubmatch(text); m != nil {
 			want := strings.ToLower(strings.NewReplacer(" ", "_", "-", "_").Replace(strings.TrimSpace(m[1])))
 			for _, r := range ranks {
@@ -267,9 +321,37 @@ func VerifyOf(doc string) []string {
 	return out
 }
 
-// Member finds an agent by id (or by its unprefixed name when unambiguous).
+// Member finds an agent by id (or by its unprefixed name when unambiguous). A seat registered
+// mid-session is not on the in-memory roster: on a miss, the roster is re-derived from the
+// docs once before giving up, so a dispatch for an agent provisioned after Open still lands.
 func (w *Workspace) Member(name string) *Member {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.member(name)
+}
+
+// member is Member's agent, callable only with w.mu held — Prompt locks over the
+// whole prompt build and fans into this through rankPolicyPath / RankOf.
+func (w *Workspace) member(name string) *Member {
 	name = strings.ToLower(strings.TrimSpace(name))
+	if c := w.memberByName(name); c != nil {
+		return c
+	}
+	ow, err := onto.LoadLayout(w.Root, w.Ranks.Layout(w.Lex))
+	if err != nil {
+		return nil
+	}
+	fresh := membersOf(w.Root, ow, w.Ranks)
+	w.Onto = ow
+	for _, c := range fresh {
+		if w.memberLocked(c.Name) == nil {
+			w.Members = append(w.Members, c)
+		}
+	}
+	return w.memberByName(name)
+}
+
+func (w *Workspace) memberByName(name string) *Member {
 	var hit *Member
 	for i := range w.Members {
 		c := &w.Members[i]
@@ -299,7 +381,15 @@ func oneHopAbove(g *onto.Graph, s, o onto.Term) bool {
 
 // RankOf is a member's rank row (orchestrator's for the session or an unknown name).
 func (w *Workspace) RankOf(name string) Rank {
-	if c := w.Member(name); c != nil {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.rankOf(name)
+}
+
+// rankOf is RankOf's agent with w.mu already held (rankPolicyPath runs inside
+// Prompt's build-wide lock).
+func (w *Workspace) rankOf(name string) Rank {
+	if c := w.member(name); c != nil {
 		if r, ok := w.Ranks.Get(c.Rank); ok {
 			return r
 		}
@@ -373,7 +463,31 @@ func (w *Workspace) Owner(rel string) *Member {
 			return best
 		}
 	}
+	// Seat fallback (auditor verdict 2026-10-02, arm-2 discrimination follow-up
+	// 2026-10-04): seat docs are the member's authorship; ownership prefixes
+	// never cover the seat — a doc at a member's Dir matches no ownership
+	// prefix (e.g. .agent-one/zone/api/README.md, ownership src/api/), so without
+	// this pass Owner returns nil and the gate's memberDoc branch stays dead.
+	for i := range w.Members {
+		c := &w.Members[i]
+		if c.Doc != "" && normRel(c.Doc) == rel {
+			return c
+		}
+	}
 	return nil
 }
 
 func parentDir(d string) string { return filepath.Dir(d) }
+
+// VerifyCoded reports whether the member's doc carries at least one verify line beyond the
+// trivial sentinels (`true`, `exit 0`): the domain-TDD dispatch precondition (workspace/subagent.go)
+// reads this to prove a verdict is coded BEFORE a zone worker is ordered.
+func (c *Member) VerifyCoded() bool {
+	for _, v := range c.Verify {
+		v = strings.TrimSpace(strings.ToLower(v))
+		if v != "" && v != "true" && v != "exit 0" {
+			return true
+		}
+	}
+	return false
+}

@@ -2,6 +2,10 @@ package config
 
 // defaultsJSON is layer 1, one table for both distributions; [dist] and [dist-dir] are
 // substituted by the lexicon at decode. Every feature object carries `enabled`.
+//
+// dispatch.sessionBackground exists as a per-workspace flip (config.local.yaml) for sessions that
+// want their dispatches woken: the wake channel feeds the session only, a mid-chain subagent's
+// background dispatch would strand its report. Foreground stays the default everywhere.
 const defaultsJSON = `{
   "models": {
     "default": "anthropic/claude-opus-5",
@@ -29,6 +33,7 @@ const defaultsJSON = `{
     "grep":      { "enabled": true, "limit": 100 },
     "write":     { "enabled": true },
     "edit":      { "enabled": true },
+    "delete":    { "enabled": true },
     "multiedit": { "enabled": true },
     "patch":     { "enabled": true },
     "bash":      { "enabled": true, "shell": "", "timeout": "2m", "maxTimeout": "10m", "background": true, "jobsDir": "[dist-dir]/tmp/jobs", "sandbox": "bwrap", "envAllow": [] },
@@ -36,32 +41,37 @@ const defaultsJSON = `{
     "webfetch":  { "enabled": true, "maxBytes": 5242880, "timeout": "1m" },
     "websearch": { "enabled": true, "timeout": "1m", "backend": "" },
     "ask":       { "enabled": true },
-    "dispatch":  { "enabled": true, "maxDepth": 1, "background": false },
+    "dispatch":  { "enabled": true, "maxDepth": 3, "background": false, "backgroundTimeout": "30m", "strictFlow": true, "sessionBackground": false },
     "recall":    { "enabled": true },
     "remember":  { "enabled": true },
     "toolbox":   { "enabled": true },
     "onto":      { "enabled": true },
     "skill":     { "enabled": true },
-    "workingNotes":      { "enabled": true, "limit": 5 },
+    "workingNotes":       { "enabled": true, "limit": 5 },
+    "plan":       { "enabled": true },
+    "pulse":      { "enabled": true },
     "custom":    {},
     "output":    { "maxLines": 2000, "maxBytes": 51200, "dumpDir": "[dist-dir]/tmp/tool-out", "keepDays": 7 },
-    "missing":   { "doomLoopRepeats": 2, "proposeOnSecondNaming": true, "liveReload": true }
+    "missing":   { "doomLoopRepeats": 2, "proposeOnSecondNaming": true, "liveReload": true },
+    "tmpRedirect": { "enabled": true, "mode": "rewrite", "refuseCwd": true }
   },
   "policy": {
     "principles":      { "enabled": true },
-    "humanGate":  { "enabled": true, "strict": false, "approve": [], "dryRun": false },
-    "gate":       { "enabled": true, "rightAuthor": true, "invariantsHold": true, "dutiesDone": true, "docTruthful": true, "retries": 1, "testsIntact": true, "ui": true },
+    "humanGate":  { "enabled": true, "strict": false, "approve": [], "dryRun": false, "trustContainer": false },
+    "gate":       { "enabled": true, "rightAuthor": true, "invariantsHold": true, "dutiesDone": true, "docTruthful": true, "retries": 1, "testsIntact": true, "ui": true, "verifyTimeout": "120s" },
     "docsAsCode":   { "enabled": true },
-    "ownership":  { "enabled": true },
+    "ownership":  { "enabled": true, "orchestratorNeverAuthors": true },
     "wire":       { "enabled": true, "cap": 2048, "requireUnsaid": true, "raw": false },
     "log":        { "enabled": true, "path": "[dist-dir]/log.md" },
     "escalation": { "enabled": true, "maxRetries": 2 },
-    "budget":     { "contextTokens": 200000, "stressTokens": 180000, "steps": 40, "minutes": 60 },
-    "doomLoop":   { "enabled": false, "threshold": 3 }
+    "budget":     { "contextTokens": 200000, "stressTokens": 180000, "steps": 40, "minutes": 60, "salvageTokens": 4096 },
+    "guts":       { "enabled": true, "benchThrashVisits": 6, "digestEvery": 10 },
+    "doomLoop":   { "enabled": true, "threshold": 3 },
+    "stress":     { "escalateAt": 5, "maxConsults": 3, "relieveAt": 7 }
   },
   "memory": {
     "short":  { "enabled": true, "cacheDir": "[dist-dir]/memory/short" },
-    "long":   { "enabled": true, "index": "[dist-dir]/memory/long/index.json", "rebuildOnStale": true },
+    "long":   { "enabled": true, "index": "[dist-dir]/memory/long/index.json", "rebuildOnStale": true, "indexOnBoot": true },
     "shared": { "workspace":   { "enabled": true, "path": "[dist-dir]/memory/shared/notes.jsonl" },
                 "machine": { "enabled": true, "path": "~/.[dist]/shared/notes.jsonl" } },
     "recall": { "k": 5, "relationBoost": true }
@@ -90,7 +100,7 @@ const defaultsJSON = `{
   "discovery": {
     "instructions": { "enabled": true, "files": ["AGENTS.md", "CLAUDE.md"],
       "global": ["~/.config/[dist]/AGENTS.md", "~/.config/opencode/AGENTS.md", "~/.claude/CLAUDE.md"], "walkUp": true },
-    "skills":   { "enabled": true, "paths": ["[dist-dir]/skills", ".claude/skills", ".opencode/skills", ".opencode/skill", ".agents/skills",
+    "skills":   { "enabled": true, "paths": ["[dist-dir]/crafted-skills", "[dist-dir]/base-skills", "[dist-dir]/skills", ".claude/skills", ".opencode/skills", ".opencode/skill", ".agents/skills",
                   "~/.config/[dist]/skills", "~/.claude/skills", "~/.config/opencode/skills", "~/.config/opencode/skill"] },
     "commands": { "enabled": true, "paths": ["[dist-dir]/commands", ".claude/commands", ".opencode/commands", ".opencode/command",
                   "~/.config/[dist]/commands", "~/.claude/commands", "~/.config/opencode/commands", "~/.config/opencode/command"] },

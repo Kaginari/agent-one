@@ -1,0 +1,2 @@
+◆ subagent coord-agent-one · coord · drafter · mock/m           THINKING · 28s
+  └ coordinate the files-panel slices

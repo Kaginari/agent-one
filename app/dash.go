@@ -38,10 +38,8 @@ func (a *App) Dash(ctx context.Context, open bool) int {
 		fmt.Fprintf(errw, "@S FAIL\n@? the dashboard could not listen: %v\n", a.Holes())
 		return 2
 	}
+	// the bus answers choices from provisioning (newWebBus) — no dash-side wiring needed here
 	w := a.webBus()
-	w.mu.Lock()
-	w.answerable = true
-	w.mu.Unlock()
 	h, err := a.tuiHost(ctx)
 	if err != nil {
 		fmt.Fprintf(errw, "@S FAIL\n@? %v\n", err)

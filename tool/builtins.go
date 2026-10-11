@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Kaginari/agent-one/sandbox"
@@ -43,59 +46,160 @@ func clip(s string) string {
 
 // ---- read
 
+// readAutoLimit bounds a whole-file ask: past it read serves the first window and says how to
+// widen (offset/limit) or, for Go, where the outline lives (skim). Named windows are untouched.
+const readAutoLimit = 240
+
+// ReadTool reads files — one path per call, or a batch through `paths`. Every call re-checks
+// what it served: an unchanged window answers "withheld — unchanged since the first read this
+// run" instead of re-shipping the bytes (the wire's budgets are measured in served bytes, and
+// an agent touring a package re-reads its anchors constantly). A changed file hashes differently
+// and is served fresh, so the cache can never go stale on an intervening edit.
 func ReadTool() *Tool {
-	return &Tool{
-		Name:        "read",
-		Description: "Read a file. Lines are numbered. offset (1-based) and limit narrow the window.",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}`),
-		Class:       Read,
-		Classify: func(env Env, in json.RawMessage) Classification {
-			var a struct{ Path string }
-			_ = decode(in, &a)
-			abs := env.Resolve(a.Path)
-			if !env.Inside(abs) {
-				return Classification{Class: Outward, Why: "path outside the workspace: " + abs, Paths: []string{abs}}
+	var mu sync.Mutex
+	type served struct {
+		sum  uint64
+		mod  time.Time
+		size int64
+	}
+	seen := map[string]served{}
+	readOne := func(env Env, rel string, offset, limit int, full bool) (string, error) {
+		abs := env.Resolve(rel)
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			// a missing file answers with the closest siblings — the second guess costs a turn
+			if sug := siblingSuggestions(abs); sug != "" {
+				return "", fmt.Errorf("%v —%s", err, sug)
 			}
-			return Classification{Class: Read, Why: "reads " + env.Rel(abs), Paths: []string{abs}}
+			return "", err
+		}
+		if bytes.IndexByte(data[:min(len(data), 8192)], 0) >= 0 {
+			return "", fmt.Errorf("%s is binary (%d bytes)", env.Rel(abs), len(data))
+		}
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		if len(data) == 0 {
+			lines = nil
+		}
+		start := offset
+		if start < 1 {
+			start = 1
+		}
+		if limit < 0 { // an agent's `tail`: last |limit| lines, exact claim, never auto-capped
+			start = len(lines) + limit + 1
+			if start < 1 {
+				start = 1
+			}
+			limit, full = 0, true
+		}
+		if start > len(lines) {
+			return fmt.Sprintf("(%s has %d lines; offset %d is past the end)", env.Rel(abs), len(lines), start), nil
+		}
+		windowed := limit > 0
+		auto := !windowed && !full && len(lines) > readAutoLimit
+		end := len(lines)
+		if windowed && start-1+limit < end {
+			end = start - 1 + limit
+		}
+		if auto && start-1+readAutoLimit < end {
+			end = start - 1 + readAutoLimit
+		}
+		var b strings.Builder
+		for i := start - 1; i < end; i++ {
+			fmt.Fprintf(&b, "%6d\t%s\n", i+1, clampLine(lines[i], 2000))
+		}
+		if end < len(lines) {
+			if auto {
+				fmt.Fprintf(&b, "… %d more lines — widen with offset/limit (or full: true), or skim %s for the outline\n", len(lines)-end, env.Rel(abs))
+			} else {
+				fmt.Fprintf(&b, "… %d more lines (read offset:%d)\n", len(lines)-end, end+1)
+			}
+		}
+		// the read-once cache: same window, same bytes → a pointer, not a re-serve. A file that
+		// changed under us (mod/size drift) misses the cache and re-serves; the sum guards the
+		// same-size same-second edit rank.
+		key := fmt.Sprintf("%s\x00%d\x00%d", abs, start, end)
+		out := b.String()
+		h := fnv.New64a()
+		h.Write([]byte(out))
+		sum := h.Sum64()
+		st, _ := os.Stat(abs)
+		mu.Lock()
+		prev, ok := seen[key]
+		fresh := ok && prev.sum == sum && (!ok || st == nil || (prev.mod.Equal(st.ModTime()) && prev.size == st.Size()))
+		if !fresh && st != nil {
+			seen[key] = served{sum: sum, mod: st.ModTime(), size: st.Size()}
+		}
+		mu.Unlock()
+		if fresh {
+			return fmt.Sprintf("(%s window %d-%d withheld — unchanged since this run's first read; say why the bytes are needed again)", env.Rel(abs), start, end), nil
+		}
+		return strings.TrimRight(out, "\n"), nil
+	}
+	return &Tool{
+		Name: "read",
+		Description: "Read files. Lines are numbered, per-file headers on a batch. `path` is one file; `paths` is a batch of windows (same offset/limit each). " +
+			"Unwindowed reads over 240 lines ship the first 240 with the widen hint; say full: true when every byte is honestly needed. skim gives a Go file's outline.",
+		Schema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"full":{"type":"boolean"}},"anyOf":[{"required":["path"]},{"required":["paths"]}]}`),
+		Class:  Read,
+		Classify: func(env Env, in json.RawMessage) Classification {
+			var a struct {
+				Path  string
+				Paths []string
+			}
+			_ = decode(in, &a)
+			names := a.Paths
+			if a.Path != "" {
+				names = append([]string{a.Path}, names...)
+			}
+			var abs []string
+			for _, n := range names {
+				abs = append(abs, env.Resolve(n))
+			}
+			for _, p := range abs {
+				if !env.Inside(p) {
+					return Classification{Class: Outward, Why: "path outside the workspace: " + p, Paths: abs}
+				}
+			}
+			return Classification{Class: Read, Why: fmt.Sprintf("reads %d path(s)", len(abs)), Paths: abs}
 		},
 		Run: func(ctx context.Context, env Env, in json.RawMessage) Result {
 			var a struct {
 				Path   string
+				Paths  []string
 				Offset int
 				Limit  int
+				Full   bool
 			}
-			if err := decode(in, &a); err != nil || a.Path == "" {
-				return fail("read: path is required")
+			if err := decode(in, &a); err != nil || (a.Path == "" && len(a.Paths) == 0) {
+				return fail("read: path or paths is required")
 			}
-			abs := env.Resolve(a.Path)
-			data, err := os.ReadFile(abs)
-			if err != nil {
-				return fail("read: %v", err)
+			names := a.Paths
+			if a.Path != "" {
+				names = append([]string{a.Path}, names...)
 			}
-			if bytes.IndexByte(data[:min(len(data), 8192)], 0) >= 0 {
-				return fail("read: %s is binary (%d bytes)", env.Rel(abs), len(data))
-			}
-			lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-			if len(data) == 0 {
-				lines = nil
-			}
-			start := a.Offset
-			if start < 1 {
-				start = 1
-			}
-			if start > len(lines) {
-				return Result{Output: fmt.Sprintf("(%s has %d lines; offset %d is past the end)", env.Rel(abs), len(lines), start)}
-			}
-			end := len(lines)
-			if a.Limit > 0 && start-1+a.Limit < end {
-				end = start - 1 + a.Limit
+			if len(names) == 1 {
+				out, err := readOne(env, names[0], a.Offset, a.Limit, a.Full)
+				if err != nil {
+					return fail("read: %v", err)
+				}
+				if z := zoneOwner(env, env.Rel(env.Resolve(names[0]))); z != "" && !strings.HasSuffix(out, "\n") {
+					out += "\n(zone of " + z + ")"
+				}
+				return Result{Output: clip(out)}
 			}
 			var b strings.Builder
-			for i := start - 1; i < end; i++ {
-				fmt.Fprintf(&b, "%6d\t%s\n", i+1, lines[i])
-			}
-			if end < len(lines) {
-				fmt.Fprintf(&b, "… %d more lines (offset %d)\n", len(lines)-end, end+1)
+			for i, n := range names {
+				if i > 0 {
+					b.WriteString("\n")
+				}
+				// a batch entry may pin its own window: "f.go:40" or "f.go:40:60" — the
+				// shared offset/limit stays the floor for entries that don't.
+				name, o, l := splitReadWindow(n, a.Offset, a.Limit)
+				out, err := readOne(env, name, o, l, a.Full)
+				if err != nil {
+					out = "! " + err.Error()
+				}
+				fmt.Fprintf(&b, "== %s ==\n%s\n", name, out)
 			}
 			return Result{Output: clip(b.String())}
 		},
@@ -121,13 +225,28 @@ func WriteTool() *Tool {
 				return fail("write: path is required")
 			}
 			abs := env.Resolve(a.Path)
+			var drift string
+			if old, err := os.ReadFile(abs); err == nil {
+				// the blind-overwrite drift receipt: an overwrite names what it replaced so a
+				// runaway full-write is visible in the wire, not silent ground truth
+				switch {
+				case string(old) == a.Content:
+					drift = fmt.Sprintf(" — over same %d bytes, no drift", len(old))
+				default:
+					drift = fmt.Sprintf(" — over %d bytes now %d (drift %+d)", len(old), len(a.Content), len(a.Content)-len(old))
+				}
+			}
 			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 				return fail("write: %v", err)
 			}
 			if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
 				return fail("write: %v", err)
 			}
-			return Result{Output: fmt.Sprintf("wrote %s (%d bytes)", env.Rel(abs), len(a.Content)), Wrote: []string{abs}}
+			out := fmt.Sprintf("wrote %s (%d bytes)%s", env.Rel(abs), len(a.Content), drift)
+			if z := zoneOwner(env, env.Rel(abs)); z != "" {
+				out += " · zone of " + z
+			}
+			return Result{Output: out, Wrote: []string{abs}}
 		},
 	}
 }
@@ -165,17 +284,159 @@ func EditTool() *Tool {
 			n := strings.Count(string(data), a.Old)
 			switch {
 			case n == 0:
+				hint := editHint(string(data), a.Old)
+				if hint != "" {
+					return fail("edit: old string not found in %s — %s", env.Rel(abs), hint)
+				}
 				return fail("edit: old string not found in %s", env.Rel(abs))
 			case n > 1 && !a.ReplaceAll:
-				return fail("edit: old string matches %d times in %s — make it unique or set replace_all", n, env.Rel(abs))
+				var lns []int
+				for i, l := range strings.Split(string(data), "\n") {
+					if strings.Contains(l, a.Old) {
+						lns = append(lns, i+1)
+						if len(lns) == 10 {
+							break
+						}
+					}
+				}
+				where := ""
+				if len(lns) > 0 {
+					where = fmt.Sprintf(" (lines %s)", trimJoin(lns))
+				}
+				return fail("edit: old string matches %d times in %s%s — make it unique or set replace_all", n, env.Rel(abs), where)
 			}
 			out := strings.Replace(string(data), a.Old, a.New, map[bool]int{true: -1, false: 1}[a.ReplaceAll])
 			if err := os.WriteFile(abs, []byte(out), 0o644); err != nil {
 				return fail("edit: %v", err)
 			}
-			return Result{Output: fmt.Sprintf("edited %s (%d replacement%s)", env.Rel(abs), n, map[bool]string{true: "s", false: ""}[n != 1]), Wrote: []string{abs}}
+			msg := fmt.Sprintf("edited %s (%d replacement%s)", env.Rel(abs), n, map[bool]string{true: "s", false: ""}[n != 1])
+			if z := zoneOwner(env, env.Rel(abs)); z != "" {
+				msg += " · zone of " + z
+			}
+			return Result{Output: msg, Wrote: []string{abs}}
 		},
 	}
+}
+
+// editHint is the near-miss the "not found" error owes the model: which line carries the old
+// string's most distinctive word, or its own first line. A dead "not found" pays a second
+// read; a line-pointer pays none.
+func editHint(data, old string) string {
+	var needles []string
+	if fl, _, _ := strings.Cut(old, "\n"); len(fl) >= 8 {
+		needles = append(needles, fl)
+	}
+	bestWord := ""
+	for _, w := range strings.Fields(old) {
+		if alnum(w) && len(w) > len(bestWord) {
+			bestWord = w
+		}
+	}
+	if bestWord != "" && (len(needles) == 0 || bestWord != needles[0]) {
+		needles = append(needles, bestWord)
+	}
+	for _, needle := range needles {
+		for i, l := range strings.Split(data, "\n") {
+			if strings.Contains(l, needle) {
+				return fmt.Sprintf("closest: line %d: %s", i+1, strings.TrimSpace(truncateRunes(l, 100)))
+			}
+		}
+	}
+	return ""
+}
+
+func alnum(s string) bool {
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func trimJoin(v []int) string {
+	var b strings.Builder
+	for i, n := range v {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, "%d", n)
+		if i == 9 {
+			break
+		}
+	}
+	return b.String()
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// clampLine caps one physical line — minified/generated single lines are token bombs.
+func clampLine(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + " [truncated]"
+}
+
+// siblingSuggestions answers "did you mean …" for a missing file, from its directory's
+// listing (case-insensitive substring on the base name; up to 3, sorted).
+func siblingSuggestions(abs string) string {
+	dir := filepath.Dir(abs)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	base := strings.ToLower(filepath.Base(abs))
+	var close, all []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.Contains(strings.ToLower(name), base) || strings.Contains(base, strings.ToLower(name)) {
+			close = append(close, name)
+			continue
+		}
+		if len(base) >= 3 {
+			all = append(all, name)
+		}
+	}
+	pick := close
+	if len(pick) == 0 {
+		pick = all
+	}
+	sort.Strings(pick)
+	if len(pick) > 3 {
+		pick = pick[:3]
+	}
+	if len(pick) == 0 {
+		return ""
+	}
+	return " did you mean: " + strings.Join(pick, ", ")
+}
+
+// splitReadWindow peels an optional per-path window off a batch entry: "f.go:40" wins the
+// offset, "f.go:40:60" both ends. The shared offset/limit hold otherwise.
+func splitReadWindow(n string, off, limit int) (string, int, int) {
+	parts := strings.Split(n, ":")
+	switch len(parts) {
+	case 1:
+		return n, off, limit
+	case 2:
+		if v, err := strconv.Atoi(parts[1]); err == nil {
+			return parts[0], v, limit
+		}
+	case 3:
+		o, eo := strconv.Atoi(parts[1])
+		l, el := strconv.Atoi(parts[2])
+		if eo == nil && el == nil {
+			return parts[0], o, max(l, 1)
+		}
+	}
+	return n, off, limit
 }
 
 // ---- bash

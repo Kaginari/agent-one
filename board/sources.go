@@ -308,8 +308,11 @@ type Sources struct {
 	Doc      func(path string) (string, error)
 	// Agents are the minted agents (.claude/agents, .opencode/agents); Skills every skill the
 	// session can wear, the binary's own included. The integrator knows them; files answer empty.
-	Agents func() []AgentInfo
-	Skills func() []SkillInfo
+	Agents    func() []AgentInfo
+	Skills    func() []SkillInfo
+	Tree      func(string) ([]TreeEntry, bool) // one level of the workspace tree ("" = root): entries, truncated; nil means unwired (integrator decides); consumers must nil-guard, never panic
+	Subagents func() (any, error)              // subagents strip: every entity's open hand (queued cards, presence from hearts, plan stats); agent fields stay local; nil = offline
+	Plan      func(deck string) (any, error)   // THE deck: the workspace's plan.json Parsed + hearts; deck selects tmp/plans/<deck>.json ("" = the workspace deck); nil = offline
 }
 
 // AgentInfo is one minted agent: the vessel a ranked member rides.
@@ -354,6 +357,45 @@ func FileSources(root, workspaceDir string, layout onto.Layout, now func() time.
 		Doc:      f.doc,
 		Agents:   func() []AgentInfo { return nil },
 		Skills:   func() []SkillInfo { return nil },
+		Tree: func(prefix string) ([]TreeEntry, bool) {
+			// A file or escaped prefix is not a directory level: found=false
+			// must surface as nil so the endpoint can 404; WalkTree's own
+			// truncation still marks real caps.
+			e, trunc, found := WalkTree(f.root, prefix)
+			if !found {
+				return nil, false
+			}
+			return e, trunc
+		},
+		Plan: func(deck string) (any, error) {
+			// deck == the agent name; "" reads the workspace's own deck
+			// (.agent-one/tmp/plans/<deck>.json, "" → plan.json like the tool).
+			name := deck
+			if name == "" {
+				name = "plan"
+			}
+			raw, err := os.ReadFile(filepath.Join(f.dir, "tmp", "plans", name+".json"))
+			if err != nil {
+				if os.IsNotExist(err) {
+					return map[string]any{"agent": deck, "empty": true}, nil
+				}
+				return nil, err
+			}
+			var m map[string]any
+			if err := json.Unmarshal(raw, &m); err != nil {
+				return nil, err
+			}
+			if m == nil {
+				m = map[string]any{}
+			}
+			m["agent"] = deck
+			if _, has := m["items"]; !has || m["items"] == nil {
+				m["empty"] = true
+			} else if items, ok := m["items"].([]any); !ok || len(items) == 0 {
+				m["empty"] = true
+			}
+			return m, nil
+		},
 	}
 }
 
@@ -396,6 +438,12 @@ func (s Sources) withDefaults(d Sources) Sources {
 	}
 	if s.Skills == nil {
 		s.Skills = d.Skills
+	}
+	if s.Tree == nil {
+		s.Tree = d.Tree
+	}
+	if s.Plan == nil {
+		s.Plan = d.Plan
 	}
 	return s
 }

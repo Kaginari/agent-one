@@ -599,45 +599,4 @@ func killPid(pid, sparePgid int) {
 	_ = syscall.Kill(pid, syscall.SIGKILL)
 }
 
-// descendants lists every process under pid, deepest last, from /proc.
-func descendants(pid int) []int {
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil
-	}
-	children := map[int][]int{}
-	for _, e := range entries {
-		id, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		stat, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
-		if err != nil {
-			continue
-		}
-		s := string(stat)
-		i := strings.LastIndexByte(s, ')')
-		if i < 0 {
-			continue
-		}
-		f := strings.Fields(s[i+1:])
-		if len(f) < 2 {
-			continue
-		}
-		ppid, _ := strconv.Atoi(f[1])
-		children[ppid] = append(children[ppid], id)
-	}
-	var out []int
-	queue := []int{pid}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for _, c := range children[cur] {
-			out = append(out, c)
-			queue = append(queue, c)
-		}
-	}
-	return out
-}
-
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

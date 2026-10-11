@@ -22,7 +22,7 @@ models: {default: mock/m, roles: {analyst: subagent/c}}
 providers:
   mock: {enabled: true, script: .agent-one/tmp/session.json}
   subagent: {type: mock, script: .agent-one/tmp/subagent.json}
-tools: {bash: {sandbox: none}}
+tools: {bash: {sandbox: none}, dispatch: {strictFlow: false}}
 toolbox: {enabled: false}
 ui: {board: {autostart: true, port: 0}}
 `)

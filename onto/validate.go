@@ -106,9 +106,15 @@ func (w *Workspace) finding(shape string, x Term, field, msg string) Finding {
 	return f
 }
 
+// overlap reports a real ownership collision. Two members asserting the SAME path literal
+// (a == b) is NOT a collision: it is a lawful sub-file split — e.g. zone-db-schema owns the
+// tables/migrate() of store.go while zone-db-queries owns its query/scan functions, one file,
+// disjoint responsibility (Principle 2). The workspace-reading keeps the asserted literal, so check
+// respects it. A true collision is namespace nesting: one path a strict ancestor directory of
+// the other (src/auth vs src/auth/login).
 func overlap(a, b string) bool {
 	if a == b {
-		return true
+		return false
 	}
 	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }

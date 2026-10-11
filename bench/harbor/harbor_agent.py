@@ -82,10 +82,14 @@ class HarborAgent(BaseInstalledAgent):
         model = f"--model {shlex.quote(self.model_name)} " if self.model_name else ""
         await self.exec_as_agent(
             environment,
-            command=(
-                f"cd {WORLD} && {dist} run --json {model}{shlex.quote(instruction)} "
+                # Inside a task container the container is the sandbox and nobody sits at the
+                # gate: destructive + outward pre-approved (mv/overwrite and /tmp scratch ride;
+                # real outward traffic still hits the bench's own egress policy).
+                command=(
+                    f"cd {WORLD} && {dist} run --json --approve destructive,outward {model}{shlex.quote(instruction)} "
                 "> /logs/agent/run.json 2> /logs/agent/run.stderr; rc=$?; "
-                f"mkdir -p /logs/agent/usage && cp -r {d}/instruments/usage/. /logs/agent/usage/ 2>/dev/null; "
+                f"mkdir -p /logs/agent/usage /logs/agent/loop && cp -r {d}/instruments/usage/. /logs/agent/usage/ 2>/dev/null; "
+                f"cp -r {d}/instruments/loop/. /logs/agent/loop/ 2>/dev/null; "
                 f"cp {d}/log.md /logs/agent/log.md 2>/dev/null; exit $rc"
             ),
             env=env,

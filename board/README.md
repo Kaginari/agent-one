@@ -5,6 +5,11 @@ addr, opts)` listens until the context ends. Everything a page needs is embedded
 5.3.8 under `assets/`, the theme in `static/board.css`, the page script in `static/board.js`,
 `html/template` pages under `templates/`), so a page works offline.
 
+`Board.Token()` returns the per-session token that authorizes dashboard acts
+(`/api/ask`, `/api/answer`, `/api/interrupt`). The token is registered in `New` and embedded in the
+dashboard page (`{{TOKEN}}`); `dash.js` sends it as `X-Board-Token`. Exposed for tests that need
+to act as the page (e.g., `TestDashGateAnswerOverHTTP`).
+
 Pages, one question each: Overview · Subagent · Usage · Team · Memory · Toolbox · Log · Config.
 Labels come from `Options.Names` (keys in `DefaultNames`); a distribution passes its own words.
 
@@ -25,6 +30,8 @@ Every figure carries a `Reading` (source, last time, lit or silent, why). A sile
 instrument renders as "silent since …" or "never lit", never as zero.
 
 ## The usage journal
+
+Pairing line (2026-10-06): `/api/plan` reads the query key `agent` (not `deck`); FileSources populates `Plan` from `<workspaceDir>/tmp/plans/<body>.json` — a missing file or an empty `items` list returns `{"agent": name, "empty": true}` with 200, never an error status. dash.js fetches `/api/plan?agent=<id>` inside the net knowledge card to render the plan headlines.
 
 `<workspaceDir>/instruments/usage/<session>.jsonl`, one JSON object per provider call:
 

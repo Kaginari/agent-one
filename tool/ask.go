@@ -15,6 +15,9 @@ type Question struct {
 	Text    string
 	Options []string
 	Free    bool // a free-text answer is accepted beside the options
+	// Recommended is a 1-based index into Options — the asker's lawful advice, rendered as the
+	// ◆ recommended tag and pre-seating the cursor (0 = the asker stays neutral).
+	Recommended int
 }
 
 // Asker answers a question — on the TTY in a session, from a script in tests. It returns the
@@ -32,17 +35,18 @@ type AskOptions struct {
 func AskTool(opt AskOptions) *Tool {
 	return &Tool{
 		Name:        "ask",
-		Description: "Ask the human a question, optionally with numbered options; the answer comes back as text. Use it instead of guessing (Absolute Rule III).",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}},"free":{"type":"boolean","description":"accept a free-text answer beside the options"}},"required":["question"]}`),
+		Description: "Ask the human a question, optionally with numbered options; the answer comes back as text. Use it instead of guessing (Absolute Rule III). When you lawfully advise one option, pass recommended (1-based) — never for irreversible or outward acts.",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}},"free":{"type":"boolean","description":"accept a free-text answer beside the options"},"recommended":{"type":"integer","description":"1-based index of the option you lawfully advise (renders as the recommended tag, pre-seats the cursor)"}},"required":["question"]}`),
 		Class:       Read,
 		Classify: func(env Env, in json.RawMessage) Classification {
 			return Classification{Class: Read, Why: "asks the human"}
 		},
 		Run: func(ctx context.Context, env Env, in json.RawMessage) Result {
 			var a struct {
-				Question string
-				Options  []string
-				Free     bool
+				Question    string
+				Options     []string
+				Free        bool
+				Recommended int
 			}
 			if err := decode(in, &a); err != nil || strings.TrimSpace(a.Question) == "" {
 				return fail("ask: question is required")
@@ -53,7 +57,7 @@ func AskTool(opt AskOptions) *Tool {
 			if opt.Asker == nil {
 				return fail("ask: nobody can answer here (no TTY) — end the turn with @? naming the question instead")
 			}
-			ans, err := opt.Asker(ctx, Question{Text: a.Question, Options: a.Options, Free: a.Free})
+			ans, err := opt.Asker(ctx, Question{Text: a.Question, Options: a.Options, Free: a.Free, Recommended: a.Recommended})
 			if err != nil {
 				return fail("ask: %v — end the turn with @? naming the question", err)
 			}

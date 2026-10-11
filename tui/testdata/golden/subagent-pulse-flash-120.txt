@@ -1,0 +1,4 @@
+◆ subagent zone-auth · zone · analyst · mock/m                                                        DONE · 9s  PASS 
+  └ land the token file
+  ⎿ PASS
+    ● src/auth/token.go:1 token ttl is 15m

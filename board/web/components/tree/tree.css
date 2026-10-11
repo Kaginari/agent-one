@@ -1,0 +1,50 @@
+/* @component tree — tokens: --line, --ink, --ink-muted, --accent-hero, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --warn, --danger, --focus, --focus-width, --radius-s, --weight-bold, --font-code, --step--2, --step--1, --time, --time-slow, --ease, --space-3xs, --space-2xs, --space-xs, --space-s. The workspace's ownership as a file tree: each row keeps a mark of the last act that touched it (heat by act class, the acting agent's rank tint); folders light when any descendant lights (the glow bubbles to the row); an agent at rest leaves its tint off. Reduced motion swaps the pulse for a static highlight. */
+@layer components {
+  .tree { font-family: var(--font-code); font-size: var(--step--1); line-height: 1.5; color: var(--ink); }
+  .tree-list { list-style: none; margin: 0; padding: 0; }
+  .tree-list .tree-list { padding-inline-start: var(--space-s); }
+  .tree-li { margin: 0; }
+  .tree-node {
+    --heat: transparent; --grade: var(--series-1); --glow-opacity: 0; --core: var(--line); --agent-tint: transparent;
+    display: flex; align-items: center; gap: var(--space-2xs); min-width: 0;
+    position: relative; padding: 1px var(--space-3xs) 1px 0; border-radius: var(--radius-s);
+    transition: background-color var(--time) var(--ease);
+  }
+  .tree-node:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: -1px; }
+  .tree-icon { flex: 0 0 auto; inline-size: 1.1em; block-size: 1.1em; color: var(--ink-muted); opacity: 0.75; transition: color var(--time) var(--ease), opacity var(--time) var(--ease); will-change: filter; }
+  .tree-icon[data-d="dir"] { color: var(--accent-hero, var(--series-1)); opacity: 0.6; }
+  .tree-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+  .tree-node[data-d="dir"] .tree-name { font-weight: var(--weight-bold); }
+  .tree-path { flex: 0 0 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: start; font-size: var(--step--2); color: var(--ink-muted); opacity: 0; transition: opacity var(--time) var(--ease); }
+  .tree-node:hover .tree-path, .tree-node[data-lit] .tree-path { opacity: 0.85; }
+  /* rank tints (as net.css maps them): zone --series-1, domain/principal-domain-owner --series-2, service --series-3, coord/principal-coordinator --series-4, auditor --series-5, crown --series-6, default --series-2 */
+  .tree-node[data-rank="zone"] { --agent-tint: var(--series-1); }
+  .tree-node[data-rank="domain"], .tree-node[data-rank="principalDomainOwner"] { --agent-tint: var(--series-2); }
+  .tree-node[data-rank="service"] { --agent-tint: var(--series-3); }
+  .tree-node[data-rank="coord"], .tree-node[data-rank="principalCoordinator"] { --agent-tint: var(--series-4); }
+  .tree-node[data-rank="auditor"] { --agent-tint: var(--series-5); }
+  .tree-node[data-rank="orchestrator"], .tree-node[data-rank="orchestrator"] { --agent-tint: var(--series-6); }
+  .tree-node[data-rank="other"] { --agent-tint: var(--series-2); }
+  /* class picks the heat colour: read = --series-1, write/gate/outward/destructive = --warn */
+  .tree-node[data-class="read"] { --heat: var(--series-1); }
+  .tree-node[data-class="write"], .tree-node[data-class="gate"], .tree-node[data-class="outward"], .tree-node[data-class="destructive"] { --heat: var(--warn); }
+  .tree-node[data-class="destructive"] { --heat: var(--danger); }
+  /* the glow is the data: it carries the class's colour and scales with how fresh the touch is */
+  .tree-node::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(closest-side at var(--space-s) 50%, var(--heat), transparent 72%); opacity: var(--glow-opacity); pointer-events: none; }
+  .tree-node[data-lit] .tree-icon { color: var(--heat); opacity: 1; filter: drop-shadow(0 0 0.35em color-mix(in oklch, var(--heat) 55%, transparent)); }
+  .tree-node[data-lit] .tree-name { color: var(--ink); }
+  .tree-node[data-lit="hot"] .tree-icon { animation: tree-pulse var(--time-slow) var(--ease) infinite; }
+  .tree-node[data-agent]:not([data-agent=""]) { --glow-opacity: max(var(--glow-opacity), 0.10); }
+  .tree-node[data-agent]:not([data-agent=""])::after { content: ""; position: absolute; inset: auto 0 0 0; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--agent-tint), transparent 70%); opacity: 0.45; pointer-events: none; }
+  /* a folder whose descendant lights carries a fraction of the glow upward */
+  .tree-node[data-bubble]::before { opacity: max(var(--glow-opacity), 0.22); background: radial-gradient(closest-side at var(--space-xs) 50%, color-mix(in oklch, var(--heat) 70%, transparent), transparent 75%); }
+  .tree-node[data-bubble] .tree-icon[data-d="dir"] { color: var(--heat); opacity: 1; }
+  .tree-empty { color: var(--ink-muted); font-size: var(--step--1); padding: var(--space-s) var(--space-s); }
+  .tree-truncated { color: var(--ink-muted); font-size: var(--step--2); padding: var(--space-2xs) var(--space-s); }
+  /* the tree's panel note lives in the header (panel.css sizes it step--1 = base/1.2); pin it to the pane's own readable size */
+  .panel-note[data-note="tree"] { font-size: 0.875rem; }
+  @keyframes tree-pulse { 50% { opacity: 0.55; } }
+  @media (prefers-reduced-motion: reduce) {
+    .tree-node[data-lit="hot"] .tree-icon { animation: none; }
+  }
+}

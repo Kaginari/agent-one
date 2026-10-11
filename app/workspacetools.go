@@ -35,16 +35,349 @@ func (a *App) workspaceTools(agent string) []*tool.Tool {
 	if on("onto") {
 		out = append(out, a.ontoTool())
 	}
+	if on("pulse") {
+		out = append(out, tool.PulseTool())
+	}
 	if on("skill") {
 		out = append(out, a.skillTool(agent))
 	}
 	if on("workingNotes") {
 		out = append(out, a.workingNotesTool(agent))
 	}
+	if on("plan") {
+		out = append(out, a.planTool(agent))
+	}
 	if a.Drainer != nil && a.Cfg.Compaction.Enabled {
 		out = append(out, a.Drainer.RecallTool())
 	}
 	return out
+}
+
+// planItem is one line of an agent's plan deck: the step, its state, and whose zone it belongs to.
+type planItem struct {
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+	Status string `json:"status"` // pending · in_progress · done · blocked
+	Who    string `json:"who,omitempty"`
+	// Score and Why are the scenario funnel's (crafted-skill scenario-3-2-1) face on a card:
+	// Score is the card's value verdict (0..1 or "0.4"), Why quotes the instrument rows that
+	// earned it. A naked score without Why reads as a hole — the wire's honesty stands.
+	Score string `json:"score,omitempty"`
+	Why   string `json:"why,omitempty"`
+}
+
+// planDeck is the file: one deck per agent, machine-local (the plan dir lives under tmp).
+type planDeck struct {
+	Agent   string     `json:"agent"`
+	Updated string     `json:"updated"`
+	Items   []planItem `json:"items"`
+}
+
+var planPath = struct{ sepReplace *strings.Replacer }{strings.NewReplacer("/", "-", "\\", "-", ":", "-")}
+
+func planFile(dir, agent string) string {
+	return filepath.Join(dir, planPath.sepReplace.Replace(agent)+".json")
+}
+
+// planRead resolves a deck live-first, then the archive — an archived deck is memory
+// kept browsable ('continue on last plan' re-pens it), never deleted and never a gate.
+func planRead(dir, agent string) planDeck {
+	var d planDeck
+	if b, err := os.ReadFile(planFile(dir, agent)); err == nil {
+		_ = json.Unmarshal(b, &d)
+		return d
+	}
+	if b, err := os.ReadFile(planFile(planArchiveDir(dir), agent)); err == nil {
+		_ = json.Unmarshal(b, &d)
+	}
+	return d
+}
+
+func planWrite(dir string, d planDeck) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	d.Updated = time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(planFile(dir, d.Agent), append(b, '\n'), 0o644)
+}
+
+func renderPlan(d planDeck) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "plan — %s — %s\n", d.Agent, d.Updated)
+	for _, it := range d.Items {
+		who := ""
+		if it.Who != "" {
+			who = " → " + it.Who
+		}
+		score := ""
+		if it.Score != "" {
+			score = " — ≈ " + it.Score
+			if it.Why != "" {
+				score += " (" + it.Why + ")"
+			} else {
+				score += " (@? why missing — a naked score is a hole, per scenario-3-2-1)"
+			}
+		}
+		fmt.Fprintf(&b, "- [%s] %s (%s%s)%s\n", it.Status, it.Text, it.ID, who, score)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// planTool is the agent's plan deck (the OpenCode discipline, native): think the order aloud
+// here BEFORE dispatching — one line per slice, each named to the zone that owns it ('who'),
+// exactly one in_progress (the loop walks one step). A planner (orchestrator, a coordinator, a domain owner) keeps
+// its deck; `read` another agent's deck to see where its plan stands.
+// planDir resolves the decks' directory (config override, else <workspace>/tmp/plans) — shared by
+// the plan tool and the loop's PlanOpen reader.
+func (a *App) planDir() string {
+	dir := a.Cfg.Plan.Dir
+	if dir == "" {
+		dir = filepath.Join(a.Cfg.Dist.WorkspaceDir, "tmp", "plans")
+	}
+	return filepath.Join(a.Root, dir)
+}
+
+// processBoot approximates a session's provisioning for the plan dir when nobody set one (single-shot
+// runs). Decks penned before the session's provisioning belong to an earlier session's working memory:
+// they stay on disk (an agent's "continue on last plan" reads them — memory, never a jailer),
+// but they never show as live on the rail and never hold a new session's PlanOpen end-gate
+// (the 2026-10-02 orchestrator deck greeting the 2026-10-03 relaunch was both lies at once).
+var processBoot = time.Now()
+
+// plansBoot is the session's provisioning instant: interactive modes stamp it exactly
+// (App.planBoot), single-shot runs ride the process boot.
+func (a *App) plansBoot() time.Time {
+	if !a.planBoot.IsZero() {
+		return a.planBoot
+	}
+	return processBoot
+}
+
+// planArchiveDir is where the boot sweep moves last session's decks: <live>/archive —
+// append-only, browsable (planRead falls through), never the session's live intent.
+func planArchiveDir(live string) string { return filepath.Join(live, "archive") }
+
+// planArchive runs the boot sweep (LEC-2026-10-04-STALE-PLANS Order 1): stale decks move
+// out of the live dir into the archive; it never archives other's decks and returns their
+// count. Callers pass their own agent — the session's own deck never moves even when stale
+// (the 'continue on last plan' lifeline stands: re-pen it, don't obey it blindly). Renames
+// only, additive — an existing archived twin is left untouched, the stale live deck stays,
+// and nothing under the archive is ever deleted by this path. Fail-open on unparsable
+// stamps holds: a corrupted stamp reads not-stale and stays live, as planStale rules.
+func planArchive(dir, agent string, boot time.Time) (int, error) {
+	if err := os.MkdirAll(planArchiveDir(dir), 0o755); err != nil {
+		return 0, err
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		return 0, err
+	}
+	moved := 0
+	for _, p := range matches {
+		name := strings.TrimSuffix(filepath.Base(p), ".json")
+		if name == planPath.sepReplace.Replace(agent) {
+			continue
+		}
+		d, err := planReadLive(dir, name)
+		if err != nil || d.Agent == "" {
+			continue // unreadable or bodyless file: not ours to judge — it stays live
+		}
+		if !planStale(d, boot) {
+			continue
+		}
+		dst := planFile(planArchiveDir(dir), name)
+		if _, err := os.Stat(dst); err == nil {
+			continue // an archived twin already holds this name — append-only defers the rename,
+			// the stale deck stays live rather than overwrite the archive's memory; the next sweep re-tries
+		}
+		if err := os.Rename(p, dst); err != nil {
+			return moved, err
+		}
+		moved++
+	}
+	return moved, nil
+}
+
+// planReadLive reads only the live dir (os.ReadFile, stricter than planRead's fall-through):
+// the sweep judges what the live dir actually holds, never the archive's memory.
+func planReadLive(dir, agent string) (planDeck, error) {
+	var d planDeck
+	b, err := os.ReadFile(planFile(dir, agent))
+	if err != nil {
+		return d, err
+	}
+	err = json.Unmarshal(b, &d)
+	return d, err
+}
+
+// planUpdatedAt parses a deck's stamp; an unparsable/unstamped deck is NOT stale (fail-open:
+// a corrupted stamp must never close a gate or hide an agent's own living deck).
+func planUpdatedAt(d planDeck) (time.Time, bool) {
+	t, err := time.Parse("2006-01-02T15:04:05Z", d.Updated)
+	return t, err == nil
+}
+
+// planStale is true when the deck was penned before this session's provisioning. Deck stamps carry
+// second precision — the boot is cut to the same so a deck penned the very second the session
+// opens reads current, never phantom-stale on a sub-second sliver.
+func planStale(d planDeck, boot time.Time) bool {
+	t, ok := planUpdatedAt(d)
+	return ok && t.Before(boot.Truncate(time.Second))
+}
+
+// planOpenReason is "" when the agent's deck may close, else one line naming its first open
+// item. Decks from an earlier session never hold the gate — they are memory of that session's
+// intent, not this one's outstanding work.
+func planOpenReason(dir, agent string, boot time.Time) string {
+	d := planRead(dir, agent)
+	if planStale(d, boot) {
+		return ""
+	}
+	for _, it := range d.Items {
+		switch it.Status {
+		case "pending", "in_progress", "blocked":
+			return fmt.Sprintf("%s is %s — %s", it.ID, it.Status, it.Text)
+		}
+	}
+	return ""
+}
+
+// renderPlanWith is renderPlan plus the staleness banner a stale deck owes its reader: the
+// deck is last session's written intent — continue it by re-penning, don't obey it blindly.
+func renderPlanWith(d planDeck, boot time.Time) string {
+	if !planStale(d, boot) || len(d.Items) == 0 {
+		return renderPlan(d)
+	}
+	return fmt.Sprintf("plan: stale deck — penned %s, before this session; it is memory of last session's intent, not your outstanding work — re-pen it to continue it\n%s", d.Updated, renderPlan(d))
+}
+
+func (a *App) planTool(agent string) *tool.Tool {
+	dir := a.planDir()
+	swept := false // the boot sweep runs once per process, at the first plan act after the dir resolves
+	return &tool.Tool{
+		Name:        "plan",
+		Description: "Your plan deck — the todo list you write before dispatching. `items` replaces the whole deck (each line: text · status pending|in_progress|done|blocked · who the slice belongs to); `tick` moves one item; `read` another agent's deck. One in_progress at a time — the loop walks one step.",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"},"status":{"type":"string"},"who":{"type":"string"},"score":{"type":"string","description":"the card's value verdict (scenario-3-2-1): read off instruments"},"why":{"type":"string","description":"the instrument rows that earned the score"}}}},"tick":{"type":"string","description":"the id of the item to move"},"status":{"type":"string","enum":["pending","in_progress","done","blocked"]}},"read":{"type":"string","description":"another agent's deck"},"drop":{"type":"boolean"}}}`),
+		Class:       tool.Write,
+		Classify: func(env tool.Env, in json.RawMessage) tool.Classification {
+			var q struct {
+				Items []json.RawMessage
+				Tick  string
+				Drop  bool
+			}
+			_ = json.Unmarshal(in, &q)
+			if len(q.Items) == 0 && q.Tick == "" && !q.Drop {
+				return tool.Classification{Class: tool.Read, Why: "reads a plan deck"}
+			}
+			return tool.Classification{Class: tool.Write, Why: "writes a plan deck (" + dir + ")"}
+		},
+		Run: func(ctx context.Context, env tool.Env, in json.RawMessage) tool.Result {
+			if !swept {
+				if _, err := planArchive(dir, agent, a.plansBoot()); err != nil {
+					return failResult("plan: boot sweep: %v", err) // fail-loud: a half-swept live dir must say so
+				}
+				swept = true
+			}
+			var q struct {
+				Items  []planItem
+				Tick   string
+				Status string
+				Read   string
+				Drop   bool
+			}
+			if err := json.Unmarshal(in, &q); err != nil {
+				return failResult("plan: %v", err)
+			}
+			switch {
+			case q.Read != "":
+				d := planRead(dir, q.Read)
+				if len(d.Items) == 0 {
+					return tool.Result{Output: q.Read + " has no deck yet"}
+				}
+				return tool.Result{Output: renderPlanWith(d, a.plansBoot())}
+			case q.Drop:
+				_ = os.Remove(planFile(dir, agent))
+				return tool.Result{Output: "plan dropped — " + relOrAbs(a.Root, planFile(dir, agent))}
+			case len(q.Items) > 0:
+				var seen map[string]bool = map[string]bool{}
+				inProg := 0
+				for i := range q.Items {
+					if strings.TrimSpace(q.Items[i].Text) == "" {
+						return failResult("plan: item %d has an empty text", i+1)
+					}
+					if q.Items[i].ID == "" {
+						q.Items[i].ID = fmt.Sprintf("%d", i+1)
+					}
+					if seen[q.Items[i].ID] {
+						return failResult("plan: duplicate id %q", q.Items[i].ID)
+					}
+					seen[q.Items[i].ID] = true
+					st := strings.ToLower(q.Items[i].Status)
+					if st == "" {
+						st = "pending"
+					}
+					if st != "pending" && st != "in_progress" && st != "done" && st != "blocked" {
+						return failResult("plan: status %q is not pending|in_progress|done|blocked", st)
+					}
+					if st == "in_progress" {
+						inProg++
+					}
+					q.Items[i].Status = st
+				}
+				d := planDeck{Agent: agent, Items: q.Items}
+				if err := planWrite(dir, d); err != nil {
+					return failResult("plan: %v", err)
+				}
+				out := fmt.Sprintf("plan: %d item%s → %s", len(q.Items), plural(len(q.Items)), relOrAbs(a.Root, planFile(dir, agent)))
+				if inProg > 1 {
+					out += fmt.Sprintf("\n⚠ %d items marked in_progress — the loop walks one step at a time", inProg)
+				}
+				return tool.Result{Output: out + "\n" + renderPlan(d)}
+			case q.Tick != "":
+				if q.Status == "" {
+					return failResult("plan: tick needs a status")
+				}
+				d := planRead(dir, agent)
+				if len(d.Items) == 0 {
+					return failResult("plan: no deck for %s — write it first", agent)
+				}
+				for i := range d.Items {
+					if d.Items[i].ID == q.Tick {
+						st := strings.ToLower(q.Status)
+						if st != "pending" && st != "in_progress" && st != "done" && st != "blocked" {
+							return failResult("plan: status %q is not pending|in_progress|done|blocked", st)
+						}
+						d.Items[i].Status = st
+						if err := planWrite(dir, d); err != nil {
+							return failResult("plan: %v", err)
+						}
+						out := fmt.Sprintf("plan: #%s → %s\n%s", q.Tick, st, renderPlan(d))
+						other := 0
+						for _, it := range d.Items {
+							if it.ID != q.Tick && it.Status == "in_progress" {
+								other++
+							}
+						}
+						if st == "in_progress" && other > 0 {
+							out += "\n⚠ another item is already in_progress — one step at a time"
+						}
+						return tool.Result{Output: out}
+					}
+				}
+				return failResult("plan: no item %q in %s's deck", q.Tick, agent)
+			default:
+				d := planRead(dir, agent)
+				if len(d.Items) == 0 {
+					return tool.Result{Output: "no deck yet — `items` writes it, one line per slice"}
+				}
+				return tool.Result{Output: renderPlan(d)}
+			}
+		},
+	}
 }
 
 func failResult(format string, args ...interface{}) tool.Result {
@@ -248,7 +581,7 @@ func (a *App) mcpTool(name string) (*tool.Tool, bool) {
 func (a *App) ontoTool() *tool.Tool {
 	return &tool.Tool{
 		Name:        "onto",
-		Description: "Query the member graph: who owns a path (owner), what a member may see (member: its projection), or the roster (neither).",
+		Description: "Query the member graph: who owns a path (owner — the dispatch card: owner, strain, domain, and the widen/birth/route arms), what a member may see (member: its projection), or the roster (neither).",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"member":{"type":"string"},"budget":{"type":"integer"}}}`),
 		Class:       tool.Read,
 		Run: func(ctx context.Context, env tool.Env, in json.RawMessage) tool.Result {
@@ -260,10 +593,7 @@ func (a *App) ontoTool() *tool.Tool {
 			switch {
 			case q.Path != "":
 				rel := strings.TrimPrefix(env.Rel(env.Resolve(q.Path)), "./")
-				if c := a.Workspace.Owner(rel); c != nil {
-					return tool.Result{Output: fmt.Sprintf("%s is owned by %s (%s) — doc %s; one hop up: %s", rel, c.Name, c.Rank, c.Doc, orStr(c.Parent, "orchestrator"))}
-				}
-				return tool.Result{Output: rel + " has no owner on the roster (an unrouted ownership — a Provisioning trigger when it recurs)"}
+				return tool.Result{Output: a.Workspace.DispatchCard(rel)}
 			case q.Member != "":
 				if a.Workspace.Onto == nil {
 					return failResult("onto: the ontology is off (ontology.enabled)")

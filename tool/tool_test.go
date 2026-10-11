@@ -3,15 +3,28 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
+// evalRoot resolves symlink components in a scratch root: darwin's TMPDIR lives under /var, a
+// symlink to /private/var, and a reading's cwd — pwd's say — names the physical path. The
+// expectations must compare against the same spell.
+func evalRoot(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 func workspace(t *testing.T) (Env, string) {
 	t.Helper()
-	root := t.TempDir()
+	root := evalRoot(t, t.TempDir())
 	must := func(p, s string) {
 		_ = os.MkdirAll(filepath.Dir(p), 0o755)
 		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
@@ -31,12 +44,17 @@ func TestClassifyCommand(t *testing.T) {
 	cases := map[string]Class{
 		"cat README.md": Read, "git status && git log -1": Read, "go test ./...": Read, "echo hi > out.txt": Write,
 		"node build.js": Write, "mkdir -p a/b": Write, "git commit -m x": Write, "git push origin main": Outward,
-		"curl -s https://x.y": Outward, `bash -c "wget x"`: Outward, "ssh host ls": Outward, "cat /etc/hosts": Read,
+		"curl -s https://x.y": Outward, `bash -c "wget x"`: Outward, "ssh host ls": Outward, "cat /etc/hosts": Outward,
 		"cat /home/nobody/secret": Outward, "cp a ../../../../../../../../outside": Outward, "cd /tmp && ls": Outward,
 		"rm -rf build": Destructive, "git reset --hard": Destructive, "git branch -D x": Destructive, "git push --force": Destructive,
 		"find . -name x -delete": Destructive, "echo x > .agent-one/log.md": Destructive, "echo x >> .agent-one/log.md": Write,
 		"sed -i s/a/b/ .agent-one/AGENT-ONE.md": Destructive, "ls | xargs rm": Destructive, "go get x": Outward, "npx foo": Outward,
 		"cp a .agent-one/design/x.md": Destructive, "tee -a .agent-one/log.md": Write, "tee .agent-one/log.md": Destructive,
+		// a stash that quiets the working tree hides the tree under judgment — never a verdict's move
+		"git stash": Destructive, "git stash -u": Destructive, "git stash pop": Destructive, "git stash drop": Destructive,
+		// through bash the git-subcommand table is not consulted; the shell reads any git as a
+		// local write (git.go: the table is the read/write authority for the git tool only)
+		"bash -c 'git stash list'": Write, "bash -c 'git stash show'": Write,
 		// git's global options sit between `git` and the verb; the verb still decides
 		"git -C . push": Outward, "git -c core.x=y push origin": Outward, "git --no-pager push": Outward, "git --git-dir .git push": Outward,
 		"git -C sub status": Read, "git -C sub reset --hard": Destructive, "git -c a=b commit -m x": Write, "git --work-tree=x fetch": Outward,
@@ -51,6 +69,12 @@ func TestClassifyCommand(t *testing.T) {
 		"nice -n 5 /bin/rm -rf x": Destructive, "sudo env PATH=x /bin/rm -rf x": Destructive,
 		// a lone & runs two commands; 2>&1 and &> are redirections
 		"sleep 1 & git push": Outward, "make 2>&1 | tee build.log": Write, "make &> build.log": Write,
+		// an alternation inside a quoted pattern is not a pipe: the halves never see command position
+		"grep -E 'a|b' file": Read, `grep 'a\|b' file`: Read, `grep -cE "x|y" f`: Read,
+		"sed -n 's/a|b/c/p' f": Read, "awk '/x|y/' f": Read,
+		"cat a | grep x": Read, "grep x a && echo ok": Read, "echo a; echo b": Read,
+		"echo a || echo b":         Read,
+		"grep 'a|b' f && git push": Outward,
 	}
 	for cmd, want := range cases {
 		if got := env.ClassifyCommand(cmd); got.Class != want {
@@ -174,12 +198,131 @@ func TestBashGlobGrep(t *testing.T) {
 	}
 }
 
+func TestReadBatchCacheAndLimit(t *testing.T) {
+	env, root := workspace(t)
+	read := ReadTool()
+	// the batch: one call, per-file headers, a missing member reported in place
+	r := run(t, read, env, `{"paths":["README.md","src/a.go","nope.md"]}`)
+	if r.Err || !strings.Contains(r.Output, "== src/a.go ==") || !strings.Contains(r.Output, "! open") ||
+		!strings.Contains(r.Output, "     2\ttwo") {
+		t.Fatalf("batch %+v", r.Output)
+	}
+	// the read-once cache: an unchanged window answers with a pointer, not the bytes again
+	r1 := run(t, read, env, `{"path":"README.md"}`)
+	r2 := run(t, read, env, `{"path":"README.md"}`)
+	if r1.Err || r2.Err || strings.Contains(r2.Output, "three") || !strings.Contains(r2.Output, "withheld") {
+		t.Fatalf("cache r1 %q r2 %q", r1.Output, r2.Output)
+	}
+	// a changed file hashes differently: the cache re-serves, never goes stale
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("new content\nmore\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r3 := run(t, read, env, `{"path":"README.md"}`)
+	if r3.Err || strings.Contains(r3.Output, "withheld") || !strings.Contains(r3.Output, "new content") {
+		t.Fatalf("stale-guard r3 %q", r3.Output)
+	}
+	// windows key independently: a narrowed window on the SAME file is its own entry
+	r4 := run(t, read, env, `{"path":"README.md","offset":2,"limit":1}`)
+	if r4.Err || strings.Contains(r4.Output, "withheld") || !strings.Contains(r4.Output, "more") {
+		t.Fatalf("window key %q", r4.Output)
+	}
+}
+
+func TestReadAutoLimit(t *testing.T) {
+	env, root := workspace(t)
+	var big strings.Builder
+	for i := 0; i < 500; i++ {
+		fmt.Fprintf(&big, "line %d\n", i+1)
+	}
+	if err := os.WriteFile(filepath.Join(root, "big.go"), []byte(big.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := ReadTool()
+	r := run(t, read, env, `{"path":"big.go"}`)
+	if r.Err || !strings.Contains(r.Output, "260 more lines — widen") || !strings.Contains(r.Output, "   240\tline 240") ||
+		strings.Contains(r.Output, "line 241") {
+		t.Fatalf("auto-limit %q", r.Output)
+	}
+	// an explicit window over the auto floor is untouched
+	r = run(t, read, env, `{"path":"big.go","offset":230,"limit":30}`)
+	if r.Err || !strings.Contains(r.Output, "line 259") || strings.Contains(r.Output, "widen") {
+		t.Fatalf("named window %q", r.Output)
+	}
+	// full: true buys the whole file
+	r = run(t, read, env, `{"path":"big.go","full":true}`)
+	if r.Err || !strings.Contains(r.Output, "line 500") {
+		t.Fatalf("full %q", r.Output[:300])
+	}
+}
+
+func TestSkim(t *testing.T) {
+	env, root := workspace(t)
+	nested := `// Package x is the test workspace.
+package x
+
+import (
+	"fmt"
+	"os"
+)
+
+// CacheKey is the things' digest walk.
+type CacheKey struct {
+	A int
+}
+
+// Runner is the thing it implements.
+type Runner interface {
+	Run() error
+}
+
+const MaxN = 10
+
+var seen = map[string]bool{}
+
+// Assemble builds it.
+func Assemble(a int, b string) (int, error) { return a, nil }
+
+func (k *CacheKey) String() string { return fmt.Sprint(k.A) }
+
+var _ = os.Getenv
+`
+	_ = os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	if err := os.WriteFile(filepath.Join(root, "pkg", "x.go"), []byte(nested), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skim := SkimTool()
+	r := run(t, skim, env, `{"path":"pkg/x.go"}`)
+	for _, want := range []string{
+		`import "fmt"`, "struct CacheKey — CacheKey is the things' digest walk.",
+		"interface Runner — Runner is the thing it implements.",
+		"const MaxN", "var seen", "func Assemble(a int, b string) (int, error) — Assemble builds it.",
+		"func (*CacheKey) String() string",
+	} {
+		if !strings.Contains(r.Output, want) {
+			t.Fatalf("skim missing %q in:\n%s", want, r.Output)
+		}
+	}
+	// a directory walk heads one outline per file
+	r = run(t, skim, env, `{"path":"pkg"}`)
+	if r.Err || !strings.Contains(r.Output, "== pkg/x.go ==") || !strings.Contains(r.Output, "func Assemble") {
+		t.Fatalf("dir %q", r.Output)
+	}
+	// a non-Go file fails with the window hint
+	if r = run(t, skim, env, `{"path":"README.md"}`); !r.Err || !strings.Contains(r.Output, "read it with a window") {
+		t.Fatalf("non-go %+v", r)
+	}
+	// out-of-workspace stays outward at classify
+	if c, _ := skim.Settle(env, []byte(`{"path":"/etc/passwd"}`)); c.Class != Outward {
+		t.Fatalf("skim outward %+v", c)
+	}
+}
+
 func TestRegistry(t *testing.T) {
 	r := Builtins()
-	if got := strings.Join(r.Names(), ","); got != "read,write,edit,bash,glob,grep" {
+	if got := strings.Join(r.Names(), ","); got != "read,write,edit,delete,bash,glob,grep,skim" {
 		t.Fatalf("names %s", got)
 	}
-	if len(r.Defs()) != 6 || r.Defs()[0].Name != "read" || len(r.Defs()[0].Schema) == 0 {
+	if len(r.Defs()) != 8 || r.Defs()[0].Name != "read" || len(r.Defs()[0].Schema) == 0 {
 		t.Fatal("defs")
 	}
 	cut := r.Only("read", "grep", "nope")
@@ -187,7 +330,7 @@ func TestRegistry(t *testing.T) {
 		t.Fatal("only")
 	}
 	r.Add(&Tool{Name: "dispatch", Class: Write})
-	if _, ok := r.Get("dispatch"); !ok || len(r.Names()) != 7 {
+	if _, ok := r.Get("dispatch"); !ok || len(r.Names()) != 9 {
 		t.Fatal("add")
 	}
 	r.Remove("dispatch")

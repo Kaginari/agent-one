@@ -10,6 +10,7 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"os"
 	"strings"
@@ -31,6 +32,7 @@ type Theme struct {
 	dim, text, accent, user, ok, bad, warn, border, tag lipgloss.Style
 	classes                                             map[string]lipgloss.Style
 	ranks                                               map[string]lipgloss.Style
+	lanes                                               map[string]color.Color
 	add, del, ctxLine, lineNo                           lipgloss.Style
 }
 
@@ -92,7 +94,91 @@ func NewTheme(dark bool) Theme {
 		"principal-coordinator":  lipgloss.NewStyle().Foreground(c("#bd8c24", "#8a6600")),
 		"orchestrator":           lipgloss.NewStyle().Foreground(c("#eaf2ff", "#0b1424")),
 	}
+	// the rank pulse lanes (N16 slice 1): the colour a live Subagent row's motion holds — the
+	// shimmer's principles, the tool spinner's glyph, the gate-wait bob, the landing flash. Distinct
+	// from the rank token that colours the ◆ and the name: the lane says "alive", the token says
+	// "who".
+	t.lanes = map[string]color.Color{
+		"orchestrator": c("#e8b545", "#b88b1a"), // golden
+		"coord":        c("#e88030", "#b25c18"), // orange
+		"domain":       c("#6fae5a", "#3f7f33"), // green
+		"zone":         c("#58b7f0", "#1f78b8"), // blue
+		"service":      c("#c53d34", "#a12e26"), // red
+		"auditor":      c("#9a86e8", "#5c3fc9"), // violet
+		// the role hats ride lane colours too — the plan card and per-card titles hold them:
+		// analyst (findings/reads) is the zone-shared blue of the ground truth, judge
+		// (verdicts) the domain owner's gate greens, drafter (drafts) the coordinator's cross-domain orange
+		"analyst": c("#58b7f0", "#1f78b8"),
+		"judge":   c("#6fae5a", "#3f7f33"),
+		"drafter": c("#e88030", "#b25c18"),
+	}
 	return t
+}
+
+// lane is a rank's pulse colour; nil when the rank is unknown (callers fall back to the accent).
+func (t Theme) lane(rank string) color.Color {
+	if c, ok := t.lanes[strings.ToLower(rank)]; ok {
+		return c
+	}
+	return nil
+}
+
+// Lane exposes lane() to the host (the rail plan card paints a deck in its author's rank
+// lane); the paper lane for "" is nil.
+func (t Theme) Lane(rank string) color.Color { return t.lane(rank) }
+
+// paneBg is the sidebar's background: one honest solid step off the session background —
+// painted cell by cell, never a transparency story.
+func (t Theme) paneBg() color.Color {
+	if t.Dark {
+		return lipgloss.Color("#14181f")
+	}
+	return lipgloss.Color("#e9edf1")
+}
+
+// paneShadow is the two-column drop shadow the pane casts on the chat: density-gradient runes
+// (▒ then ░) tinted off the pane's background toward a shade anchor, so the raised edge reads
+// in 3D over whatever background the chat's cells carry. ▒ sits against the divider, ░ fades
+// out toward the transcript.
+func (t Theme) paneShadow() string {
+	anchor := lipgloss.Color("#05070a")
+	if !t.Dark {
+		anchor = lipgloss.Color("#98a2ad")
+	}
+	blend := lipgloss.Blend1D(4, t.paneBg(), anchor)
+	near := lipgloss.NewStyle().Foreground(blend[3]).Render("▒")
+	far := lipgloss.NewStyle().Foreground(blend[2]).Render("░")
+	return far + near
+}
+
+// paneArt re-holds the pane's background behind the mascot's foreground pixels: lipgloss'
+// per-glyph full resets (\x1b[m / \x1b[0m) would otherwise drop the background mid-line, so
+// they are rewritten into bg-restores.
+func (t Theme) paneArt(art string) string {
+	r, g, b, _ := t.paneBg().RGBA()
+	sgr := fmt.Sprintf("48;2;%d;%d;%d", int(r>>8), int(g>>8), int(b>>8))
+	art = strings.ReplaceAll(art, "\x1b[0m", "\x1b["+sgr+"m")
+	return strings.ReplaceAll(art, "\x1b[m", "\x1b["+sgr+"m")
+}
+
+// laneLegend is the welcome's one-row foreshadow of the pulse lanes: each rank's dot held in
+// its own colour — orchestrator golden, coordinator orange, domain owner green, zone worker blue (agent-one's vocabulary
+// follows its four mapped ranks).
+func (t Theme) laneLegend(dist string) string {
+	order := []string{"orchestrator", "coord", "domain", "zone"}
+	if dist == "agent-one" {
+		order = []string{"orchestrator", "coord", "domain", "zone"}
+	}
+	var parts []string
+	for _, r := range order {
+		c := t.lane(r)
+		if c == nil {
+			parts = append(parts, t.dim.Render("● "+r))
+			continue
+		}
+		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render("● "+r))
+	}
+	return strings.Join(parts, t.dim.Render("  "))
 }
 
 // DetectTheme picks dark unless the environment says the background is light (COLORFGBG's

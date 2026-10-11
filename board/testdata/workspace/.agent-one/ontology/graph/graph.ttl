@@ -1,0 +1,16 @@
+# Team fixture — asserted graph layer for TestTeamGraph / TestTeamPageEmbedsGraph.
+# Member nodes zone-auth / domain-core / coord-voice / orchestrator are registered by derive from the
+# typed dirs; this file carries the asserted bond chain + the shared skill the derived
+# layer cannot register (host-skill tdd is CLAUDE-only; the graph must still name a shared skill).
+# Policy-trumps over the coord sketch (2026-10-04-team-graph-fixture-verdict.md): orchestrator has
+# NO ao:name line here (derive registers its own), prefix is the workspace's <agent-one:>, and the
+# chain rides truth/verdict/reports — never after.
+@prefix ao: <agent-one:> .
+
+ao:zone-auth ao:truth   ao:domain-core .
+ao:domain-core   ao:verdict ao:coord-voice .
+ao:coord-voice  ao:reports ao:orchestrator    .
+
+ao:zone-auth ao:holds ao:skill-tdd .
+ao:skill-tdd a ao:skill ; ao:shared "true" .
+

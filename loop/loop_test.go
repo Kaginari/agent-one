@@ -27,6 +27,318 @@ func engine(t *testing.T, m *mock.Provider) *Engine {
 	return &Engine{Provider: m, Tools: tool.Builtins(), Gate: g, Root: root, As: "zone-test", Unsaid: true}
 }
 
+func TestClosingCheckAsksOnce(t *testing.T) {
+	// closingCheck on: the first close with no tool call is sent back once; the agent resumes into
+	// a real step; the second close passes with no second ask.
+	m := mock.New(mock.Text("let me merge it"), mock.Call("1", "write", map[string]string{"path": "a.txt", "content": "x"}), mock.Text("merged"))
+	e := engine(t, m)
+	e.ClosingCheck = true
+	r, _ := e.Run(context.Background(), "merge the commits")
+	if r.Status != Done || len(r.Steps) != 1 || len(m.Requests) != 3 {
+		t.Fatalf("%+v requests=%d", r, len(m.Requests))
+	}
+	ask := m.Requests[1].Messages[len(m.Requests[1].Messages)-1].Text
+	if !strings.Contains(ask, "closing check") {
+		t.Fatalf("the re-ask must carry the closing check, got %q", ask)
+	}
+	// still closing with prose: asked once, then let through — never twice.
+	m2 := mock.New(mock.Text("nothing to do"), mock.Text("really nothing"))
+	e.Provider = m2
+	r, _ = e.Run(context.Background(), "x")
+	if r.Status != Done || r.Text != "really nothing" || len(m2.Requests) != 2 {
+		t.Fatalf("%+v requests=%d", r, len(m2.Requests))
+	}
+	// off: closed at the first no-tool-call message, as before.
+	e.ClosingCheck = false
+	e.Provider = mock.New(mock.Text("short"))
+	r, _ = e.Run(context.Background(), "x")
+	if r.Status != Done || r.Text != "short" {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestClosingCheckDemandsWitness(t *testing.T) {
+	reask := func(m *mock.Provider) string {
+		for _, req := range m.Requests {
+			t2 := req.Messages[len(req.Messages)-1].Text
+			if strings.Contains(t2, "closing check") {
+				return t2
+			}
+		}
+		return ""
+	}
+	// writes + close: the re-ask demands falsification witnesses, named output files included
+	m := mock.New(mock.Call("1", "write", map[string]string{"path": "out.txt", "content": "x"}), mock.Text("done"), mock.Text("really done"))
+	e := engine(t, m)
+	e.ClosingCheck = true
+	r, _ := e.Run(context.Background(), "build the report")
+	if r.Status != Done || len(m.Requests) != 3 {
+		t.Fatalf("%+v requests=%d", r, len(m.Requests))
+	}
+	ask := reask(m)
+	if !strings.Contains(ask, "witness") || !strings.Contains(ask, "out.txt") {
+		t.Fatalf("the mutating close must demand witnesses and name the files, got %q", ask)
+	}
+	if strings.Contains(ask, "byte-level compare") {
+		t.Fatalf("no invariance words in the ask — the byte-compare demand must not fire: %q", ask)
+	}
+	// an ask carrying invariance words gets the byte-compare demand on top
+	m2 := mock.New(mock.Call("1", "write", map[string]string{"path": "a.html", "content": "x"}), mock.Text("ok"), mock.Text("closed"))
+	e.Provider = m2
+	_, _ = e.Run(context.Background(), "strip the scripts but keep the file byte-identical otherwise")
+	ask = reask(m2)
+	if !strings.Contains(ask, "byte-level compare") {
+		t.Fatalf("an invariance ask must trigger the byte-compare witness, got %q", ask)
+	}
+	// read-only close: no witness demand at all
+	m3 := mock.New(mock.Text("looked"), mock.Text("looked twice"))
+	e.Provider = m3
+	_, _ = e.Run(context.Background(), "count the lines, identical output please")
+	ask = reask(m3)
+	if strings.Contains(ask, "witness") || strings.Contains(ask, "byte-level") {
+		t.Fatalf("read-only closes carry no witness demand, got %q", ask)
+	}
+}
+
+func TestClosingCheckDemandsForgeOnLongRuns(t *testing.T) {
+	reask := func(m *mock.Provider) string {
+		for _, req := range m.Requests {
+			t2 := req.Messages[len(req.Messages)-1].Text
+			if strings.Contains(t2, "closing check") {
+				return t2
+			}
+		}
+		return ""
+	}
+	// 12 tool steps then a close: the re-ask carries the forge question — the long run must
+	// either name a @FORGE draft or answer why the path is one-off
+	var seq []provider.Response
+	for i := 0; i < 12; i++ {
+		seq = append(seq, mock.Call(fmt.Sprintf("%d", i), "read", map[string]string{"path": fmt.Sprintf("f%d.md", i)}))
+	}
+	seq = append(seq, mock.Text("finished"), mock.Text("really finished"))
+	m := mock.New(seq...)
+	e := engine(t, m)
+	for i := 0; i < 12; i++ { // the tour's files must exist — failed reads escalate before the close
+		if err := os.WriteFile(filepath.Join(e.Root, fmt.Sprintf("f%d.md", i)), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.ClosingCheck = true
+	if r, _ := e.Run(context.Background(), "tour the package"); r.Status == Fail {
+		t.Fatalf("%+v", r)
+	}
+	if ask := reask(m); !strings.Contains(ask, "@FORGE") {
+		t.Fatalf("the long close must ask the forge question, got %q", ask)
+	}
+	// a short run teaches nothing: no forge question under the floor
+	m2 := mock.New(mock.Call("1", "read", map[string]string{"path": "x"}), mock.Text("done"), mock.Text("really done"))
+	e.Provider = m2
+	if r, _ := e.Run(context.Background(), "peek"); r.Status == Fail {
+		t.Fatalf("%+v", r)
+	}
+	if ask := reask(m2); strings.Contains(ask, "@FORGE") {
+		t.Fatalf("short runs carry no forge question, got %q", ask)
+	}
+}
+
+func TestGutsSpeakingOnASlideAndQuietOnSmooth(t *testing.T) {
+	// three bad acts in a row: the guts speak inside a tool result, and the journal carries every
+	// reading (per-step training signal), most recent one marked spoke
+	fail := mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "false"}),
+		mock.Call("2", "bash", map[string]string{"command": "exit 2"}),
+		mock.Call("3", "bash", map[string]string{"command": "false yet again"}),
+		mock.Text("not going anywhere"), mock.Text("done"),
+	)
+	e := engine(t, fail)
+	e.Guts = &Guts{Window: 3, Floor: -2}
+	e.Budget.Retries = 5 // headroom: the slide must be scored, not escalated, for this test
+	r, _ := e.Run(context.Background(), "x")
+	if r.Status != Done {
+		t.Fatalf("%+v", r)
+	}
+	spoke := false
+	for _, req := range fail.Requests {
+		for _, msg := range req.Messages {
+			for _, res := range msg.ToolResults {
+				if strings.Contains(res.Content, "[guts:") {
+					spoke = true
+				}
+			}
+		}
+	}
+	if !spoke {
+		t.Fatal("three failed acts must make the guts speak")
+	}
+	ev := events(t, e, r.RunID)
+	readings, lastSpoke := 0, false
+	for _, x := range ev {
+		if x["t"] == "guts" {
+			readings++
+			lastSpoke = x["spoke"] == true
+		}
+	}
+	if readings != 3 || !lastSpoke {
+		t.Fatalf("the journal must carry one reading per act, last one spoken: %d events, lastSpoke=%v", readings, lastSpoke)
+	}
+	// a smooth run: silent
+	ok := mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "echo hi"}),
+		mock.Call("2", "bash", map[string]string{"command": "echo there"}),
+		mock.Text("passed all"),
+	)
+	e.Provider = ok
+	r, _ = e.Run(context.Background(), "y")
+	for _, x := range events(t, e, r.RunID) {
+		if x["t"] == "guts" && x["spoke"] == true {
+			t.Fatalf("a smooth run stays silent: %v", x)
+		}
+	}
+	// off by default: no readings at all
+	e2 := engine(t, mock.New(mock.Call("1", "bash", map[string]string{"command": "false"}), mock.Text("x")))
+	r, _ = e2.Run(context.Background(), "z")
+	for _, x := range events(t, e2, r.RunID) {
+		if x["t"] == "guts" {
+			t.Fatalf("nil guts must not read: %v", x)
+		}
+	}
+}
+
+func TestGutsBenchKeyReadWindowsAreDistinctBenches(t *testing.T) {
+	// tonight's shape: a zone worker sweeping one file's five lawful windows is a page-walk, not an echo;
+	// re-reading the SAME window thrice is the echo. The bench key for reads rides offset+limit.
+	w1 := gutsBenchKey(provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"loop.go","offset":1,"limit":100}`)})
+	w2 := gutsBenchKey(provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"loop.go","offset":101,"limit":100}`)})
+	if w1 == w2 {
+		t.Fatal("windowed reads of one file must not share a bench — that punishes lawful page-walks")
+	}
+	w3 := gutsBenchKey(provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"loop.go","offset":1,"limit":100}`)})
+	if w1 != w3 {
+		t.Fatal("the same window twice must share a bench — that is the echo the penalty guards")
+	}
+}
+
+func TestGutsRedPin(t *testing.T) {
+	// A test-bench (go test / go vet) whose output carries FAIL is TDD's signal,
+	// not thrash: gutsValue must score NEUTRAL (0) with why «red pin — …», not
+	// −1 «output reads like failure». Genuine thrash (echo arm) stays untouched.
+	benchCall := provider.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"go test ./loop -count=1 -run TestRedX"}`)}
+	benchOut := "=== RUN TestGutsRedPinX\n--- FAIL: TestGutsRedPinX (0.00s)\n    loop_test.go:000: boom\nFAIL\tgithub.com/Kaginari/agent-one/loop\t0.123s\nFAIL\n"
+	st := &StepRecord{}
+	// bench FAIL → red pin (0). res.Err=false so we exercise the output-lexicon path.
+	v, why := gutsValue(st, benchCall, tool.Result{Output: benchOut}, "")
+	if v != 0 || !strings.Contains(why, "red pin") {
+		t.Fatalf("bench FAIL must score 0 'red pin — failure is the signal', got v=%d why=%q", v, why)
+	}
+	// go vet bench failing must also pin.
+	vetCall := provider.ToolCall{Name: "shell.exec", Input: json.RawMessage(`{"command":"go vet ./..."}`)}
+	v2, _ := gutsValue(st, vetCall, tool.Result{Output: "# x\nvet.go:1: FAIL\n"}, "")
+	if v2 != 0 {
+		t.Fatalf("go vet FAIL must score 0 red pin, got v=%d", v2)
+	}
+	// echo arm unchanged: same bench repeated still penalized by the bench echo
+	// (gutsNote same-bench rerun penalty). We assert the key identity collapses the
+	// same bash command — a second identical gutsValue call must not be lifted by red-pin.
+	if gutsBenchKey(benchCall) != gutsBenchKey(benchCall) {
+		t.Fatal("same bench must key identically")
+	}
+	// non-test tool with FAIL output still eats the negative lexicon (−1).
+	catCall := provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"loop.go"}`)}
+	v3, _ := gutsValue(st, catCall, tool.Result{Output: "FAILED\n"}, "")
+	if v3 == 0 {
+		t.Fatalf("non-test tool FAIL output must still score −1 via lexicon, got v=%d", v3)
+	}
+}
+
+func TestGutsEchoAndWitnessAdmissibility(t *testing.T) {
+	e := engine(t, nil)
+	e.Guts = &Guts{Window: 3, Floor: -2}
+	e.Budget.Retries = 5
+	e.ClosingCheck = true // the witness admissibility check lives on the close
+	// echo penalty: three clean re-runs of the same read bench (look v1/v2/v3) speak up
+	echo := mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "echo render v1"}),
+		mock.Call("2", "bash", map[string]string{"command": "echo render v2"}),
+		mock.Call("3", "bash", map[string]string{"command": "echo render v3"}),
+		mock.Text("four renders agree"), mock.Text("five agree"),
+	)
+	e.Provider = echo
+	r, _ := e.Run(context.Background(), "just look")
+	echoWhy := false
+	for _, x := range events(t, e, r.RunID) {
+		if x["t"] == "guts" {
+			if s, ok := x["why"].(string); ok && strings.Contains(s, "same bench re-run") {
+				echoWhy = true
+			}
+			if s, ok := x["why"].(string); ok && x["spoke"] == true && strings.Contains(s, "same bench re-run") {
+				return // penalized AND spoken
+			}
+		}
+	}
+	if !echoWhy {
+		t.Fatal("the echo class must journal its why even below the speak floor")
+	}
+	// iterations that WRITE between looks are not echoes
+	work := mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "echo render"}),
+		mock.Call("2", "write", map[string]string{"path": "r.py", "content": "x"}),
+		mock.Call("3", "bash", map[string]string{"command": "echo render"}),
+		mock.Call("4", "write", map[string]string{"path": "r.py", "content": "y"}),
+		mock.Call("5", "bash", map[string]string{"command": "echo render"}),
+		mock.Text("fixed"), mock.Text("closed"),
+	)
+	e.Provider = work
+	r, _ = e.Run(context.Background(), "fix the renderer")
+	for _, x := range events(t, e, r.RunID) {
+		if x["t"] == "guts" {
+			if s, ok := x["why"].(string); ok && strings.Contains(s, "same bench re-run") {
+				t.Fatalf("debug iterations that write between looks are not echoes: %v", x)
+			}
+		}
+	}
+	// the witness close carries the independence demand
+	a3 := mock.New(mock.Call("1", "write", map[string]string{"path": "n.txt", "content": "x"}), mock.Text("done"), mock.Text("closed"))
+	e.Provider = a3
+	_, _ = e.Run(context.Background(), "write a note")
+	a3ask := ""
+	for _, req := range a3.Requests {
+		if m := req.Messages[len(req.Messages)-1]; strings.Contains(m.Text, "closing check") {
+			a3ask = m.Text
+		}
+	}
+	if !strings.Contains(a3ask, "independent second method") || !strings.Contains(strings.ToLower(a3ask), "name the forest") {
+		t.Fatalf("the close must demand independence and object-first reading, got %q", a3ask)
+	}
+}
+
+func TestClosingCheckCarriesOpenPlan(t *testing.T) {
+	// an open deck item rides the re-ask, and a stubborn close names the hole on the report.
+	m := mock.New(mock.Text("wrapping up"), mock.Text("really wrapping up"))
+	e := engine(t, m)
+	e.ClosingCheck = true
+	e.PlanOpen = func() string { return "b3 is pending — merge the commits" }
+	r, _ := e.Run(context.Background(), "x")
+	if r.Status != Done || len(m.Requests) != 2 {
+		t.Fatalf("%+v requests=%d", r, len(m.Requests))
+	}
+	ask := m.Requests[1].Messages[len(m.Requests[1].Messages)-1].Text
+	if !strings.Contains(ask, "merge the commits") {
+		t.Fatalf("the re-ask must name the open item, got %q", ask)
+	}
+	holes := strings.Join(r.Holes, "|")
+	if !strings.Contains(holes, "closed with an open plan: b3") {
+		t.Fatalf("the stubborn close must be named, got %q", holes)
+	}
+	// the hole is named even with the check off (the agent may still close, but the report says so)
+	e.ClosingCheck = false
+	e.Provider = mock.New(mock.Text("closed"))
+	r, _ = e.Run(context.Background(), "x")
+	if r.Status != Done || !strings.Contains(strings.Join(r.Holes, "|"), "closed with an open plan") {
+		t.Fatalf("%+v %v", r, r.Holes)
+	}
+}
+
 func read(id string) provider.Response {
 	return mock.Call(id, "read", map[string]string{"path": "README.md"})
 }
@@ -419,6 +731,54 @@ func TestGateOncePerTurn(t *testing.T) {
 	}
 }
 
+// A wire engine that answers off the wire is re-asked once, coded: the violation's text is the
+// model's next message and the retry's answer is the report. The policy that a dispatched agent
+// answers @S…@E is enforced by the loop, never begged by a prompt. Red until finish wires it.
+func TestWireAnswerRetriedOnce(t *testing.T) {
+	m := mock.New(mock.Text("yes"), mock.Text("@S DONE\n@F loop.go:1 retry applied\n@U team asked\n@E 1"))
+	e := engine(t, m)
+	e.Wire = true // a Subagent agent answers on the wire
+	r, err := e.Run(context.Background(), "say yes on the wire")
+	if err != nil || r.Status != Done {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if !r.IsWire {
+		t.Fatalf("the retry's wire answer is the report: %+v", r.Report)
+	}
+	if len(m.Requests) != 2 {
+		t.Fatalf("one retry, two requests, got %d", len(m.Requests))
+	}
+	last := m.Requests[1].Messages[len(m.Requests[1].Messages)-1]
+	if last.Role != provider.User || !strings.Contains(last.Text, "wire") || !strings.Contains(last.Text, "@S") {
+		t.Fatalf("the re-ask names the wire violation: %q", last.Text)
+	}
+	if r.Turns != 2 {
+		t.Fatalf("retry is a second turn: %d", r.Turns)
+	}
+}
+
+// The re-ask is bounded: one retry, then the agent stands undisciplined and the hole is the
+// record. No loop of begging.
+func TestWireAnswerRetryBounded(t *testing.T) {
+	m := mock.New(mock.Text("yes"), mock.Text("still plain"))
+	e := engine(t, m)
+	e.Wire = true
+	r, err := e.Run(context.Background(), "say yes on the wire")
+	if err != nil || r.Status != Done {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if r.IsWire {
+		t.Fatal("an agent that never speaks the wire ends off it")
+	}
+	if len(m.Requests) != 2 {
+		t.Fatalf("exactly one retry: %d requests", len(m.Requests))
+	}
+	joined := strings.Join(r.Holes, "\n")
+	if !strings.Contains(joined, "@S") {
+		t.Fatalf("the hole records the wire violation: %v", r.Holes)
+	}
+}
+
 // The context the run reports is the reading the loop acts on: a Perceive hook that lowers the
 // stress line (the drain scaling to a small model's window) is what Result.Context shows.
 func TestReportedContextIsThePerceivedReading(t *testing.T) {
@@ -479,5 +839,115 @@ func TestDependencyTreesAreNotWatched(t *testing.T) {
 		if e.unwatched(rel) != want {
 			t.Errorf("%s: want unwatched=%v", rel, want)
 		}
+	}
+}
+
+func TestDoomLoopReliefLadder(t *testing.T) {
+	// the guts speak every window; Doom=1 checkpoints the run on the first sustained slide,
+	// carrying the three relief arms for the dispatcher (Operator 2026-10-02 evening order)
+	fails := mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "false"}),
+		mock.Call("2", "bash", map[string]string{"command": "false"}),
+		mock.Call("3", "bash", map[string]string{"command": "false"}),
+		mock.Call("4", "bash", map[string]string{"command": "false"}),
+		mock.Text("never reached"),
+	)
+	e := engine(t, fails)
+	e.Guts = &Guts{Window: 3, Floor: -1}
+	e.Budget.Retries = 9 // keep the slide scored, not escalated — the ladder, not fatigue, ends it
+	e.Doom = 1
+	r, _ := e.Run(context.Background(), "x")
+	if r.Status != Checkpoint {
+		t.Fatalf("doomLoop relief must checkpoint, got %+v", r)
+	}
+	hole := strings.Join(r.Holes, " ")
+	if !strings.Contains(hole, "doomLoop") || !strings.Contains(hole, "split") || !strings.Contains(hole, "configuration-shift") {
+		t.Fatalf("relief arms must name retire/split/configuration-shift in the holes: %v", r.Holes)
+	}
+	doomSeen := false
+	for _, x := range events(t, e, r.RunID) {
+		if x["t"] == "budget" && x["why"] == "doomLoop:guts" {
+			doomSeen = true
+		}
+	}
+	if !doomSeen {
+		t.Fatal("the journal must carry the doomLoop budget event")
+	}
+	// the relieved session must be disarmed: Doom 1 on one session; after the checkpoint its
+	// gutsSpoke streak and the window that carried it are spent. Pre-fix the turn reignited on
+	// any later floor window — the workspace looked alive but could not run a full turn.
+	e2 := engine(t, mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "false"}),
+		mock.Call("2", "bash", map[string]string{"command": "false"}),
+		mock.Call("3", "bash", map[string]string{"command": "false"}),
+		mock.Call("4", "bash", map[string]string{"command": "false"}),
+		mock.Call("5", "bash", map[string]string{"command": "false"}),
+		mock.Call("6", "bash", map[string]string{"command": "false"}),
+		mock.Text("end"),
+	))
+	e2.Guts = &Guts{Window: 3, Floor: -1}
+	e2.Budget.Retries = 9
+	e2.Doom = 1
+	s2 := e2.NewSession()
+	r1, _ := s2.Turn(context.Background(), "burn")
+	if r1.Status != Checkpoint {
+		t.Fatalf("first turn must doom-checkpoint on the slide, got %+v", r1)
+	}
+	if s2.gutsSpoke != 0 || len(s2.gutsVals) != 0 {
+		t.Fatalf("the relief left the doom armed (spoke streak=%d window=%v)", s2.gutsSpoke, s2.gutsVals)
+	}
+	r2, _ := s2.Turn(context.Background(), "still sliding")
+	if r2.Status != Checkpoint {
+		t.Fatalf("an honestly still-sliding turn must earn its doom again, got %+v", r2)
+	}
+	// Doom 0: nothing relieves (existing behavior — slide scored, run walks on)
+	fails2 := mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "false"}),
+		mock.Call("2", "bash", map[string]string{"command": "false"}),
+		mock.Call("3", "bash", map[string]string{"command": "false"}),
+		mock.Text("end"),
+	)
+	e.Provider = fails2
+	e.Doom = 0
+	r, _ = e.Run(context.Background(), "y")
+	if r.Status == Checkpoint && strings.Contains(strings.Join(r.Holes, " "), "doomLoop") {
+		t.Fatalf("Doom 0 must keep the loop walking: %+v", r)
+	}
+}
+
+func TestUnsaidBouncedOnce(t *testing.T) {
+	// wire-shaped but missing @U on a +unsaid run → one bounce; landing @U closes clean
+	m := mock.New(mock.Text("@S DONE\n@F board/tree.go:1 landed\n@E 42"), mock.Text("@S DONE\n@F board/tree.go:1 landed\n@U team pairing verified\n@E 42"))
+	e := engine(t, m)
+	e.Wire = true
+	r, err := e.Run(context.Background(), "witness (+unsaid)")
+	if err != nil || r.Status != Done {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if len(m.Requests) != 2 {
+		t.Fatalf("one @U bounce, two requests, got %d", len(m.Requests))
+	}
+	joined := strings.Join(r.Holes, "\n")
+	if !strings.Contains(joined, "no @U") || !strings.Contains(joined, "sent back") {
+		t.Fatalf("the bounce hole is the record of the strike — kept, not erased: %v", r.Holes)
+	}
+	last := m.Requests[1].Messages[len(m.Requests[1].Messages)-1]
+	if !strings.Contains(last.Text, "@U") {
+		t.Fatalf("the re-ask names the missing wire clause: %q", last.Text)
+	}
+}
+
+func TestUnsaidBounceBounded(t *testing.T) {
+	// never names @U twice → hole stands as the record
+	m := mock.New(mock.Text("@S DONE\n@E 42"), mock.Text("@S DONE\n@E 42"))
+	e := engine(t, m)
+	e.Wire = true
+	r, _ := e.Run(context.Background(), "witness (+unsaid)")
+	joined := strings.Join(r.Holes, "\n")
+	if !strings.Contains(joined, "no @U") {
+		t.Fatalf("the hole records the missing @U: %v", r.Holes)
+	}
+	if len(m.Requests) != 2 {
+		t.Fatalf("exactly one @U bounce: %d", len(m.Requests))
 	}
 }

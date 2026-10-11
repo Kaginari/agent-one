@@ -8,9 +8,11 @@ import (
 	"strings"
 )
 
-// CLI runs `config show|explain|check|path|patch` and returns the exit code. Flags before the
-// subcommand or after it: --dist, --root, --yaml (show), and the config flags ParseFlags reads.
-// `check` answers on the wire; the others are human-facing.
+// CLI runs `config show|explain|check|path|patch|scaffold` and returns the exit code. Flags
+// before the subcommand or after it: --dist, --root, --yaml (show), and the config flags
+// ParseFlags reads. `check` and `scaffold` answer on the wire; the others are human-facing.
+// `scaffold` registers (never overwrites) the machine-local config set — config.local.yaml and
+// one <section>.local.yaml per section — and --check drift-checks it against this binary.
 func CLI(args []string, stdout, stderr io.Writer) int {
 	return cli(args, stdout, stderr, Options{})
 }
@@ -43,6 +45,20 @@ func cli(args []string, stdout, stderr io.Writer, base Options) int {
 	}
 	if sub == "" {
 		sub = "show"
+	}
+	if sub == "scaffold" {
+		// scaffold works on paths, not on a loadable config (a broken config must not
+		// block the register) — it parses no config flags itself, only its own --check.
+		checkOnly := false
+		for _, a := range rest {
+			if a == "--check" {
+				checkOnly = true
+				continue
+			}
+			fmt.Fprintf(stderr, "@S FAIL\n@? unknown argument %q\n", a)
+			return 2
+		}
+		return runScaffold(o, checkOnly, stdout, stderr)
 	}
 	flags, leftover, err := ParseFlags(rest)
 	if err != nil {
@@ -142,7 +158,7 @@ func cli(args []string, stdout, stderr io.Writer, base Options) int {
 		fmt.Fprint(stdout, diff)
 		return 0
 	}
-	fmt.Fprintf(stderr, "@S FAIL\n@? unknown subcommand %q — show | explain | check | path | patch\n", sub)
+	fmt.Fprintf(stderr, "@S FAIL\n@? unknown subcommand %q — show | explain | check | path | patch | scaffold\n", sub)
 	return 2
 }
 
@@ -260,7 +276,6 @@ tools:
 	}
 	for _, r := range []struct{ name, content string }{
 		{"wildcard allow on bash", "permissions:\n  rules: [{match: \"bash:*\", action: allow}]\n"},
-		{"literal key", "providers:\n  anthropic: {apiKey: sk-ant-123}\n"},
 		{"missing rule file", "rules: [{file: nope.md}]\n"},
 		{"drain that never fires", "policy: {budget: {contextTokens: 100000, stressTokens: 90000}}\n"},
 		{"anchor in yaml", "a: &x 1\nb: *x\n"},
@@ -311,6 +326,54 @@ tools:
 	code = cli([]string{"explain", "--dist", "agent-one", "--root", root}, &sb, &sb, Options{Home: home, Env: getenv})
 	if err := check("cli explain carries origins", code == 0 && strings.Contains(sb.String(), "# default")); err != nil {
 		return n, err
+	}
+	// Scaffold: the register never overwrites; the files it writes load; its .gitignore carries
+	// the machine-local rule; --check is clean afterward and drifts on purpose when taught to.
+	{
+		registerWorkspace := filepath.Join(dir, "register")
+		sb.Reset()
+		code = cli([]string{"scaffold", "--dist", "agent-one", "--root", filepath.Join(registerWorkspace)}, &sb, &sb, Options{Home: home, Env: getenv})
+		if err := check("scaffold refuses a non-workspace", code == 2 && strings.Contains(sb.String(), "no workspace")); err != nil {
+			return n, err
+		}
+		_ = os.MkdirAll(filepath.Join(registerWorkspace, ".agent-one"), 0o755)
+		sb.Reset()
+		code = cli([]string{"scaffold", "--dist", "agent-one", "--root", registerWorkspace}, &sb, &sb, Options{Home: home, Env: getenv})
+		out := sb.String()
+		if err := check("scaffold registers the local set", code == 0 && strings.Contains(out, "@F wrote config.local.yaml") && strings.Contains(out, "@F wrote permissions.local.yaml") && strings.Contains(out, ".gitignore")); err != nil {
+			return n, err
+		}
+		if err := check("scaffold wrote an ignorable workspace", strings.Contains(readAll(filepath.Join(registerWorkspace, ".agent-one", ".gitignore")), "*.local.yaml")); err != nil {
+			return n, err
+		}
+		if _, err := LoadWith(Options{Dist: "agent-one", Root: registerWorkspace, Home: home, Env: getenv}); err != nil {
+			if err := check("a registered workspace loads", false); err != nil {
+				return n, err
+			}
+			return n, err
+		}
+		sb.Reset()
+		code = cli([]string{"scaffold", "--dist", "agent-one", "--root", registerWorkspace}, &sb, &sb, Options{Home: home, Env: getenv})
+		if err := check("the register never overwrites", code == 0 && strings.Contains(sb.String(), "kept config.local.yaml") && !strings.Contains(sb.String(), "@F wrote")); err != nil {
+			return n, err
+		}
+		sb.Reset()
+		code = cli([]string{"scaffold", "--check", "--dist", "agent-one", "--root", registerWorkspace}, &sb, &sb, Options{Home: home, Env: getenv})
+		if err := check("--check is clean after registering", code == 0 && strings.Contains(sb.String(), "@E 0 drift")); err != nil {
+			return n, err
+		}
+		_ = os.WriteFile(filepath.Join(registerWorkspace, ".agent-one", "no-such-section.local.yaml"), []byte("{}\n"), 0o644)
+		sb.Reset()
+		code = cli([]string{"scaffold", "--check", "--dist", "agent-one", "--root", registerWorkspace}, &sb, &sb, Options{Home: home, Env: getenv})
+		if err := check("--check names the drift", code == 1 && strings.Contains(sb.String(), "no such section")); err != nil {
+			return n, err
+		}
+		_ = os.Remove(filepath.Join(registerWorkspace, ".agent-one", "no-such-section.local.yaml"))
+		sb.Reset()
+		code = cli([]string{"scaffold", "--check", "--dist", "agent-one", "--root", registerWorkspace}, &sb, &sb, Options{Home: home, Env: getenv})
+		if err := check("--check sees every registered section present", code == 0 && !strings.Contains(sb.String(), "no local file for section")); err != nil {
+			return n, err
+		}
 	}
 	// agent-one distribution.
 	must(filepath.Join(dir, "az", ".agent-one", "config.json"), `{"models": {"roles": {"analyst": "anthropic/claude-haiku-4-5"}}}`)

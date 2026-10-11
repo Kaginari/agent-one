@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kaginari/agent-one/board"
 	"github.com/Kaginari/agent-one/compact"
 	"github.com/Kaginari/agent-one/config"
 	"github.com/Kaginari/agent-one/gate"
@@ -94,12 +95,16 @@ type App struct {
 
 	mount      provider.Provider
 	mountModel config.Model
+	planBoot   time.Time // the interactive session's provisioning: plan decks penned earlier are stale (memory, never gate-holders)
 	boardAddr  string
-	web        *webBus // the session, for the dashboard (web.go)
+	boardH     *board.Board // board serveBoard retained; its token authorizes dash acts
+	web        *webBus      // the session, for the dashboard (web.go)
 	rules      []workspace.Rule
 	engines    []*loop.Engine
 	mu         sync.Mutex
 	holes      []string
+	ontoMu     sync.Mutex
+	ontoNudged map[string]bool // run → the unowned-soil nudge already spoken (once, by policy)
 	started    time.Time
 	closed     bool
 }
@@ -169,6 +174,22 @@ func New(opt Options) (*App, error) {
 	}
 	for _, h := range cfg.Holes {
 		a.hole(h)
+	}
+	// Boot-time heal of the long-memory index (audit 2026-10-05 F1): stale once meant
+	// nag holes on every recall of every agent for the whole run (rebuildOnStale:false
+	// keeps rebuilds off the recall beat — this gate pays them once, before any agent
+	// runs, and the relaunch always starts on fresh anchors).
+	if cfg.Memory.Long.Enabled && cfg.Memory.Long.IndexOnBoot && !opt.Quiet {
+		if mw, merr := w.Memory(); merr == nil {
+			idx, why := mw.LoadIndex()
+			if why != "" || len(mw.IndexHoles(idx, "")) > 0 {
+				if res, ierr := mw.Index(); ierr == nil {
+					a.hole(fmt.Sprintf("memory: boot re-indexed %d memories — stale index healed", res.N))
+				} else {
+					a.hole("memory: boot re-index failed — " + ierr.Error())
+				}
+			}
+		}
 	}
 	// the sandbox, the human gate, the shelf, mcp, discoveries
 	a.Sandbox = newSandbox(cfg, a.Root)
@@ -246,6 +267,13 @@ func (a *App) newGate() *gate.Gate {
 			g.Approve[cl] = true
 		}
 	}
+	// policy.humanGate.trustContainer: inside the harness's own runtime container the sandbox is
+	// the membrane — every class reads pre-approved. The guard denylist still refuses first.
+	if a.Cfg.Policy.HumanGate.TrustContainer && a.Opt.Env != nil && a.Opt.Env(containerEnvVar(a.Cfg.Dist.Name)) != "" {
+		for _, cl := range []tool.Class{tool.Read, tool.Write, tool.Outward, tool.Destructive} {
+			g.Approve[cl] = true
+		}
+	}
 	g.Strict, g.DryRun = a.Cfg.Policy.HumanGate.Strict, a.Cfg.Policy.HumanGate.DryRun
 	g.In, g.Out, g.IsTTY = a.Opt.In, a.Opt.Err, a.Opt.IsTTY
 	g.Flag = "--approve"
@@ -285,6 +313,17 @@ func (a *App) Build() workspace.Build {
 	if a.mountModel.Entry != nil {
 		maxOut = a.mountModel.Entry.MaxOutputTokens
 	}
+	// noted is one background Subagent's bookkeeping on any depth: its @U seats land as workspace
+	// holes, its subagent card closes. Wake (depth 0) and Deliver (depth ≥1) both run it first.
+	noted := func(agent, report string, failed bool) {
+		// a background report never passes the dispatcher's Record hook: its @U goes home here
+		if rep, ok := wire.ParseReport(report); ok && len(rep.Unsaid) > 0 {
+			for _, h := range a.Workspace.Land(agent, rep) {
+				a.hole(h)
+			}
+		}
+		a.Subagent.Finish(agent, report)
+	}
 	b := workspace.Build{
 		Provider:  a.sessionProvider(),
 		Models:    a.router(),
@@ -292,16 +331,22 @@ func (a *App) Build() workspace.Build {
 		Shelf:     func(as string, depth int) (*tool.Registry, func()) { return a.Shelf.Build(as) },
 		Budget:    policyBudget(cfg, maxOut),
 		Hooks:     a.gateHooks(hookOptions(cfg, a.rules)),
-		Ownership: workspace.OwnershipOptions{Enabled: cfg.Policy.Ownership.Enabled},
-		Subagent: workspace.SubagentOptions{Enabled: a.on("dispatch"), MaxDepth: cfg.Tools.Dispatch.MaxDepth, Cap: cfg.Policy.Wire.Cap, Unsaid: cfg.Policy.Wire.RequireUnsaid,
-			Background: cfg.Tools.Dispatch.Background, Wake: func(agent, report string, failed bool) {
-				// a background report never passes the dispatcher's Record hook: its @U goes home here
-				if rep, ok := wire.ParseReport(report); ok && len(rep.Unsaid) > 0 {
-					for _, h := range a.Workspace.Land(agent, rep) {
-						a.hole(h)
-					}
+		Ownership: workspace.OwnershipOptions{Enabled: cfg.Policy.Ownership.Enabled, OrchestratorNeverAuthors: cfg.Policy.Ownership.OrchestratorNeverAuthors},
+		Guts:      policyGuts(cfg),
+		Doom:      policyDoom(cfg),
+		Subagent: workspace.SubagentOptions{Enabled: a.on("dispatch"), MaxDepth: cfg.Tools.Dispatch.MaxDepth, Cap: cfg.Policy.Wire.Cap, Unsaid: cfg.Policy.Wire.RequireUnsaid, StrictFlow: cfg.Tools.Dispatch.StrictFlow, SalvageTokens: cfg.Policy.Budget.SalvageTokens, StressEscalateAt: cfg.Policy.Stress.EscalateAt, StressMaxConsults: cfg.Policy.Stress.MaxConsults, StressRelieveAt: cfg.Policy.Stress.RelieveAt, SessionBackground: cfg.Tools.Dispatch.SessionBackground,
+			Background: cfg.Tools.Dispatch.Background, BackgroundTimeout: time.Duration(cfg.Tools.Dispatch.BackgroundTimeout),
+			Noted: noted,
+			// Deliver rides a running agent's own inbox (the /send channel) so a deeper agent's
+			// background report wakes ITS dispatcher mid-turn; when that dispatcher already
+			// closed (its context died with its task), the report rises to the session queue.
+			Deliver: func(agent, line string) {
+				if err := a.Subagent.Send(agent, line); err != nil {
+					a.Subagent.Wake(line)
 				}
-				a.Subagent.Finish(agent, report)
+			},
+			Wake: func(agent, report string, failed bool) {
+				noted(agent, report, failed)
 				a.Subagent.Wake(fmt.Sprintf("[subagent %s reported]\n%s", agent, report))
 			}},
 		Journal: a.journalDir(),
@@ -322,6 +367,7 @@ func (a *App) Build() workspace.Build {
 		},
 		PreTool:  a.Hooks.PreTool,
 		PostTool: a.Hooks.PostTool,
+		Note:     a.ontoNote(),
 		Budget:   budgetHook,
 		State: func(s *loop.Session, st string) {
 			if a.Subagent != nil {
@@ -338,6 +384,16 @@ func (a *App) Build() workspace.Build {
 			return nil
 		},
 		Observe: func(s *loop.Session, st *loop.StepRecord, phase string) {
+			if phase == "start" && st.Tool == "dispatch" && a.Subagent != nil {
+				var in struct {
+					Agent, Ask string
+				}
+				if json.Unmarshal(st.Input, &in) == nil && in.Agent != "" {
+					if orders := wire.EnqueuesOf(in.Ask); len(orders) > 0 {
+						a.Subagent.ExpectRelay(in.Agent, orders)
+					}
+				}
+			}
 			if a.OnStep != nil {
 				a.OnStep(s, st, phase)
 			}
@@ -386,6 +442,10 @@ func (a *App) Engine() (*loop.Engine, error) {
 	e := a.Workspace.Engine(workspace.Orchestrator, a.Build())
 	e.OnDelta = a.OnDelta
 	e.Cap = 0 // the human's answer is never capped
+	e.ClosingCheck = a.Cfg.Policy.ClosingCheck.Enabled
+	e.Guts = policyGuts(a.Cfg) // orchestrator stays gut-armed even when the Build changes shape
+	e.Doom = policyDoom(a.Cfg)
+	e.PlanOpen = func() string { return planOpenReason(a.planDir(), workspace.Orchestrator, a.plansBoot()) }
 	if a.Subagent != nil {
 		a.Subagent.Track(workspace.Orchestrator, "", "", a.mountModel.Ref.Model, nil, 0)
 	}

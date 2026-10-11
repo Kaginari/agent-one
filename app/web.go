@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/Kaginari/agent-one/tui"
+	"github.com/Kaginari/agent-one/workspace"
 )
 
 // webBus is the session seen from the browser: every event the host sends the terminal UI is
@@ -24,13 +27,54 @@ type webBus struct {
 	ring       [][]byte
 	subs       map[chan []byte]struct{}
 	choices    map[string]chan<- tui.ChoiceAnswer
-	answerable bool // the browser answers choices (the dashboard is the only ui)
+	choiceAt   map[string]int64 // choice id → open time (unix ms) — a prompt that ages must be seen ageing
+	answerable bool             // the browser answers choices — always: whichever surface answers first wins
+	// stream tap: every published event also lands in the workspace's stream sidecar so audits can
+	// read any agent's reasoning mid-run (not only after transcript flush at close). nil = untapped.
+	streamRoot string
+	streamDay  string
+	stream     *os.File
 }
 
 const webReplay = 4000
 
 func newWebBus() *webBus {
-	return &webBus{subs: map[chan []byte]struct{}{}, choices: map[string]chan<- tui.ChoiceAnswer{}}
+	// answerable from provisioning (the human's decree: approvals answered from the web in every run
+	// mode — dash-only, TUI with the board up, containered); the terminal keeps its own answer
+	// path and Answer resolves the rank first-wins ("answered elsewhere" for the loser).
+	return &webBus{subs: map[chan []byte]struct{}{}, choices: map[string]chan<- tui.ChoiceAnswer{}, choiceAt: map[string]int64{}, answerable: true}
+}
+
+// tapStream points the bus's event tap at the workspace's instruments dir; failure to open leaves
+// the bus working, silently untapped (evidence capture never breaks the session).
+func (w *webBus) tapStream(root string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.streamRoot = root
+	w.openStreamLocked()
+}
+
+func (w *webBus) openStreamLocked() {
+	if w.streamRoot == "" {
+		return
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	if w.stream != nil && w.streamDay == day {
+		return
+	}
+	if w.stream != nil {
+		_ = w.stream.Close()
+		w.stream = nil
+	}
+	dir := filepath.Join(w.streamRoot, ".agent-one", "instruments", "stream")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, day+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	w.stream, w.streamDay = f, day
 }
 
 func (w *webBus) attach(h *tuiHost) {
@@ -51,9 +95,21 @@ func (w *webBus) Send(msg tea.Msg) {
 			w.seq++
 			id := "c" + strconv.Itoa(w.seq)
 			w.choices[id] = c.Reply
+			w.choiceAt[id] = time.Now().UnixMilli()
 			ev["id"] = id
 		} else {
 			ev["elsewhere"] = true // answered in the terminal
+		}
+	}
+	if _, ok := msg.(tui.EvChoiceAnswered); ok {
+		// a card answered anywhere (terminal, interrupt-deny, dashboard) resolves them all:
+		// choices serialize per host, and a stale entry would freeze the waiting banner on a
+		// card that no longer exists
+		for id := range w.choices {
+			delete(w.choices, id)
+		}
+		for id := range w.choiceAt {
+			delete(w.choiceAt, id)
 		}
 	}
 	w.publishLocked(ev)
@@ -74,6 +130,18 @@ func (w *webBus) publishLocked(ev map[string]any) {
 	b, err := json.Marshal(ev)
 	if err != nil {
 		return
+	}
+	// sidecar tap: persist every event the dashboard sees, so a mid-run audit reads reasoning live.
+	// Writes only ever land on an already-open tap: publish never creates dirs or files — the
+	// day-rollover reopens at the next publish boundary without mkdir, and an unwritable tap
+	// stays silent (evidence capture never breaks a session, and never fights a teardown).
+	day := time.Now().UTC().Format("2006-01-02")
+	if w.stream != nil && w.streamDay != day {
+		w.openStreamLocked() // rollover only: same dir, new day file
+	}
+	if w.stream != nil && w.streamDay == day {
+		_, _ = w.stream.Write(b)
+		_, _ = w.stream.Write([]byte{'\n'})
 	}
 	w.ring = append(w.ring, b)
 	if len(w.ring) > webReplay {
@@ -141,11 +209,16 @@ func (w *webBus) Answer(id string, index int, text string) error {
 	w.mu.Lock()
 	reply, ok := w.choices[id]
 	delete(w.choices, id)
+	delete(w.choiceAt, id)
 	w.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("choice %s is no longer open", id)
 	}
-	reply <- tui.ChoiceAnswer{Index: index, Text: text}
+	select {
+	case reply <- tui.ChoiceAnswer{Index: index, Text: text}:
+	default: // the terminal answered first, or the reader is gone — never block the bus
+		return errors.New("answered elsewhere")
+	}
 	w.note(map[string]any{"type": "answered", "id": id, "index": index, "text": text})
 	return nil
 }
@@ -174,6 +247,27 @@ func (w *webBus) Status() map[string]any {
 	st["model"], st["ctx"], st["ctxPct"], st["ctxKnown"], st["cost"], st["tokens"], st["live"], st["running"] =
 		f.Model, f.Ctx, f.CtxPct, f.CtxKnown, f.Cost, f.Tokens, f.Live, running
 	st["session"], st["dist"] = h.a.SessionID, h.a.Cfg.Dist.Name
+	// the exposure flag: workspaces may lawfully pin budgets off (-1, this workspace's 2026-09-28
+	// decree) — the schema default stays armed, so an uncapped session declares itself
+	// instead of hiding inside "running"
+	if h.s != nil {
+		st["budgetsOff"] = h.s.Engine.Budget.Steps < 0 && h.s.Engine.Budget.Minutes < 0
+	}
+	st["queued"] = h.a.Subagent.QueueDepth(workspace.Orchestrator)
+	// the wedge meter: how long the oldest open card has waited for a human — the one spell
+	// a frozen workspace cannot cast on itself (freeze 2026-10-07)
+	w.mu.Lock()
+	var oldest int64
+	for _, at := range w.choiceAt {
+		if oldest == 0 || at < oldest {
+			oldest = at
+		}
+	}
+	st["choices"] = len(w.choiceAt)
+	w.mu.Unlock()
+	if oldest > 0 {
+		st["gateWaitMs"] = time.Since(time.UnixMilli(oldest)).Milliseconds()
+	}
 	return st
 }
 
@@ -187,6 +281,7 @@ func (w *webBus) close() {
 		default:
 		}
 		delete(w.choices, id)
+		delete(w.choiceAt, id)
 	}
 	for ch := range w.subs {
 		delete(w.subs, ch)
@@ -207,7 +302,7 @@ func webEvent(msg tea.Msg) map[string]any {
 		return map[string]any{"type": "tool", "phase": "start", "tool": t}
 	case tui.EvToolEnd:
 		return map[string]any{"type": "tool", "phase": "end", "tool": toolJSON(e.Tool)}
-	case tui.EvBodyStep:
+	case tui.EvAgentStep:
 		return map[string]any{"type": "bodystep", "agent": e.Agent, "end": e.End, "tool": toolJSON(e.Tool)}
 	case tui.EvSubagent:
 		c := e.Subagent
@@ -226,6 +321,10 @@ func webEvent(msg tea.Msg) map[string]any {
 		return map[string]any{"type": "error", "text": e.Text}
 	case tui.EvLines:
 		return map[string]any{"type": "lines", "lines": e.Lines}
+	case tui.EvChoiceAnswered:
+		return map[string]any{"type": "choice-answered", "class": e.Class, "tool": e.Tool, "answer": e.Answer, "recommended": e.Recommended}
+	case tui.EvPlanOutcome:
+		return map[string]any{"type": "plan-outcome", "agent": e.Agent, "verdict": e.Verdict, "cards": e.Cards, "chosen": e.Chosen, "why": e.Why}
 	case tui.EvChoice:
 		v := e.View
 		return map[string]any{"type": "choice", "title": v.Title, "class": v.Class, "tool": v.Tool, "summary": v.Summary, "why": v.Why, "agent": v.Agent,

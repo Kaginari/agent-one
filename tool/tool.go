@@ -75,12 +75,14 @@ type Policy func(a Access) error
 // directory name (".agent-one" by default; the machine-shared tier is ~/<WorkspaceDir>) and the
 // record test (files never overwritten, Policy 4).
 type Env struct {
-	Root         string // the workspace root; every relative path resolves against it
-	Cwd          string // defaults to Root
-	WorkspaceDir string // defaults to DefaultWorkspaceDir
-	Policy       Policy
-	IsRecord     func(rel string) bool // defaults to IsRecord; nil-safe
-	Timeout      int                   // seconds, for bash; 0 means the tool's default
+	Root         string                  // the workspace root; every relative path resolves against it
+	Cwd          string                  // defaults to Root
+	WorkspaceDir string                  // defaults to DefaultWorkspaceDir
+	Policy       Policy                  //
+	IsRecord     func(rel string) bool   // defaults to IsRecord; nil-safe
+	ZoneOwner    func(rel string) string // optional: which member authors this zone ("" = none)
+	Self         func() string           // optional: the acting session's own state digest (the pulse tool); nil-safe
+	Timeout      int                     // seconds, for bash; 0 means the tool's default
 }
 
 // DefaultWorkspaceDir is the workspace directory name when Env.WorkspaceDir is empty.
@@ -238,10 +240,10 @@ func (r *Registry) Only(names ...string) *Registry {
 
 // Builtins is the standard shelf: read, write, edit, bash (on a persistent shell, started
 // lazily on its first call and living until the process ends — an agent's shelf closes its own),
-// glob, grep.
+// glob, grep, skim.
 func Builtins() *Registry {
 	bash, _ := NewBashTool(BashOptions{Enabled: true})
-	return NewRegistry(ReadTool(), WriteTool(), EditTool(), bash, GlobTool(), GrepTool())
+	return NewRegistry(ReadTool(), WriteTool(), EditTool(), DeleteTool(), bash, GlobTool(), GrepTool(), SkimTool())
 }
 
 // Resolve makes p absolute against the env's cwd (or root) and cleans it.

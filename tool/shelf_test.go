@@ -274,10 +274,10 @@ func TestClassifyGit(t *testing.T) {
 	env, _ := workspace(t)
 	cases := map[string]Class{
 		"status": Read, "log -3 --oneline": Read, "diff --stat": Read, "branch -a": Read, "remote -v": Read, "stash list": Read, "config --get user.name": Read,
-		"add .": Write, "commit -m x": Write, "checkout -b feat": Write, "stash": Write, "tag v1": Write, "branch feat": Write, "config user.name x": Write,
+		"add .": Write, "commit -m x": Write, "checkout -b feat": Write, "tag v1": Write, "branch feat": Write, "config user.name x": Write,
 		"push origin main": Outward, "fetch": Outward, "pull --rebase": Outward, "clone https://x": Outward, "remote add o https://x": Outward,
 		"reset --hard": Destructive, "clean -fd": Destructive, "rebase -i HEAD~3": Destructive, "push --force": Destructive, "push -f": Destructive, "push origin +main": Destructive,
-		"branch -D x": Destructive, "tag -d v1": Destructive, "stash drop": Destructive, "checkout -- .": Destructive, "rm -r x": Destructive, "frob": Write,
+		"stash": Destructive, "stash push": Destructive, "branch -D x": Destructive, "tag -d v1": Destructive, "stash drop": Destructive, "checkout -- .": Destructive, "rm -r x": Destructive, "frob": Write,
 	}
 	for line, want := range cases {
 		args, _ := SplitArgs(line)

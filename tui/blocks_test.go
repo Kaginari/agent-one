@@ -34,7 +34,7 @@ func TestBlocksGolden(t *testing.T) {
 		{"welcome", func(w int) string {
 			return th.Welcome(Welcome{Dist: "agent-one", Version: "v0.1.5", Workspace: "/home/monta/kaginari/pfcli", Model: "gemini/gemini-3.8-flash",
 				Roles: []string{"analyst → gemini/gemini-3.8-flash", "judge → gemini/gemini-3.8-flash", "drafter → gemini/gemini-3.8-flash"},
-				Board: "http://127.0.0.1:7777/", Off: 2, Session: "20260926-171200-a1b2c3", Holes: []string{"GEMINI_API_KEY is not set — the mount has no key"}}, w)
+				Off:   2, Session: "20260926-171200-a1b2c3", Holes: []string{"GEMINI_API_KEY is not set — the mount has no key"}}, w)
 		}},
 		{"user", func(w int) string {
 			return th.User("explain the gate in this workspace and then run the tests under src/auth — take your time, I want the full picture of what the verify beat reads", w)
@@ -82,7 +82,71 @@ func TestBlocksGolden(t *testing.T) {
 			return th.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "mock/m", State: "done", Elapsed: 2 * time.Second, Failed: true,
 				Report: &ReportView{Status: "FAIL — provider: HTTP 503", Holes: []string{"provider: HTTP 503 after 3 retries"}}}, w)
 		}},
+		// the slice-1 pulse states (N15/N16): the row's motion, frozen mid-frame by an explicit
+		// Pulse — the goldens pin the geometry; the colour rides the ANSI shots
+		{"subagent-pulse-thinking", func(w int) string {
+			return th.Subagent(SubagentView{Name: "coord-agent-one", Rank: "coord", Role: "drafter", Model: "mock/m", State: "thinking", Elapsed: 28 * time.Second, Ask: "coordinate the files-panel slices"}, w,
+				Pulse{Lane: th.lane("coord"), Phase: 6})
+		}},
+		{"subagent-pulse-tool", func(w int) string {
+			return th.Subagent(SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Model: "mock/m", State: "tool", Elapsed: 12 * time.Second, Ask: "land the token file"}, w,
+				Pulse{Lane: th.lane("zone"), Phase: 3, Tool: "edit", Frames: []string{"⠋", "⠙", "⠹", "⠸"}})
+		}},
+		{"subagent-pulse-gate", func(w int) string {
+			return th.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "mock/m", State: "waiting on gate", Elapsed: 31 * time.Second, Ask: "verdict on the import"}, w,
+				Pulse{Lane: th.lane("domain"), Phase: 9, Bob: 1.4})
+		}},
+		{"subagent-pulse-flash", func(w int) string {
+			return th.Subagent(SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Model: "mock/m", State: "done", Elapsed: 9 * time.Second, Ask: "land the token file",
+				Report: &ReportView{Status: "PASS", Findings: []string{"src/auth/token.go:1 token ttl is 15m"}}}, w,
+				Pulse{Lane: th.lane("zone"), Flash: 0.9})
+		}},
+		{"subagent-pulse-fail-flash", func(w int) string {
+			return th.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "mock/m", State: "done", Elapsed: 2 * time.Second, Failed: true,
+				Report: &ReportView{Status: "FAIL — provider: HTTP 503", Holes: []string{"provider: HTTP 503 after 3 retries"}}}, w,
+				Pulse{Lane: th.lane("domain"), Flash: 0.6})
+		}},
+		{"subagent-principles", func(w int) string {
+			ic := th.Icon("agent-one", "domain", 0)
+			return th.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "mock/m", State: "thinking", Elapsed: 8 * time.Second, Ask: "verdict on the import: is the payload lawful"}, w,
+				Pulse{Lane: th.lane("domain"), Phase: 4, Principles: [2]string{ic[0], ic[1]}})
+		}},
 		{"gate", func(w int) string { return th.Gate("n/a (no domain owners)", ".agent-one/log.md", w, "") }},
+		// slice 2: the fixed left rail — vitals, the touch ledger, the roster (ride-width
+		// tripwire and rendering pinned here)
+		// the right rail's cards (third-of-window proportioning; the fixture rides 36 wide)
+		{"rail", func(w int) string {
+			return th.Rail(RailView{Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 42, CtxKnown: true, CtxMax: "128k", Tokens: 15420, Cost: "$0.0123",
+				Layers: []RailLayer{{Rank: "orchestrator", Tokens: 8210, Lane: th.lane("orchestrator")}, {Rank: "coord", Tokens: 2301, Lane: th.lane("coord")}, {Rank: "domain", Tokens: 3302, Lane: th.lane("domain")}, {Rank: "zone", Tokens: 1607, Lane: th.lane("zone")}},
+				Files:  []RailFile{{Path: "tui/blocks.go", Agent: "zone-tui", Lane: th.lane("zone")}, {Path: "tui/model.go", Agent: "orchestrator", Lane: th.lane("orchestrator")}, {Path: "tui/legacy.go", Agent: "mystery"}},
+				Subagents: []RailSubagent{
+					{Name: "coord-agent-one", State: "thinking", Aged: "1m12s", Lane: th.lane("coord")},
+					{Name: "domain-security", State: "done", Done: true, Failed: true},
+					{Name: "zone-auth", State: "done", Done: true, Lane: th.lane("zone")},
+				}}, 36)
+		}},
+		{"rail-plan", func(w int) string {
+			return th.Rail(RailView{Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 42, CtxKnown: true, Tokens: 15420, Cost: "$0.0123",
+				Plan: &RailPlan{Agent: "coord-agent-one", Rank: "coord", Lane: th.lane("coord"), Items: []RailPlanItem{
+					{Text: "Coordinate the files-panel slices", Status: "in_progress"},
+					{Text: "Land the token file", Status: "done"},
+					{Text: "Ask domain-db for the store slice", Status: "pending"},
+					{Text: "Key ttl audit", Status: "blocked"},
+				}},
+				Files:     []RailFile{{Path: "tui/blocks.go", Lane: th.lane("zone")}},
+				Subagents: []RailSubagent{{Name: "coord-agent-one", State: "thinking", Aged: "1m12s", Lane: th.lane("coord")}},
+			}, 36)
+		}},
+		{"rail-mascot", func(w int) string {
+			art, _ := Mascot("agent-one")
+			return th.Rail(RailView{Mascot: art, Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 87, CtxKnown: true, Stress: true, Zone: "NEAR", Tokens: 15420,
+				Files:     []RailFile{{Path: "tui/blocks.go", Lane: th.lane("zone")}},
+				Subagents: []RailSubagent{{Name: "coord-agent-one", State: "thinking", Aged: "1m12s", Lane: th.lane("coord")}, {Name: "zone-auth", State: "done", Done: true, Lane: th.lane("zone")}},
+			}, 36)
+		}},
+		{"rail-empty", func(w int) string {
+			return th.Rail(RailView{Workspace: "agent-one", Model: "mock/m"}, 36)
+		}},
 		{"gate-fail", func(w int) string {
 			return th.Gate("fail: src/api/rogue.go is outside zone-auth's domain", ".agent-one/log.md", w, "")
 		}},
@@ -103,10 +167,10 @@ func TestBlocksGolden(t *testing.T) {
 		}},
 		{"spinner", func(w int) string { return th.Spinner("⠋", "Running bash…", 3*time.Second, 12_345, w) }},
 		{"footer", func(w int) string {
-			return th.Footer(FooterView{Model: "gemini-3.8-flash", Ctx: "ctx 12%", Cost: "$0.0123", Live: 1, Workspace: "~/kaginari/pfcli", Hint: "? for shortcuts"}, w)
+			return th.Footer(FooterView{Model: "gemini-3.8-flash", Ctx: "ctx 12%", Cost: "$0.0123", Live: 1, Workspace: "~/kaginari/pfcli", Hint: "? for shortcuts · ctrl+p plans"}, w)
 		}},
 		{"footer-fresh", func(w int) string {
-			return th.Footer(FooterView{Model: "gemini-3.8-flash", Ctx: "ctx —", Cost: "no calls yet", Workspace: "~/kaginari/pfcli", Hint: "? for shortcuts", Queued: 2}, w)
+			return th.Footer(FooterView{Model: "gemini-3.8-flash", Ctx: "ctx —", Cost: "no calls yet", Workspace: "~/kaginari/pfcli", Hint: "? for shortcuts · ctrl+p plans", Queued: 2}, w)
 		}},
 		{"menu", func(w int) string {
 			return th.Menu([]MenuItem{{"agents", "the live subagent"}, {"status", "the honesty rule and the instrument board"}, {"send", "/send <agent> <text> — a line for a running agent"}, {"review", "Review $ARGUMENTS carefully (.claude/commands)"}}, 1, w)
@@ -147,6 +211,28 @@ func TestBlocksGolden(t *testing.T) {
 					t.Errorf("%s differs from its golden:\n--- got ---\n%s\n--- want ---\n%s", name, got, want)
 				}
 			})
+		}
+	}
+}
+
+// The slice-4 principles geometry: a live row shifts its card right of the two-row sprite, and a
+// window too narrow drops the principles whole rather than starving the card.
+func TestSubagentPrinciplesGeometry(t *testing.T) {
+	th := NewTheme(true)
+	ic := th.Icon("agent-one", "zone", 0)
+	v := SubagentView{Name: "zone-auth", Rank: "zone", State: "thinking", Elapsed: 5 * time.Second, Ask: "watch"}
+	live := th.Subagent(v, 80, Pulse{Lane: th.lane("zone"), Phase: 4, Principles: [2]string{ic[0], ic[1]}})
+	sl := strings.Split(ansi.Strip(live), "\n")
+	if len(sl) != 2 || !strings.Contains(sl[0], "◆ subagent zone-auth") {
+		t.Fatalf("topped head wrong: %q", ansi.Strip(live))
+	}
+	if !strings.Contains(sl[1], "└ watch") || strings.Contains(sl[1], "◆ subagent") {
+		t.Fatalf("the ask row must ride beside the principles's second half: %q", sl[1])
+	}
+	narrow := th.Subagent(v, 30, Pulse{Lane: th.lane("zone"), Phase: 4, Principles: [2]string{ic[0], ic[1]}})
+	for _, l := range strings.Split(ansi.Strip(narrow), "\n") {
+		if ansi.StringWidth(l) > 30 {
+			t.Fatalf("the principles must not push the card past 30: %q", l)
 		}
 	}
 }
@@ -215,5 +301,33 @@ func TestMarkdownFallsBackAndTrims(t *testing.T) {
 	}
 	if th.Markdown("   ", 40) != "" {
 		t.Fatal("blank markdown renders something")
+	}
+}
+
+// The branded glamour config re-paints the stock palette into the workspace's lanes: headings
+// and strong text hold the gold global lane, links the coordinator verdant lane, and code blocks
+// rest on the pane's honest background. no-tricks policy: this test fails loudly the day
+// someone brands with a colour the workspace doesn't already carry.
+func TestGlamourBrandRidesThePalette(t *testing.T) {
+	th := NewTheme(true)
+	th.Color = true // the suite runs without a tty; brand asserts still matter
+	sc := th.styleConfig()
+	if got, want := *sc.Heading.Color, hexOf(th.accent.GetForeground()); got != want {
+		t.Fatalf("headings hold %s, want the accent's %s", got, want)
+	}
+	if got, want := *sc.Link.Color, hexOf(th.lane("coord")); got != want {
+		t.Fatalf("links hold %s, want the coordinator lane %s", got, want)
+	}
+	if got, want := *sc.Code.Color, hexOf(th.lane("zone")); got != want {
+		t.Fatalf("inline code holds %s, want the zone worker lane %s", got, want)
+	}
+	if sc.CodeBlock.BackgroundColor == nil {
+		t.Fatal("code blocks must rest on the pane's background")
+	}
+	// NO_COLOR drops every escape; a plain run renders plain
+	notty := Theme{Dark: true, Color: false}
+	out := notty.Markdown("**bold**\n[link](https://x)", 40)
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("notty markdown leaked colour")
 	}
 }

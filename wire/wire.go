@@ -1,6 +1,8 @@
 // Package wire parses and emits the envelope of Absolute Rule II: a commission (@ROOT @SCOPE
-// @ASK @CAP @DUMP @SIZE) going down, a report (@S @F @V @? @U @E) coming back. @CAP is enforced
-// on emit: a report over its ceiling is cut, and the cut is named as a hole.
+// @ASK @CAP @DUMP @SIZE) going down, a report (@S @F @V @? @U @$ @E) coming back. @CAP is
+// enforced on emit: a report over its ceiling is cut, and the cut is named as a hole. @$ is
+// work the agent orders one layer down; the Subagent drains it after the turn, re-checks it
+// against the hierarchy, behind anything the human queued.
 package wire
 
 import (
@@ -36,6 +38,23 @@ type Unsaid struct {
 	Text string
 }
 
+// Enqueue is one @$ line: work the reporting agent orders down one layer, text after
+// `@$ <body>: <ask>`. The Subagent drains it after the turn; an agent never registers a Subagent
+// itself mid-turn, the wire carries the order and the harness enforces the chain.
+type Enqueue struct {
+	Agent string
+	Ask   string
+}
+
+// Forge is one drafted thing the run proved: `@FORGE <kind>:<name> | <text>`, kind tool or
+// skill. A draft is never registered by the wire — it rides the report up, the manager curates,
+// and the working notes (the human, or the policy.forge leg) registers. The agent's truth, the layer's design.
+type Forge struct {
+	Kind string // tool | skill
+	Name string
+	Text string
+}
+
 // Report is what an agent sends back.
 type Report struct {
 	Status   string
@@ -43,12 +62,14 @@ type Report struct {
 	Verdicts []string
 	Holes    []string
 	Unsaid   []Unsaid
-	Tools    []string // @T lines (dialect: the toolbox manifest)
-	Other    []string // lines the parser did not recognise, kept in order
-	Bytes    int      // @E as read, or as emitted
+	Tools    []string  // @T lines (dialect: the toolbox manifest)
+	Other    []string  // lines the parser did not recognise, kept in order
+	Enqueues []Enqueue // @$ lines — work ordered down one layer; the Subagent drains them after the turn
+	Forges   []Forge   // @FORGE lines — drafted skills/tools riding up for curation
+	Bytes    int       // @E as read, or as emitted
 }
 
-var tagLine = regexp.MustCompile(`^@([A-Z]+|\?)(?:\s+(.*))?$`)
+var tagLine = regexp.MustCompile(`^@([A-Z]+|[?$])(?:\s+(.*))?$`)
 
 // ParseCommission reads the tags of a commission; unrecognised lines become Agent.
 func ParseCommission(text string) Commission {
@@ -169,6 +190,18 @@ func ParseReport(text string) (Report, bool) {
 			r.Unsaid = append(r.Unsaid, Unsaid{Kind: kind, Text: text})
 		case "T":
 			r.Tools = append(r.Tools, rest)
+		case "FORGE":
+			if f, ok := parseForge(rest); ok {
+				r.Forges = append(r.Forges, f)
+			} else {
+				r.Other = append(r.Other, line) // a @FORGE with no `kind:name | text` is prose, kept
+			}
+		case "$":
+			if i := strings.Index(rest, ":"); i > 0 {
+				r.Enqueues = append(r.Enqueues, Enqueue{Agent: strings.ToLower(strings.TrimSpace(rest[:i])), Ask: strings.TrimSpace(rest[i+1:])})
+			} else {
+				r.Other = append(r.Other, line) // a @$ with no `<body>:` is prose, kept
+			}
 		case "E":
 			r.Bytes, _ = strconv.Atoi(strings.Fields(rest + " 0")[0])
 		default:
@@ -178,17 +211,60 @@ func ParseReport(text string) (Report, bool) {
 	return r, seen
 }
 
+// EnqueuesOf scans any text for `@$ <body>: <ask>` order lines — the same grammar reports
+// carry, usable mid-commission so a relay expectation is machine-readable before the agent's
+// report exists. A commission carrying `@$ zone-x: …` states the relay it expects; the subagent
+// holds that expectation and names the relay unbooked if the report comes back without it
+// (the Arm A stall of 2026-10-03: relay narrated in the working notes, no order on the wire, the chain
+// stopped cold).
+func EnqueuesOf(text string) []Enqueue {
+	var out []Enqueue
+	for _, line := range strings.Split(text, "\n") {
+		tag, rest, ok := splitTag(line)
+		if !ok || tag != "$" {
+			continue
+		}
+		if i := strings.Index(rest, ":"); i > 0 {
+			out = append(out, Enqueue{Agent: strings.ToLower(strings.TrimSpace(rest[:i])), Ask: strings.TrimSpace(rest[i+1:])})
+		}
+	}
+	return out
+}
+
 func splitTag(line string) (tag, rest string, ok bool) {
 	if m := tagLine.FindStringSubmatch(line); m != nil {
 		return m[1], strings.TrimSpace(m[2]), true
 	}
 	if i := strings.Index(line, "|"); i > 0 && i <= 2 && strings.ToUpper(line[:i]) == line[:i] {
 		t := line[:i]
-		if t == "S" || t == "F" || t == "V" || t == "?" || t == "U" || t == "E" || t == "T" {
+		if t == "S" || t == "F" || t == "V" || t == "?" || t == "U" || t == "E" || t == "T" || t == "$" {
 			return t, strings.ReplaceAll(strings.TrimSpace(line[i+1:]), "|", " — "), true
 		}
 	}
 	return "", "", false
+}
+
+// parseForge reads `<kind>:<name> | <text>`; the pipe part may be absent (Name-only Text then
+// carries the whole payload). kind is folded lower and must be tool or skill.
+func parseForge(rest string) (Forge, bool) {
+	i := strings.Index(rest, ":")
+	if i <= 0 {
+		return Forge{}, false
+	}
+	kind := strings.ToLower(strings.TrimSpace(rest[:i]))
+	if kind != "tool" && kind != "skill" {
+		return Forge{}, false
+	}
+	payload := strings.TrimSpace(rest[i+1:])
+	name, text := payload, ""
+	if j := strings.Index(payload, "|"); j >= 0 {
+		name, text = strings.TrimSpace(payload[:j]), strings.TrimSpace(payload[j+1:])
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Forge{}, false
+	}
+	return Forge{Kind: kind, Name: name, Text: text}, true
 }
 
 func isKind(s string) bool {
@@ -223,6 +299,16 @@ func (r Report) Lines() []string {
 	}
 	for _, t := range r.Tools {
 		out = append(out, "@T "+t)
+	}
+	for _, q := range r.Enqueues {
+		out = append(out, "@$ "+q.Agent+": "+q.Ask)
+	}
+	for _, f := range r.Forges {
+		if f.Text != "" {
+			out = append(out, "@FORGE "+f.Kind+":"+f.Name+" | "+f.Text)
+		} else {
+			out = append(out, "@FORGE "+f.Kind+":"+f.Name)
+		}
 	}
 	out = append(out, r.Other...)
 	return out
@@ -260,6 +346,8 @@ func (r Report) Emit(cap int, dump string) string {
 			keep.Other = keep.Other[:len(keep.Other)-1]
 		} else if len(keep.Tools) > 0 {
 			keep.Tools = keep.Tools[:len(keep.Tools)-1]
+		} else if len(keep.Forges) > 0 {
+			keep.Forges = keep.Forges[:len(keep.Forges)-1]
 		} else if len(keep.Findings) > 0 {
 			keep.Findings = keep.Findings[:len(keep.Findings)-1]
 		} else if len(keep.Verdicts) > 0 {

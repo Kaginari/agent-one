@@ -130,8 +130,8 @@ type EvStream struct {
 	Agent, Kind, Text string
 }
 
-// EvBodyStep is a Subagent's tool step, for its log.
-type EvBodyStep struct {
+// EvAgentStep is a Subagent's tool step, for its log.
+type EvAgentStep struct {
 	Agent string
 	Tool  ToolView
 	End   bool
@@ -185,7 +185,8 @@ func (l *bodyLog) step(t ToolView, end bool) {
 
 type bodyView struct {
 	sel    int
-	scroll int // lines up from the bottom; 0 follows the tail
+	scroll int  // lines up from the bottom; 0 follows the tail
+	pipe   bool // i: a line is being typed for the selected agent's inbox
 }
 
 // agents are the session and every Subagent seen, in order.
@@ -199,7 +200,7 @@ func (m *Model) agents() []string {
 	return out
 }
 
-func (m *Model) openBodies() tea.Cmd {
+func (m *Model) openAgents() tea.Cmd {
 	m.bview = &bodyView{}
 	bs := m.agents()
 	// open on the first live Subagent, if one runs
@@ -214,6 +215,29 @@ func (m *Model) openBodies() tea.Cmd {
 
 func (m *Model) bodiesKey(k tea.KeyPressMsg) tea.Cmd {
 	v, n := m.bview, len(m.agents())
+	if v.pipe {
+		switch k.String() {
+		case "esc":
+			v.pipe = false
+			m.input.Reset()
+			return nil
+		case "enter":
+			text := strings.TrimSpace(m.input.Value())
+			m.input.Reset()
+			v.pipe = false
+			if text == "" {
+				return nil
+			}
+			if bs := m.agents(); v.sel < len(bs) {
+				m.say(m.host.Pipe(bs[v.sel], text))
+			}
+			return nil
+		default:
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(k)
+			return cmd
+		}
+	}
 	switch k.String() {
 	case "esc", "ctrl+t", "q", "ctrl+c":
 		m.bview = nil
@@ -225,6 +249,11 @@ func (m *Model) bodiesKey(k tea.KeyPressMsg) tea.Cmd {
 			m.enqueue(printItem{text: b})
 		}
 		m.held = nil
+	case "i":
+		// pipe a line into the selected agent's inbox: it lands at its next turn boundary
+		// (never mid-turn — the FIFO contract), and a done agent refuses at the host
+		v.pipe = true
+		m.input.Reset()
 	case "tab", "right", "l":
 		v.sel, v.scroll = (v.sel+1)%n, 0
 	case "shift+tab", "left", "h":
@@ -295,12 +324,19 @@ func (m *Model) bodiesView() string {
 		view[i] = ansi.Truncate(view[i], w, "…")
 	}
 	rule := t.border.Render(strings.Repeat("─", w))
-	keys := " tab next agent · ↑↓ scroll · end follow · esc back"
+	keys := " tab next agent · ↑↓ scroll · i pipe a line · end follow · esc back"
+	if v.pipe {
+		keys = " type — it lands in " + sel + "'s inbox · enter sends · esc cancels"
+	}
 	more := ""
 	if v.scroll > 0 {
 		more = fmt.Sprintf("%d lines below ", v.scroll)
 	}
-	return strings.Join(append(append([]string{head, rule, card[0], card[1], rule}, view...), padBetween(t.dim.Render(keys), t.dim.Render(more), w)), "\n")
+	lines := append(append([]string{head, rule, card[0], card[1], rule}, view...), padBetween(t.dim.Render(keys), t.dim.Render(more), w))
+	if v.pipe {
+		lines = append(lines, t.border.Render("› ")+sel+" ▏ "+m.input.View())
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) rankOf(agent string) (rank, state string) {
@@ -383,18 +419,24 @@ func orStr(s, def string) string {
 }
 
 // statusLines is the spinner as the cast draws it: the agent's icon beside the verb, its name and
-// state under it.
+// state under it. While one Subagent runs it holds that Subagent's face; the session's face otherwise,
+// the gate's at the gate.
 func (m *Model) statusLines(spinLine string) string {
 	rank := m.words.Session()
+	who := m.words.Session()
 	if strings.HasPrefix(m.state, "gating") {
 		rank = gateRank(m.words.Dist)
+		who = rank
+	} else if c := m.foregroundSubagent(); c != nil {
+		rank = c.Rank
+		who = c.Name
 	}
 	ic := m.theme.Icon(m.words.Dist, rank, m.shimmer/4)
-	sub := m.words.Session() + " · " + orStr(m.state, "thinking")
+	sub := who + " · " + orStr(m.state, "thinking")
 	if m.state == "gating" {
 		sub = rank + " · the " + m.words.Gate + " weighs the turn's writes"
 	}
-	if n := m.liveCourts(); n > 0 {
+	if n := m.liveSubagents(); n > 0 {
 		word := m.words.Subagents
 		if n == 1 {
 			word = m.words.Subagent
@@ -404,7 +446,23 @@ func (m *Model) statusLines(spinLine string) string {
 	return ic[0] + " " + spinLine + "\n" + ic[1] + " " + m.theme.dim.Render(sub)
 }
 
-func (m *Model) liveCourts() int {
+// foregroundSubagent is the Subagent whose face the spinner holds: exactly one live Subagent, the live
+// one that most recently reported; nil when none or when several run at once.
+func (m *Model) foregroundSubagent() *SubagentView {
+	var live *SubagentView
+	n := 0
+	for _, name := range m.subagentSeq {
+		if c := m.subagents[name]; c != nil && c.State != "done" {
+			live, n = c, n+1
+		}
+	}
+	if n != 1 {
+		return nil
+	}
+	return live
+}
+
+func (m *Model) liveSubagents() int {
 	n := 0
 	for _, c := range m.subagents {
 		if c.State != "done" {

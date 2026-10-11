@@ -33,15 +33,15 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-func TestEmbeddedLawsMatchTheWorkspace(t *testing.T) {
-	for _, c := range []struct{ file, dist string }{{"../../AGENT-ONE.md", "agent-one"}} {
-		want, err := os.ReadFile(c.file)
-		if err != nil {
-			t.Skipf("%s: %v", c.file, err)
-		}
-		if string(want) != PolicyText() {
-			t.Errorf("app/policy/%s differs from %s — Docs-as-code: copy it in the same change", filepath.Base(c.file), c.file)
-		}
+func TestEmbeddedPolicyMatchesTheWorkspace(t *testing.T) {
+	// the policy at hand is this repository's root AGENT-ONE.md; the binary embeds app/policy's copy
+	const file = "../AGENT-ONE.md"
+	want, err := os.ReadFile(file)
+	if err != nil {
+		t.Skipf("%s: %v", file, err)
+	}
+	if string(want) != PolicyText() {
+		t.Errorf("app/policy/%s differs from %s — Docs-as-code: copy it in the same change", filepath.Base(file), file)
 	}
 }
 
@@ -169,6 +169,23 @@ ui: {board: {autostart: false}}
 	}
 }
 
+func TestLessons(t *testing.T) {
+	w := newTestWorkspace(t, "agent-one", nil)
+	w.write(".agent-one/instruments/loop/r1.jsonl",
+		"{\"t\":\"guts\",\"id\":\"s1\",\"v\":-1,\"momentum\":-1,\"why\":\"the act failed\",\"spoke\":false}\n"+
+			"{\"t\":\"guts\",\"id\":\"s2\",\"v\":-1,\"momentum\":-2,\"why\":\"the act failed\",\"spoke\":true}\n"+
+			"{\"t\":\"guts\",\"id\":\"s3\",\"v\":-1,\"momentum\":-3,\"why\":\"the same act twice\",\"spoke\":false}\n")
+	code, out, errb := w.main("agent-one", "", "lessons")
+	if code != 0 || !strings.Contains(out, "3 readings") || !strings.Contains(out, "the act failed") {
+		t.Fatalf("lessons: %d %q %q", code, out, errb)
+	}
+	i := strings.Index(out, "the act failed")
+	j := strings.Index(out, "the same act twice")
+	if i < 0 || j < 0 || i > j {
+		t.Fatalf("classes must rank by frequency: %q", out)
+	}
+}
+
 func TestInitBench(t *testing.T) {
 	for _, dist := range []string{"agent-one"} {
 		w := newTestWorkspace(t, dist, nil)
@@ -231,7 +248,7 @@ models: {default: mock/m, roles: {analyst: subagent/c}}
 providers:
   mock: {enabled: true, script: .agent-one/tmp/session.json}
   subagent: {type: mock, script: .agent-one/tmp/subagent.json}
-tools: {bash: {sandbox: none}, dispatch: {background: true}}
+tools: {bash: {sandbox: none}, dispatch: {background: true, strictFlow: false}}
 ui: {board: {autostart: false}}
 `)
 	a, err := New(Options{Dist: "agent-one", Root: w.root, Cwd: w.root, Home: w.home, Env: func(k string) string { return map[string]string{"HOME": w.home}[k] },
@@ -296,7 +313,7 @@ ui: {board: {autostart: false}}
 
 func TestBenchOnMock(t *testing.T) {
 	w := newTestWorkspace(t, "agent-one", agentOneMembers())
-	w.write(".agent-one/config.yaml", "models: {default: mock/m}\nproviders: {mock: {enabled: true}}\ntools: {bash: {sandbox: none}}\nui: {board: {autostart: false}}\n")
+	w.write(".agent-one/config.yaml", "models: {default: mock/m}\nproviders: {mock: {enabled: true}}\ntools: {bash: {sandbox: none}, dispatch: {strictFlow: false}}\nui: {board: {autostart: false}}\n")
 	code, out, errb := w.main("agent-one", "", "bench")
 	if code != 0 || !strings.Contains(out, "@S PASS") {
 		t.Fatalf("bench: %d\n%s\n%s", code, out, errb)

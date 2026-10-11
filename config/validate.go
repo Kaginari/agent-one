@@ -47,6 +47,11 @@ func (c *Config) checkScalars() error {
 	if err := enum("output.color", c.Output.Color, "auto", "always", "never"); err != nil {
 		return err
 	}
+	switch m := c.Tools.TmpRedirect.Mode; m {
+	case "", "rewrite", "refuse":
+	default:
+		return fmt.Errorf("tools.tmpRedirect.mode: %q is not rewrite | refuse", m)
+	}
 	return nil
 }
 

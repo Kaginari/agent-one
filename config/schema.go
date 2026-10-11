@@ -69,10 +69,13 @@ func (o Origin) String() string {
 
 // Provider is one named model endpoint. Keys come from env only.
 type Provider struct {
-	Enabled         bool                   `json:"enabled"`
-	Type            string                 `json:"type"` // anthropic | openai | mock
-	BaseURL         string                 `json:"baseURL"`
-	APIKeyEnv       string                 `json:"apiKeyEnv"`
+	Enabled   bool   `json:"enabled"`
+	Type      string `json:"type"` // anthropic | openai | mock
+	BaseURL   string `json:"baseURL"`
+	APIKeyEnv string `json:"apiKeyEnv"`
+	// APIKey: the key literal, when no env var is possible (the estate's container runs). Env stays
+	// the preferred route: `apiKeyEnv` wins when it resolves. Never commit this value anywhere.
+	APIKey          string                 `json:"apiKey"`
 	Headers         map[string]string      `json:"headers"`
 	Models          map[string]*ModelEntry `json:"models"`
 	Timeout         Duration               `json:"timeout"`
@@ -171,6 +174,7 @@ type Tools struct {
 	Grep         BuiltinTool            `json:"grep"`
 	Write        BuiltinTool            `json:"write"`
 	Edit         BuiltinTool            `json:"edit"`
+	Delete       BuiltinTool            `json:"delete"`
 	Multiedit    BuiltinTool            `json:"multiedit"`
 	Patch        BuiltinTool            `json:"patch"`
 	Bash         BuiltinTool            `json:"bash"`
@@ -185,9 +189,22 @@ type Tools struct {
 	Onto         BuiltinTool            `json:"onto"`
 	Skill        BuiltinTool            `json:"skill"`
 	WorkingNotes BuiltinTool            `json:"workingNotes"`
+	Plan         BuiltinTool            `json:"plan"`
+	Pulse        BuiltinTool            `json:"pulse"`
 	Custom       map[string]*CustomTool `json:"custom"`
 	Output       ToolOutput             `json:"output"`
 	Missing      Missing                `json:"missing"`
+	TmpRedirect  TmpRedirect            `json:"tmpRedirect"`
+}
+
+// TmpRedirect is tools.tmpRedirect: absolute off-workspace targets are herded into
+// `.agent-one/tmp` — a bash command's words rewritten (mode rewrite) or refused (mode refuse),
+// and write/edit calls refused with the scratch target named. Policy: scratch lives under the
+// workspace, never at /tmp or the filesystem root.
+type TmpRedirect struct {
+	Enabled   bool   `json:"enabled"`
+	Mode      string `json:"mode"`      // rewrite | refuse
+	RefuseCwd bool   `json:"refuseCwd"` // also refuse a bash `cwd` that leaves the workspace
 }
 
 // BuiltinTool is the union of every builtin's knobs; a knob a tool does not use is ignored.
@@ -206,7 +223,15 @@ type BuiltinTool struct {
 	Sandbox     string   `json:"sandbox"`  // bash: bwrap | none
 	EnvAllow    []string `json:"envAllow"` // bash: env vars that survive scrubbing
 	MaxDepth    int      `json:"maxDepth"` // dispatch
-	Backend     string   `json:"backend"`  // websearch: a URL with {query}, answering SearXNG-style JSON
+	// BackgroundTimeout bounds a background dispatch (tools.dispatch.backgroundTimeout;
+	// 0 keeps the built-in 30m) — without it a background run had no clock at all
+	BackgroundTimeout Duration `json:"backgroundTimeout"`
+	StrictFlow        bool     `json:"strictFlow"` // dispatch: one hop per layer — no skip-level dispatches, neighbors per the rank's Sideways
+	// SessionBackground (tools.dispatch.sessionBackground): the session's own dispatches
+	// default to background — the orchestrator stays free, the Subagent rides on and wakes it with the
+	// report. Only the session (depth 0): a Subagent's own dispatches stay foreground by design.
+	SessionBackground bool   `json:"sessionBackground"`
+	Backend           string `json:"backend"` // websearch: a URL with {query}, answering SearXNG-style JSON
 }
 
 // CustomTool is a tool declared in config: argv with {{param}} placeholders, or a shell
@@ -250,20 +275,60 @@ type Missing struct {
 
 // Policy is the convention as code paths.
 type Policy struct {
-	Principles Feature    `json:"principles"`
-	HumanGate  HumanGate  `json:"humanGate"`
-	Gate       Gate       `json:"gate"`
-	DocsAsCode Feature    `json:"docsAsCode"`
-	Ownership  Feature    `json:"ownership"`
-	Wire       Wire       `json:"wire"`
-	Log        LogFile    `json:"log"`
-	Escalation Escalation `json:"escalation"`
-	Budget     Budget     `json:"budget"`
-	DoomLoop   DoomLoop   `json:"doomLoop"`
+	Principles Feature      `json:"principles"`
+	HumanGate  HumanGate    `json:"humanGate"`
+	Gate       Gate         `json:"gate"`
+	DocsAsCode Feature      `json:"docsAsCode"`
+	Ownership  OwnershipCfg `json:"ownership"`
+	Wire       Wire         `json:"wire"`
+	Log        LogFile      `json:"log"`
+	Escalation Escalation   `json:"escalation"`
+	Budget     Budget       `json:"budget"`
+	DoomLoop   DoomLoop     `json:"doomLoop"`
+	Stress     Stress       `json:"stress"`
+	// ClosingCheck: the loop re-asks once, at closing time, when enabled — "is the daemon's ask
+	// applied end-to-end?" — for the headless/bench path where nobody sits at the keyboard.
+	ClosingCheck Feature `json:"closingCheck"`
+	// Guts: the loop's per-step value sense (default on): scored acts, windowed momentum, a nudge
+	// inside the tool result when the run slides past floor. The journal trains on every reading.
+	Guts GutsCfg `json:"guts"`
+}
+
+// GutsCfg tunes the loop's guts: what window the momentum reads, the floor past which they
+// speak, the bench-visit count past which one more hit is thrash (not TDD), and the digest
+// cadence for the run-so-far pulse line. Zero values take the loop's defaults (window 5,
+// floor -2, benchThrashVisits 6, digestEvery 10).
+type GutsCfg struct {
+	Enabled           bool `json:"enabled"`
+	Window            int  `json:"window"`
+	Floor             int  `json:"floor"`
+	BenchThrashVisits int  `json:"benchThrashVisits"` // < 0 = the thrash arm is off
+	DigestEvery       int  `json:"digestEvery"`       // 0 or < 0 = no digest line
+}
+
+// Stress is the council: at what strain-ledger reading a dispatched agent draws a warrant that
+// its dispatcher must answer (escalateAt; 0 or negative = the council is off), and how many
+// warrants one agent may carry before the run hardens to ESCALATE and rises to the human
+// (maxConsults; 0 reads as 3). Strain accumulates per agent from the runs that never landed —
+// their governance sent-backs plus one — and clears on the agent's first clean landing.
+// RelieveAt (0/negative = relief off) is the council's ACT threshold: strain past it means the
+// zone itself is wrong, so the council relieves — splits a ≥2-prefix zone into two same-race
+// young ones, retires a narrower one (the seat keeps its graph memory but claims no soil).
+// Configuration shifts are not on this path: the doomLoop ladder names those arms on the wire, and
+// a lane's DNA moves on the human's or a manager's word — never silently here.
+type Stress struct {
+	EscalateAt  int `json:"escalateAt"`
+	MaxConsults int `json:"maxConsults"`
+	RelieveAt   int `json:"relieveAt"`
 }
 
 type Feature struct {
 	Enabled bool `json:"enabled"`
+}
+
+type OwnershipCfg struct {
+	Enabled                  bool `json:"enabled"`
+	OrchestratorNeverAuthors bool `json:"orchestratorNeverAuthors"`
 }
 
 type HumanGate struct {
@@ -271,6 +336,12 @@ type HumanGate struct {
 	Strict  bool     `json:"strict"`
 	Approve []string `json:"approve"`
 	DryRun  bool     `json:"dryRun"`
+	// TrustContainer: true = when the harness lives inside its own runtime container
+	// (<PREFIX>CONTAINERED=1 — set only by container.go's argv, never by an agent), every action
+	// class reads as pre-approved: the sandbox is the membrane, so outward/destructive no
+	// longer ask. The guard denylist still refuses first (the workspace dir is mounted read-write,
+	// inside the container or not).
+	TrustContainer bool `json:"trustContainer"`
 }
 
 type Gate struct {
@@ -281,7 +352,10 @@ type Gate struct {
 	DocTruthful    bool `json:"docTruthful"`
 	Retries        int  `json:"retries"`     // a failed gate goes back to the model this many times per turn
 	TestsIntact    bool `json:"testsIntact"` // a turn may not pass by deleting, skipping or narrowing tests
-	UI             bool `json:"ui"`          // a turn that touched the ui dir passes `ui check`\'s lints
+	UI             bool `json:"ui"`          // a turn that touched the ui dir passes `ui check`'s lints
+	// VerifyTimeout caps each member verify command's wall clock; 0 = the engine's
+	// 120s. The old hardcoded 120s let one slow verify hold a write turn's tail for minutes.
+	VerifyTimeout Duration `json:"verifyTimeout"`
 }
 
 type Wire struct {
@@ -306,6 +380,11 @@ type Budget struct {
 	StressTokens  int     `json:"stressTokens"`
 	Steps         int     `json:"steps"`
 	Minutes       float64 `json:"minutes"`
+	// SalvageTokens caps a subagent's pre-timeout journalise turn (tokens, output side).
+	// At T-grace the subagent is resumed from its own transcript with one instruction — spend
+	// this budget on `@U`/`@F` only — so a clock-killed agent dies with its knowledge landed.
+	// 0 = the engine default; negative = off, the agent dies silent.
+	SalvageTokens int `json:"salvageTokens"`
 }
 
 type DoomLoop struct {
@@ -329,6 +408,11 @@ type MemoryLong struct {
 	Enabled        bool   `json:"enabled"`
 	Index          string `json:"index"`
 	RebuildOnStale bool   `json:"rebuildOnStale"`
+	// IndexOnBoot: heal a stale/missing long index once at boot, before any agent
+	// runs — rebuildOnStale keeps rebuilds off the recall beat, this gate pays the
+	// cost outside it (audit 2026-10-05 F1: a 24 h-stale index taxed every recall
+	// of every agent with two nag holes for a whole night).
+	IndexOnBoot bool `json:"indexOnBoot"`
 }
 
 type MemoryShared struct {
@@ -595,9 +679,11 @@ var Builtins = map[string]string{
 	"bash": "", "git": "",
 	"read": "read", "ls": "read", "glob": "read", "grep": "read",
 	"write": "write", "edit": "write", "multiedit": "write", "patch": "write",
+	"delete":   "destructive",
 	"webfetch": "outward", "websearch": "outward",
 	"ask": "read", "dispatch": "write", "recall": "read", "remember": "write",
-	"toolbox": "read", "onto": "read", "skill": "read", "workingNotes": "write",
+	"toolbox": "read", "onto": "read", "skill": "read", "workingNotes": "write", "plan": "write",
+	"pulse": "read",
 }
 
 // Profiles lists the tools each profile offers; "max" is every builtin.
@@ -605,7 +691,7 @@ var Profiles = map[string][]string{
 	"max":       nil,
 	"anthropic": nil,
 	"openai":    nil,
-	"minimal":   {"bash", "read", "write", "edit", "ask", "dispatch", "recall", "remember", "skill", "workingNotes"},
+	"minimal":   {"bash", "read", "write", "edit", "ask", "dispatch", "recall", "remember", "skill", "workingNotes", "skim"},
 }
 
 // OutwardCapable names the tools whose acts may leave the workspace; an `allow` on them is a
@@ -656,10 +742,18 @@ type Packages struct {
 
 // Containers is --containered's registry: a prebuilt runtime image, or the base and apt mirror to
 // build one from.
+// Containers is --containered's registry: a prebuilt runtime image, or the base and apt mirror to
+// build one from. Login fields resolve env-first (usernameEnv/tokenEnv) with literal fallback
+// (username/token); the values never print, never log.
 type Containers struct {
 	Image string `json:"image"` // pull this runtime image instead of building one
 	Base  string `json:"base"`  // the build's base image (default debian:bookworm-slim)
 	Apt   string `json:"apt"`   // an apt mirror for the build (e.g. an Artifactory debian remote)
+	// private registry login for pulling Base/Image
+	Username    string `json:"username"`
+	UsernameEnv string `json:"usernameEnv"`
+	Token       string `json:"token"`
+	TokenEnv    string `json:"tokenEnv"`
 }
 
 // PackageEnv is the environment the package registries set, sorted by name.

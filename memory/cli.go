@@ -108,7 +108,7 @@ func WriteFail(stderr io.Writer, err error) int {
 func CLI(args []string, stdout, stderr io.Writer) int { return cli(args, stdout, stderr, "") }
 
 func cli(args []string, stdout, stderr io.Writer, home string) (code int) {
-	a := ParseArgs(args, []string{"json", "machine", "no-cache", "short"})
+	a := ParseArgs(args, []string{"json", "machine", "no-cache", "short", "apply"})
 	root, cmd := a.Root("status")
 	w, err := Open(root)
 	if err != nil {
@@ -194,6 +194,23 @@ func cli(args []string, stdout, stderr io.Writer, home string) (code int) {
 			return 0
 		}
 		fmt.Fprintf(stdout, "@S FORGOT %d cached recall%s for %s\n", r.N, plural(r.N), r.As)
+	case "clean":
+		r, err := w.Scrub(a.Bool["apply"])
+		if err != nil {
+			return WriteFail(stderr, err)
+		}
+		if js {
+			JSONLine(stdout, r)
+			return 0
+		}
+		printScrub(stdout, r)
+	case "review":
+		r := w.Review()
+		if js {
+			JSONLine(stdout, r)
+			return 0
+		}
+		printReview(stdout, r)
 	case "selftest":
 		n, err := SelftestIn(w.Root, stdout)
 		if err != nil {
@@ -204,7 +221,7 @@ func cli(args []string, stdout, stderr io.Writer, home string) (code int) {
 		}
 		_ = n
 	default:
-		return WriteFail(stderr, failf("unknown command %s — status | index | recall | remember | forget | selftest", cmd))
+		return WriteFail(stderr, failf("unknown command %s — status | index | recall | remember | forget | clean [--apply] | review | selftest", cmd))
 	}
 	return 0
 }

@@ -212,7 +212,7 @@ models: {default: mock/m, roles: {analyst: subagent/c}, tasks: {drain: subagent/
 providers:
   mock: {enabled: true, script: .agent-one/tmp/s.json}
   subagent: {type: mock, script: .agent-one/tmp/c.json}
-tools: {bash: {sandbox: none}}
+tools: {bash: {sandbox: none}, dispatch: {strictFlow: false}}
 policy: {budget: {stressTokens: 3200}}
 compaction: {keepRecentTurns: 1}
 ui: {board: {autostart: false}}
@@ -253,7 +253,7 @@ models: {default: mock/m, roles: {analyst: subagent/c}}
 providers:
   mock: {enabled: true, script: .agent-one/tmp/s.json}
   subagent: {type: mock, script: .agent-one/tmp/c.json}
-tools: {bash: {sandbox: none}}
+tools: {bash: {sandbox: none}, dispatch: {strictFlow: false}}
 rankSet: replace
 ranks:
   lead:   {reportsTo: orchestrator, job: coordinates, agent: ephemeral, role: drafter}
@@ -446,7 +446,7 @@ func TestE2EHandoff(t *testing.T) {
 		when("A previous session left this handoff", text("@S DONE read and waiting\n@E 20")),
 		when("Write a handoff for a fresh session", call("write", map[string]string{"path": ".agent-one/handoffs/2026-09-27-120000.md", "content": "# HANDOFF: auth\n\n## 3. Current state\nDONE: login\n"})),
 		when("2026-09-27-120000.md", text("@S DONE .agent-one/handoffs/2026-09-27-120000.md\n@E 40")))
-	w.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", ""))
+	w.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", "policy: {ownership: {orchestratorNeverAuthors: false}}\n"))
 	code, out, errb := w.exec(agentOne, "/handoff logout next\n/quit\n", nil, "--quiet")
 	if code != 0 || !strings.Contains(errb, "handoff → a turn") || !strings.Contains(w.read(".agent-one/handoffs/2026-09-27-120000.md"), "DONE: login") {
 		t.Fatalf("write: %d\n%s\n%s", code, out, errb)
@@ -467,14 +467,14 @@ func TestE2EGoal(t *testing.T) {
 		when("You are working to a goal", call("write", map[string]string{"path": "notyet.txt", "content": "x"})),
 		when("done.txt", text("@S DONE wrote done.txt\n@E 5")),
 		when("notyet.txt", text("@S DONE wrote notyet.txt\n@E 5")))
-	w.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", ""))
+	w.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", "policy: {ownership: {orchestratorNeverAuthors: false}}\n"))
 	code, out, errb := w.exec(agentOne, "", nil, "goal", "--quiet", "--validate", "test -f done.txt", "make done.txt exist")
 	if code != 0 || !strings.Contains(out, "goal met after 2 turns") || !strings.Contains(errb, "goal · validation exit 1") {
 		t.Fatalf("goal: %d\n%s\n%s", code, out, errb)
 	}
 	w2 := newTestWorkspace(t, "agent-one", agentOneMembers())
 	w2.script(".agent-one/tmp/s.json", when("You are working to a goal", text("I need the product owner.\n@? human: which provider to bill?")))
-	w2.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", ""))
+	w2.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", "policy: {ownership: {orchestratorNeverAuthors: false}}\n"))
 	code, out, errb = w2.exec(agentOne, "", nil, "goal", "--quiet", "--validate", "false", "bill the right provider")
 	if code != 3 || !strings.Contains(errb, "paused at turn 1 for the operator: which provider to bill?") {
 		t.Fatalf("pause: %d\n%s\n%s", code, out, errb)

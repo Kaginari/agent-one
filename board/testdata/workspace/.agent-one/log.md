@@ -1,13 +1,9 @@
-# Log
+# Log — board fixture workspace
 
-### [2026-09-24T10:00:00+02:00] orchestrator — first entry: the workspace is provisioned
-- **Task:** Human: "onboard".
-- **Files:** .agent-one/
-- **Result:** done
+### [2026-09-25T09:12:00+02:00] provisioning — workspace provisioned
 
-### [2026-09-25T18:30:00+02:00] ephemeral-subagent (dispatched by orchestrator) — auth zone learns the token TTL
-- **Task:** verify auth.
-- **Files:** src/auth/token.go
-- **Gate:** n/a (no domain owners)
-- **Result:** done
-- **Learned:** token TTL is 15m.
+the workspace is provisioned — the first breath of this fixture workspace, kept for the search exclusion case.
+
+### [2026-09-25T18:30:00+02:00] ephemeral-subagent-verdict-page-20250925102654-ebae38 — ephemeral subagent verdict page
+
+The newest entry is last in the file; the parser returns newest first. Keep the token TTL is 15m short so dispatch retries do not overrun.

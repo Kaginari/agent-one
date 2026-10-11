@@ -22,14 +22,15 @@ type setupChoice struct {
 	fallback string
 	baseURL  string
 	keyEnv   string
+	kind     string // provider wire type: anthropic | openai
 }
 
 var setupPresets = map[string]setupChoice{
-	"openrouter": {provider: "openrouter", model: "openrouter/google/gemma-4-31b-it:free", fallback: "openrouter/thinkingmachines/inkling-small:free", keyEnv: "OPENROUTER_API_KEY"},
-	"anthropic":  {provider: "anthropic", model: "anthropic/claude-sonnet-5", keyEnv: "ANTHROPIC_API_KEY"},
-	"openai":     {provider: "openai", model: "openai/", keyEnv: "OPENAI_API_KEY"},
-	"ollama":     {provider: "ollama", model: "ollama/"},
-	"custom":     {provider: "vllm", model: "vllm/", baseURL: "http://127.0.0.1:8000/v1", keyEnv: "VLLM_API_KEY"},
+	"openrouter": {provider: "openrouter", model: "openrouter/google/gemma-4-31b-it:free", fallback: "openrouter/thinkingmachines/inkling-small:free", keyEnv: "OPENROUTER_API_KEY", kind: "openai"},
+	"anthropic":  {provider: "anthropic", model: "anthropic/claude-sonnet-5", keyEnv: "ANTHROPIC_API_KEY", kind: "anthropic"},
+	"openai":     {provider: "openai", model: "openai/", keyEnv: "OPENAI_API_KEY", kind: "openai"},
+	"ollama":     {provider: "ollama", model: "ollama/", kind: "openai"},
+	"custom":     {provider: "vllm", model: "vllm/", baseURL: "http://127.0.0.1:8000/v1", keyEnv: "VLLM_API_KEY", kind: "openai"},
 }
 
 // wantsSetup says whether init should ask.
@@ -50,8 +51,9 @@ func wantsSetup(dist, root string, f cliFlags, io IO) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-// runSetup shows the mascot, asks, and writes the workspace's config.yaml; the path written, or "".
-func runSetup(dist, root string, io IO) (string, error) {
+// runSetup shows the mascot, asks, and writes the workspace's config.yaml; the path written + the
+// board port picked free, or ("", 0, nil) when the global config is kept.
+func runSetup(dist, root string, io IO) (string, int, error) {
 	art, tag := tui.Mascot(dist)
 	fmt.Fprintln(io.Out)
 	for i, a := range art {
@@ -73,7 +75,7 @@ func runSetup(dist, root string, io IO) (string, error) {
 	}
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().
-			Title("Which model should this "+worldWord(dist)+" run on?").
+			Title("Which model should this workspace run on?").
 			Options(
 				huh.NewOption(keep, "keep"),
 				huh.NewOption("OpenRouter free models — gemma-4-31b, inkling-small as fallback", "openrouter"),
@@ -84,10 +86,10 @@ func runSetup(dist, root string, io IO) (string, error) {
 			).Value(&pick),
 	)).WithTheme(huh.ThemeFunc(huh.ThemeCatppuccin))
 	if err := form.Run(); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if pick == "keep" {
-		return "", nil
+		return "", 0, nil
 	}
 	c := setupPresets[pick]
 	fields := []huh.Field{
@@ -106,39 +108,51 @@ func runSetup(dist, root string, io IO) (string, error) {
 			Description("only its name is written — the key itself never lands in a file").Value(&c.keyEnv))
 	}
 	if err := huh.NewForm(huh.NewGroup(fields...)).WithTheme(huh.ThemeFunc(huh.ThemeCatppuccin)).Run(); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	d, _ := parseDist(dist)
+	port := pickBoardPort()
 	p := filepath.Join(root, d.WorkspaceDir, "config.yaml")
-	if err := os.WriteFile(p, []byte(setupYAML(c)), 0o644); err != nil {
-		return "", err
+	if err := os.WriteFile(p, []byte(setupYAML(c, port)), 0o644); err != nil {
+		return "", 0, err
 	}
 	if c.keyEnv != "" && io.Env(c.keyEnv) == "" {
 		fmt.Fprintf(io.Out, "\n  %s is not set in this shell — export it before the first session.\n", c.keyEnv)
 	}
-	return relOrAbs(root, p), nil
+	return relOrAbs(root, p), port, nil
 }
 
-// setupYAML is the workspace's config for a choice.
-func setupYAML(c setupChoice) string {
+// setupYAML is the workspace's config for a choice: every entry carries a comment naming what it does
+// and its possible values — examples/workspace-rules.yaml preaches the same shape. ui.board.port is
+// picked free at init above the fixed ports.
+func setupYAML(c setupChoice, port int) string {
 	var b strings.Builder
-	b.WriteString("# Written by the setup at init; edit freely (`config explain` shows where each value comes from).\n")
+	b.WriteString("# agent-one workspace config — written by the init setup; edit freely.\n")
+	b.WriteString("# `config explain` shows where each live value came from.\n")
+	fmt.Fprintf(&b, "# The board this session serves is http://127.0.0.1:%d (picked free at init, clear of the fixed ports).\n\n", port)
 	b.WriteString("providers:\n")
-	if c.provider == "vllm" {
-		fmt.Fprintf(&b, "  vllm: {enabled: true, type: openai, baseURL: %s, apiKeyEnv: %s, toolCalls: native, contextWindow: auto}\n", c.baseURL, c.keyEnv)
-	} else {
-		fmt.Fprintf(&b, "  %s: {enabled: true", c.provider)
-		if c.keyEnv != "" {
-			fmt.Fprintf(&b, ", apiKeyEnv: %s", c.keyEnv)
-		}
-		b.WriteString("}\n")
+	fmt.Fprintf(&b, "  %s:\n", c.provider)
+	b.WriteString("    enabled: true          # only enabled providers get dialed · true | false\n")
+	fmt.Fprintf(&b, "    type: %s             # anthropic | openai | mock — openai = any OpenAI-compatible endpoint\n", c.kind)
+	if c.baseURL != "" {
+		fmt.Fprintf(&b, "    baseURL: %s   # where calls go\n", c.baseURL)
 	}
+	if c.keyEnv != "" {
+		fmt.Fprintf(&b, "    apiKeyEnv: %s    # the env var's NAME — the key's value never lands in files\n", c.keyEnv)
+	}
+	b.WriteString("    toolCalls: native      # native | text — native: the API's tool channel; text: tags parsed from the reply\n")
+	b.WriteString("    contextWindow: auto    # auto | <n> — auto reads /v1/models (max_model_len)\n\n")
 	b.WriteString("models:\n")
 	if c.fallback != "" {
-		fmt.Fprintf(&b, "  default: {model: %s, fallback: %s}\n", c.model, c.fallback)
+		fmt.Fprintf(&b, "  default: { model: %s, fallback: %s }   # provider/id the session rides; fallback on 429/5xx/transport, never on refusal\n", c.model, c.fallback)
 	} else {
-		fmt.Fprintf(&b, "  default: %s\n", c.model)
+		fmt.Fprintf(&b, "  default: %s    # provider/id the session rides; roles/ranks/tasks/members can override per kind\n", c.model)
 	}
+	fmt.Fprintf(&b, "\nui:\n  board:\n    autostart: true   # the live board starts with each session · true | false\n    port: %d        # the dashboard's address — http://127.0.0.1:%d\n\n", port, port)
+	b.WriteString("policy:                     # the convention as code paths\n")
+	b.WriteString("  humanGate: { enabled: true }    # a human answers asks — outward/destructive rides here · true | false\n")
+	b.WriteString("  closingCheck: { enabled: true } # at closing: an answer earns its close by evidence (the witness demand) · true | false\n")
+	b.WriteString("  guts: { enabled: true }         # the per-step value sense: scores acts at verify, speaks once in a slide past floor · true | false; window/floor tunable\n")
 	return b.String()
 }
 

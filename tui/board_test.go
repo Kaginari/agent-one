@@ -236,6 +236,13 @@ func drainPrints(m *Model) string {
 	for len(m.prints) > 0 {
 		out = append(out, ansi.Strip((<-m.prints).text))
 	}
+	if n := len(m.blocks); n > 0 && m.railVisible() > 0 {
+		// under panes the transcript is the block store: read the last landed block — that's
+		// what the human just gained on screen
+		if b := ansi.Strip(m.blocks[n-1](m.width - m.railVisible())); b != "" {
+			out = append(out, b)
+		}
+	}
 	return strings.Join(out, "\n")
 }
 
@@ -268,7 +275,7 @@ func TestBodyView(t *testing.T) {
 	m.Update(EvTurnStart{Text: "fix auth"})
 	m.Update(EvSubagent{Subagent: SubagentView{Name: "zone-auth", Rank: "zone", Ask: "@ASK draft\nshorten the TTL", State: "thinking"}})
 	m.Update(EvStream{Agent: "zone-auth", Kind: "thinking", Text: "The TTL lives in token.go."})
-	m.Update(EvBodyStep{Agent: "zone-auth", Tool: ToolView{ID: "s1", Name: "read", Summary: "src/auth/token.go", Class: "read", Status: "done", Output: "const ttl = time.Hour"}, End: true})
+	m.Update(EvAgentStep{Agent: "zone-auth", Tool: ToolView{ID: "s1", Name: "read", Summary: "src/auth/token.go", Class: "read", Status: "done", Output: "const ttl = time.Hour"}, End: true})
 	if s := ansi.Strip(m.Render()); !strings.Contains(s, "ctrl+t to watch") {
 		t.Fatalf("a running subagent is announced with the key to watch it:\n%s", s)
 	}

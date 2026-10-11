@@ -84,6 +84,108 @@ agent-one install --claude --global --yes   # or for every workspace on this mac
 | `PostToolUse` | the paths a file tool wrote, for the gate |
 | `Stop` | the gate over everything the turn changed (shell writes too): an owned path changed without its doc, or a failing verify line, sends the turn back with the reasons; the verdict lands in `log.md` |
 
+## The CLI, seen
+
+A working session: the ask up top, every classified step drawn as it lands:
+
+![the session](docs/screens/agent-one-welcome.png)
+
+## Architecture
+
+**Wrapped layers.** A model on its own is text in, text out — no hands, no memory, no check on
+itself. A *agent* is that model inside a loop with tools. A *workspace* is everything around the loop.
+Agent-One is one static Go binary at the outermost shell — the policy runs code:
+
+<table>
+<tr><th>layer</th><th>wraps</th><th>is</th></tr>
+<tr><td><b>LLM</b></td><td>—</td><td>the bounded skill — text in, text out; no hands, no memory, no check on itself</td></tr>
+<tr><td><b>agent</b></td><td>the LLM</td><td>the model inside a loop with tools — the model walks</td></tr>
+<tr><td><b>workspace</b></td><td>the agent</td><td>loop + context/memory + permissions/sandbox — the code protects</td></tr>
+<tr><td><b>Agent-One</b></td><td>the workspace</td><td>one static Go binary at the outermost shell — the policy runs code</td></tr>
+</table>
+
+**Six beats per step, one model call.** The model lives only in the plan-and-act beats; perceive,
+recall, verify and record are code — no tokens, milliseconds. `policy.guts` scores each act at verify
+and speaks once inside a slide; the witness demand runs at close when files were written.
+
+<table>
+<tr><th>beat</th><th>runs on</th><th>spend</th></tr>
+<tr><td>1 · perceive — context read, budgets before any call</td><td>code</td><td>no tokens</td></tr>
+<tr><td>2 · recall — anchors rebuilt per call, never cached</td><td>code</td><td>no tokens</td></tr>
+<tr><td>3 · plan — <b>the one model call</b></td><td>model</td><td>tokens</td></tr>
+<tr><td>4 · act — the tool calls the plan ordered</td><td>model directs, code runs</td><td>tokens (the plan's)</td></tr>
+<tr><td>5 · verify — checks run; <code>policy.guts</code> scores the act</td><td>code</td><td>no tokens</td></tr>
+<tr><td>6 · record — journal, memory, roster state</td><td>code</td><td>no tokens</td></tr>
+</table>
+
+**A task, end to end** — tools act inside the workspace; nothing closes on belief.
+
+<ol>
+<li>the task lands — a prompt, or a commission a subagent carries</li>
+<li>perceive: context read, budgets checked before any call</li>
+<li>recall: anchors + the workspace's policy rebuilt for this call</li>
+<li>one model call — the plan
+<ol type="a">
+<li>each tool call it orders is classified first (read · write · outward · destructive)</li>
+<li>the guard refuses catastrophic patterns before any ask</li>
+<li>outward and destructive ride to the human gate; a denial comes back as a message the model reads</li>
+<li>an approved act runs sandboxed — timeout, kill tree, fs under the root</li>
+<li>the step lands: observe marks it, record journals it — and while tool calls remain, the loop turns again</li>
+</ol></li>
+<li>the model stops calling tools: the turn-end gate runs its checks — wrote files? a domain owner holds the gate</li>
+<li>the wire rides up: status, findings, holes, unsaid — the context dies with the task</li>
+</ol>
+
+## What lands where
+
+Three tiers keep the policy clean: rules teach, code enforces, instruments remember.
+
+<table>
+<tr><th>tier</th><th>duty</th><th>homes</th></tr>
+<tr><td><b>rules teach</b></td><td>steer the model</td><td><code>AGENT-ONE.md</code> · <code>rules:</code> entries — injected into the system prompt, advice never policy</td></tr>
+<tr><td><b>code enforces</b></td><td>protect the workspace</td><td>the gate · permissions · the guard · budgets · ownership ownership</td></tr>
+<tr><td><b>instruments remember</b></td><td>make runs accountable</td><td>the wire formats (<code>@S</code>/<code>@F</code>/<code>@?</code>/<code>@U</code>) · the journal · memory anchors</td></tr>
+</table>
+
+**Terminology, once and for all.** A *prompt* is what you type — the ask. A *system prompt* is the
+machine's standing instruction, auto-composed at every turn before the ask rides in. *Code* is
+everything the workspace enforces without asking an agent to believe anything.
+
+**The system prompt, composed per turn, contains:**
+
+- identity + standing: who this agent is, the workspace it belongs to, its ranks and roles
+- the policy: `AGENT-ONE.md` in full when `policy.principles` is on (default), plus every `rules:` entry
+  verbatim
+- the four action classes and who asks before a privileged one runs
+- the wire it must answer in (`@S` / `@F` / `@U` / `@D` / `@E`)
+- instrument readings it may claim: budgets read per step; the guts' announced behavior
+- docs-as-code duty and the team map for this workspace
+
+**In per-step context, on top of the ask:**
+
+- memory anchors: notes matched to this ask (short / long / shared tiers, budgeted)
+- the toolbox manifest — only the tools that fit this step's question
+- working notes, journal tails, the last tool results (the step's own evidence)
+- the witness demands when files were written and the agent's close is being checked
+
+**Never in any prompt — coded and enforced:**
+
+- the guard (dangerous commands refused before any approval) and the gate (who may approve)
+- the sandbox knot (bwrap / `--containered` envelope)
+- budgets read as instruments: context window % readings, stress-zone behavior, session wallets
+- the closing witness's admissibility rule (machine-check or independent method)
+- the guts' scoring, the echo penalty, and where every reading journals
+- wire parsing, reports, sessions, undo, hooks — surface, not advice
+
+- **`rules:` are converted to the system prompt.** Each `text:` line is policy text the binary reads
+  into every turn's system message — shape culture here, never private muscle (omitted from a
+  subagent's prompt unless `raw` is on; an entry can be a file path instead of inline text).
+- **The ask, memory anchors, the toolbox manifest and witness evidence go in per-step context** —
+  what this step needs, nothing it doesn't.
+- **`policy:` is enforced in code, never prompted** — the guard and gate classes, the sandbox,
+  budgets read as instruments, the closing witness demand, the guts' scoring. An agent can only
+  tighten a policy, never loosen it; `status` names every switched-off policy aloud.
+
 ## The terminal
 
 A terminal UI in the class of Claude Code: the conversation flows into your scrollback, and every
@@ -153,6 +255,16 @@ Configuration is YAML (or JSON), layered — each layer overrides the one before
 
 `agent-one config explain` shows every effective value and the file and line it came from;
 `agent-one status` shows every model, the guard, the sandbox and anything switched off.
+
+### Keys and registry credentials
+
+Providers prefer `apiKeyEnv` (name the variable, never the value). Where an env var cannot exist —
+headless containers — the designated escape is `providers.<name>.apiKey` holding the
+literal; every other field still refuses credentials in a file (headers, urls, unknown keys).
+
+`--containered`'s registry pulls authenticate the same way: env-first, literal fallback —
+`registry.containers: { usernameEnv, tokenEnv }` or `{ username, token }`. Docker receives the
+token on stdin, never argv.
 
 ### One file per part
 
@@ -329,6 +441,36 @@ per task, the agent inside it, the task's own tests deciding. Every launch is re
 CI runs a no-cost smoke benchmark (`bench/smoke.sh`) on every commit against a fake
 OpenAI-compatible server. A real run, agent-one against OpenCode on the same gateway models, is
 `bench/harbor.sh` — see [`bench/HARBOR.md`](bench/HARBOR.md).
+
+### Experimental loop features (off-switches, measured)
+
+| feature | default | off with |
+|---|---|---|
+| `policy.guts` | on | `--set policy.guts.enabled=false` |
+| `policy.closingCheck` | on under bench, off live | `--set policy.closingCheck.enabled=false` |
+| echo penalty + witness admissibility | inside guts / closingCheck | ride their toggles |
+
+Same 6 tasks × 2 attempts, the same model via an OpenAI-compatible gateway, same cells:
+
+| run | loop state | score | input / out |
+|---|---|---|---|
+| `tb2-final-165052` | everything off | 8/12 (.67) | 3.1M / 0.25M |
+| `tb2-fixed-220431` | policies + ceilings off | 7/12 (.58) | 2.4M / 0.18M |
+| `tb2-clean-010744` | + witness close + guts | **10/12 (.83)** | 12.2M / 0.32M |
+| `tb2-final2-024306` | + echo + admissibility | **10/12 (.83)** | **5.8M** / 0.25M |
+
+On tokens: the winning harness grid spent 5.8M in / 0.25M out against the control's 6.1M in / 78k
+out.
+
+agent-one's current loop needs **23% less input per point of score** than the control's weakest
+day — same tasks, same model. (For honesty: the control's best reading tonight was 0.92 — its loop
+never changed; lifts came only from fixes around it. gcode-to-text sits at the model's glyph
+precision edge for every harness: probe runs read the flag twice and miss a 0/O glyph; refusals
+are honest, not confused.)
+
+The culture that came from the bench is in [`examples/workspace-rules.yaml`](examples/workspace-rules.yaml)
+— two policies earned, kept as principles, plus the close-time falsification witness (`policy.closingCheck`)
+and the per-step value sense (`policy.guts`) they motivated.
 
 ## License
 

@@ -21,6 +21,11 @@ type RecallOptions struct {
 	Toolbox bool
 	K       int // memory hits (0 = 5)
 	Budget  int // toolbox manifest budget in tokens (0 = 1500)
+	// RebuildOnStale: false = recall off the last good index even when its sources
+	// drifted (log.md grows every gated turn, so the rebuild otherwise rides the
+	// critical path of nearly every model call); the staleness holes still surface.
+	// Missing or unreadable indexes are always rebuilt — without one there is no recall.
+	RebuildOnStale bool
 }
 
 // RecordOptions is the record beat: what a done step lands.
@@ -41,7 +46,7 @@ type HookOptions struct {
 // DefaultHooks is everything on, the four checks included.
 func DefaultHooks() HookOptions {
 	return HookOptions{
-		Recall: RecallOptions{Enabled: true, Memory: true, Toolbox: true},
+		Recall: RecallOptions{Enabled: true, Memory: true, Toolbox: true, RebuildOnStale: true},
 		Record: RecordOptions{Enabled: true, Unsaid: true},
 		Gate:   GateOptions{Enabled: true, RightAuthor: true, InvariantsHold: true, DutiesDone: true, DocTruthful: true, Log: true, Retries: 1, TestsIntact: true},
 		Prompt: DefaultPrompt(),
@@ -169,6 +174,15 @@ func MergeHooks(base, over loop.Hooks) loop.Hooks {
 	if over.PostTool != nil {
 		out.PostTool = over.PostTool
 	}
+	if over.Note != nil {
+		if base.Note == nil {
+			out.Note = over.Note
+		} else {
+			out.Note = func(ctx context.Context, s *loop.Session, st *loop.StepRecord) string {
+				return base.Note(ctx, s, st) + over.Note(ctx, s, st)
+			}
+		}
+	}
 	if over.State != nil {
 		out.State = over.State
 	}
@@ -214,7 +228,14 @@ func (w *Workspace) Toolbox() (*toolbox.Workspace, error) {
 // Recall runs the recall beat: memory hits as `src#sec` anchors, toolbox @T lines. Never an agent.
 func (w *Workspace) Recall(as, ask string, opt RecallOptions) loop.Recall {
 	var rc loop.Recall
+	sawDegraded := false // the no-rebuild workspace's drift marker lands once per recall, not per hole
 	if !opt.Enabled || strings.TrimSpace(ask) == "" {
+		return rc
+	}
+	if len(memory.Tokens(ask)) == 0 {
+		// strip-word-degenerate ask (greeting "yo", menu answers "1"/"B"):
+		// nothing is rankable — the beat stays silent instead of surfacing
+		// two "no content words" holes per such turn
 		return rc
 	}
 	if opt.Memory {
@@ -228,8 +249,10 @@ func (w *Workspace) Recall(as, ask string, opt RecallOptions) loop.Recall {
 				}
 			}
 			res, err := m.Recall(ask, memory.RecallOpts{As: as, K: opt.K})
-			if err == nil && staleIndex(res.Holes) {
-				// a stale index is rebuilt, never routed around
+			if err == nil && opt.RebuildOnStale && staleIndex(res.Holes) {
+				// a stale index is rebuilt, never routed around — unless the workspace declined
+				// rebuilds (memory.long.rebuildOnStale: false); then recall rides the last
+				// good index and the drift shows as holes
 				if _, ierr := m.Index(); ierr == nil {
 					rc.Rebuilt = true
 					res, err = m.Recall(ask, memory.RecallOpts{As: as, K: opt.K, NoCache: true})
@@ -246,9 +269,21 @@ func (w *Workspace) Recall(as, ask string, opt RecallOptions) loop.Recall {
 					rc.Anchors = append(rc.Anchors, a)
 				}
 				for _, h := range res.Holes {
-					if !strings.HasPrefix(h, "no shared notes yet") {
-						rc.Holes = append(rc.Holes, "memory: "+h)
+					if strings.HasPrefix(h, "no shared notes yet") {
+						continue
 					}
+					if !opt.RebuildOnStale && strings.HasPrefix(h, "index older") {
+						// the workspace declined rebuilds from policy (the 2026-10-01 stall cure):
+						// drift is the bargained-for price, not an emergency — repeating it
+						// as a recall hole every turn teaches the subagent to ignore holes.
+						// One degraded marker, once per recall, stays honest without the echo.
+						if !sawDegraded {
+							sawDegraded = true
+							rc.Holes = append(rc.Holes, "degraded: memory recall rides the last good index (drift bargained by memory.long.rebuildOnStale: false — rebuild hand-run when it matters)")
+						}
+						continue
+					}
+					rc.Holes = append(rc.Holes, "memory: "+h)
 				}
 			}
 		}
@@ -297,6 +332,28 @@ func (w *Workspace) Record(as string, st *loop.StepRecord, opt RecordOptions) []
 				}
 			}
 			holes = append(holes, w.Land(by, rep)...)
+		}
+	}
+	if strings.Contains(st.Result.Output, "@FORGE") {
+		// a dispatch's carried drafts land as forge notes: filed, never registered — the working notes registers
+		rep, ok := wire.ParseReport(st.Result.Output)
+		if ok {
+			for i := len(rep.Forges) - 1; i >= 0; i-- {
+				f := rep.Forges[i]
+				line := f.Kind + ":" + f.Name
+				if f.Text != "" {
+					line += " | " + f.Text
+				}
+				by := as
+				if st.Tool == "dispatch" {
+					if b := dispatchedAgent(st); b != "" {
+						by = b
+					}
+				}
+				if err := w.Remember(by, "team", line, "forge"); err != nil {
+					holes = append(holes, "forge note: "+err.Error())
+				}
+			}
 		}
 	}
 	if opt.Landed && len(st.Wrote) > 0 {

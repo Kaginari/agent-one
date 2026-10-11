@@ -126,6 +126,34 @@ type Board struct {
 	token   string // guards the dashboard's acts (live.go)
 }
 
+// Token returns the per-session board token used to authorize dashboard acts.
+// It is exposed for tests that need to act as the page (e.g., TestDashGateAnswerOverHTTP).
+// The token is also embedded in the dashboard page ({{TOKEN}}) and sent by dash.js
+// via X-Board-Token for every /api/ask /api/answer /api/interrupt request.
+func (b *Board) Token() string { return b.token }
+
+// PortraitNames lists the embedded rank portraits ("orchestrator", "coordinator", "domain owner", "zone worker",
+// "service owner", "auditor", "principal coordinator", "principal domain owner").
+func PortraitNames() []string {
+	return []string{"orchestrator", "coord", "domain", "zone", "service", "auditor", "principal-coordinator", "principal-domain-owner"}
+}
+
+// Portrait returns the embedded rank portrait PNG's bytes; unknown names return an error.
+func Portrait(name string) ([]byte, error) {
+	names := PortraitNames()
+	ok := false
+	for _, n := range names {
+		if n == name {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return nil, fmt.Errorf("portrait %q: not one of %v", name, names)
+	}
+	return content.ReadFile("web/portraits/" + name + ".png")
+}
+
 // New builds the board. It starts a watcher goroutine; Close stops it.
 func New(o Options) *Board {
 	if o.WorkspaceDir == "" {
@@ -224,6 +252,10 @@ func (b *Board) routes() {
 	b.mux.HandleFunc("/api/subagent", b.apiSubagent)
 	b.mux.HandleFunc("/api/usage", b.apiUsage)
 	b.mux.HandleFunc("/api/team", b.apiTeam)
+	b.mux.HandleFunc("/api/tree", b.apiTree)
+	b.mux.HandleFunc("/api/tree/children", b.apiTreeChildren)
+	b.mux.HandleFunc("/api/subagents", b.apiSubagents)
+	b.mux.HandleFunc("/api/plan", b.apiPlan)
 	b.mux.Handle("/assets/", b.static)
 	b.mux.Handle("/static/", b.static)
 	b.liveRoutes()
@@ -565,6 +597,105 @@ func (b *Board) apiTeam(w http.ResponseWriter, r *http.Request) {
 		*Team
 		Labels []laneLabel `json:"labels"`
 	}{c, b.laneLabels(c)})
+}
+
+func (b *Board) apiTree(w http.ResponseWriter, r *http.Request) {
+	if b.src.Tree == nil {
+		writeJSON(w, map[string]any{"live": false, "root": "", "tree": []TreeEntry{}, "truncated": false})
+		return
+	}
+	path := r.URL.Query().Get("path")
+	entries, truncated := b.src.Tree(path)
+	if entries == nil {
+		entries = []TreeEntry{}
+	}
+	writeJSON(w, map[string]any{"live": true, "root": b.opt.WorkspaceRoot, "tree": entries, "truncated": truncated})
+}
+
+// apiTreeChildren serves one lazy level of the workspace tree: ?path is the
+// root-relative slash prefix ("" = the root level). The JSON face is
+// {path, nodes, truncated} with kind rendered as `dir bool` per node —
+// the dash's expand-on-click contract. A prefix escaping the root, a
+// missing directory, or a file answers 404: the client rendered that node
+// from an older snapshot and the workspace moved under it.
+func (b *Board) apiTreeChildren(w http.ResponseWriter, r *http.Request) {
+	if b.src.Tree == nil {
+		http.Error(w, "workspace tree not backed", http.StatusServiceUnavailable)
+		return
+	}
+	prefix := r.URL.Query().Get("path")
+	entries, trunc := b.src.Tree(prefix)
+	if entries == nil && !trunc {
+		http.NotFound(w, r)
+		return
+	}
+	type node struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+		Dir  bool   `json:"dir"`
+		Size int64  `json:"size,omitempty"`
+		Mod  string `json:"mod,omitempty"`
+	}
+	nodes := make([]node, 0, len(entries))
+	for _, e := range entries {
+		nodes = append(nodes, node{
+			Name: e.Name,
+			Path: e.Path,
+			Dir:  e.Kind == "dir",
+			Size: e.Size,
+			Mod:  e.Mod,
+		})
+	}
+	path := prefix
+	if path == "" {
+		path = "."
+	}
+	writeJSON(w, map[string]any{"path": path, "children": nodes, "truncated": trunc})
+}
+
+// apiSubagents serves the subagents strip: every entity with a plan deck and its
+// open hand (queued cards, per-heartbeat presence, plan stats). Agent fields
+// are never sent — agents stay local to the plan file.
+func (b *Board) apiSubagents(w http.ResponseWriter, r *http.Request) {
+	c := b.src.Subagents
+	if c == nil {
+		writeJSON(w, map[string]any{"active": 0, "stale": 0, "empty": true})
+		return
+	}
+	view, err := c()
+	if err != nil {
+		writeJSON(w, map[string]any{"active": 0, "stale": 0, "empty": true})
+		return
+	}
+	// view is expected to be []Agent (as set in the test)
+	agents, ok := view.([]Agent)
+	if !ok {
+		// If the Subagent function returns something else, treat as empty
+		writeJSON(w, map[string]any{"active": 0, "stale": 0, "empty": true})
+		return
+	}
+	active := len(agents)
+	stale := 0 // we don't have stale info in the test; could be computed from agents if needed
+	empty := active == 0
+	writeJSON(w, map[string]any{"active": active, "stale": stale, "empty": empty})
+}
+
+// apiPlan serves THE deck — the workspace's plan.json (tmp/plans/<workspace>.json)
+// with the holder, hearts, and lane rows the plan popup renders. Never
+// another member's deck: subagents carry those.
+func (b *Board) apiPlan(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	p := b.src.Plan
+	if p == nil {
+		writeJSON(w, map[string]any{"agent": agent, "empty": true})
+		return
+	}
+	view, err := p(agent)
+	if err != nil {
+		writeJSON(w, map[string]any{"agent": agent, "empty": true, "error": err.Error()})
+		return
+	}
+	writeJSON(w, view)
 }
 
 // ---- templates

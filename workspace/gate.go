@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -65,7 +67,20 @@ func (v Verdict) String() string {
 
 // Gate runs the checks over a turn's writes for an agent and returns the verdict. It is the
 // EndGate hook's agent, exposed so a dispatcher can run it on its own account.
-func (w *Workspace) Gate(ctx context.Context, opt GateOptions, as string, wrote []string, rep *wire.Report, isWire bool, ask string) Verdict {
+//
+// Hard policy (Right-author, human decree 2026-09-30): no agent — including the orchestrator — writes
+// inside another member's ownership unless that member's own README rides the same turn.
+// Orchestrator owns no ownership, so the owner's doc is the lawful vehicle for any cross-ownership
+// write from above; without it, Right-author fails (the old silent exemption is closed).
+//
+// Own-pair reconciliation (human decree 2026-10-01): the owner's doc is paired when EITHER arm
+// holds — (1) it rides this turn's writes (the 2026-09-30 arm, unchanged), or (2) it exists on
+// disk, differs from the clean git baseline, and is attributable to this session's own subagents
+// via the subagent-write ledger. Pairing was per-turn, so the only Policy-7-lawful flow — a subagent
+// authors the README this turn, the orchestrator lands the code next turn — could never pass: the
+// gate re-ran every turn on the accumulated writes while the subagent's doc write had been
+// subtracted from the orchestrator's bucket (ownWrites), a subtraction nothing ever gave back.
+func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, as string, wrote []string, rep *wire.Report, isWire bool, ask string) Verdict {
 	v := Verdict{Word: "pass"}
 	if !opt.Enabled {
 		return Verdict{Word: "off", Holes: []string{"policy.gate is off — the turn's writes were not checked"}}
@@ -95,18 +110,93 @@ func (w *Workspace) Gate(ctx context.Context, opt GateOptions, as string, wrote 
 		if owner != nil {
 			touched[owner.Name] = owner
 		}
+		// A member's own doc (<dir>/README.md) sits at the member's seat in the workspace's
+		// address space: the orchestrator authors the skel at founding, the member itself edits it
+		// after. Right-author never fires on it.
+		memberDoc := owner != nil && owner.Dir != "" && normRel(rel) == normRel(owner.Dir+"/README.md")
+		orchestratorAuthored := as == "" || as == Orchestrator || w.RankOf(as).Name == Orchestrator
+		// pairing, three vehicles: the doc rides THIS turn's writes (arm 1), or a cross-session
+		// subagent record proves it (arm 2), or it moved in an earlier wave this workspace witnessed
+		// (arm 3, session-pair mark — 2026-10-07). docPaired is any-writer evidence;
+		// pairedEarlier keeps the orchestrator-scoped reading the 2026-10-01/02 arms were provisioned with.
+		docPaired := owner != nil && (w.subagentPairedDoc(s, owner) || w.docMovedEarlier(owner))
+		pairedEarlier := orchestratorAuthored && docPaired
+		// The orchestrator's own seat files — the system manifest and the policy — are orchestrator's
+		// work product, of one class with a member's own doc. Owner's gate-holder fallback
+		// would otherwise silently make domain owner own every unowned path under .agent-one/; the orchestrator
+		// seat files are orchestrator's regardless of which agent Owner resolves.
+		orchestratorSeat := normRel(rel) == normRel(w.Lex.WorkspaceDir+"/system.yaml") ||
+			normRel(rel) == normRel(w.Lex.WorkspaceDir+"/"+w.Lex.Policy)
+		// arm-2 discrimination (auditor verdict 2026-10-02, third strike closed 2026-10-04):
+		// an orchestrator-authored write of an EXISTING member doc is exempt only while it is
+		// not conclusively drifted off the clean git baseline (founding skel, identical,
+		// no-git soil) — or a lane A/B subagent record pairs the drift (pairedEarlier).
+		driftedUnpaired := false
+		if memberDoc && orchestratorAuthored {
+			d, ok := w.docDriftedFromBaseline(owner.Doc)
+			driftedUnpaired = ok && d && !pairedEarlier
+		}
 		// 1. right zone worker authored
 		if opt.RightAuthor && domainOwners {
 			switch {
+			case orchestratorSeat && orchestratorAuthored:
+				// the orchestrator's own work, on its own seat — no agent's authorship to check
+			case memberDoc && as == owner.Name:
+				// self-edit (member): the member's doc is not a work product to police
+				// for authorship
+			case memberDoc && orchestratorAuthored && !driftedUnpaired:
+				// founding skel or subagent-paired re-authoring (orchestrator): clean, identical, no-git
+				// soil, or a lane A/B subagent record stands behind the drift — the member's doc
+				// is not a work product to police for authorship
+			case memberDoc && orchestratorAuthored:
+				// third strike closed (auditor verdict 2026-10-02): drifted off the clean
+				// baseline with no subagent record in any lane — the orchestrator re-authored an
+				// existing member doc without pairing evidence
+				fail(fmt.Sprintf("%s: %s is %s's doc, re-authored by the orchestrator with no pairing evidence (drifted off the clean baseline, no subagent record in any lane)", w.Lex.Checks[0], rel, owner.Name))
+			case orchestratorAuthored && owner != nil && (contains(wrote, owner.Doc) || pairedEarlier):
+				// pure hard policy (human decree 2026-09-30, arm 1) — the orchestrator may cross a member's soil only carrying that member's doc in the same turn; orchestrator holds no ownership, so the owner README riding the same wave is the lawful vehicle; without it Right-author still fires.
+				// own-pair reconciliation (decree 2026-10-01, arm 2; lane-B consult 2026-10-03) — or the doc landed a turn apart: the subagent-write ledger attributes it to a recorded subagent writer cross-session (lane B survives the subagent engine's Close), it is on disk and drifted off the clean baseline, so the pairing stands and this wave's cross-author is treated as paired
 			case owner != nil && (self == nil || owner.Name != self.Name) && !(self != nil && self.InOwnership(rel)):
+				// Right-author mortals: HARD — cross-ownership authoring is the Human's
+				// 2026-09-30 decree and pair-marks don't soften it. The 2026-10-07 thrash class
+				// (identical retries on identical fails) is answered by the circuit-breaker in
+				// EndGate and the refusals naming the pairing doc, never by loosening this arm.
 				fail(fmt.Sprintf("%s: %s belongs to %s, written by %s", w.Lex.Checks[0], rel, owner.Name, or(as, "orchestrator")))
 			case owner == nil && self != nil && !self.InOwnership(rel) && len(self.Ownership) > 0:
 				fail(fmt.Sprintf("%s: %s is outside %s's ownership", w.Lex.Checks[0], rel, self.Name))
 			}
 		}
-		// 4. doc truthful — Docs-as-code
-		if opt.DocTruthful && owner != nil && owner.Doc != "" && !contains(wrote, owner.Doc) && normRel(rel) != normRel(owner.Doc) {
-			fail(fmt.Sprintf("%s (Docs-as-code): %s changed under %s's ownership but %s did not change in the same turn", w.Lex.Checks[3], rel, owner.Name, owner.Doc))
+		// 4. doc truthful — Docs-as-code. The same two pairing arms hold here: a turn's change under a
+		// ownership is Docs-as-code-paired when the owner's doc changed in the same turn (arm 1) or
+		// sits on disk drifted off the baseline with a cross-session subagent-write record behind
+		// it (arm 2; lane B keyed by member name, kept at Close, bound 8 per member) —
+		// otherwise the check double-fired on every retry for a doc the orchestrator cannot lawfully
+		// write itself.
+		if opt.DocTruthful && !orchestratorSeat && owner != nil && owner.Doc != "" && !contains(wrote, owner.Doc) && normRel(rel) != normRel(owner.Doc) && !docPaired {
+			fail(fmt.Sprintf("%s (Docs-as-code): %s changed under %s's ownership but %s did not move — pair it: edit %s in this wave, or have %s's own subagent author its doc first (the doc names the pairing vehicle)", w.Lex.Checks[3], rel, owner.Name, owner.Doc, owner.Doc, owner.Name))
+		}
+	}
+	// Spend the session pair-marks this wave rode (arm 3 is transactional): an ownership whose
+	// code moved under a mark, WITHOUT moving the doc in this same wave, consumes the mark —
+	// one doc wave buys exactly one later wave, never a permanent exemption.
+	if len(w.pairMarks) > 0 {
+		var spend []string
+		for _, rel := range wrote {
+			owner := w.Owner(rel)
+			if owner == nil || owner.Dir == "" || contains(wrote, owner.Doc) {
+				continue
+			}
+			doc := normRel(owner.Dir + "/README.md")
+			if _, ok := w.pairMarks[doc]; ok && !contains(spend, doc) {
+				spend = append(spend, doc)
+			}
+		}
+		if len(spend) > 0 {
+			w.mu.Lock()
+			for _, d := range spend {
+				delete(w.pairMarks, d)
+			}
+			w.mu.Unlock()
 		}
 	}
 	v.Checked = append(v.Checked, w.Lex.Checks[0], w.Lex.Checks[3])
@@ -236,7 +326,11 @@ func (w *Workspace) EndGate(opt GateOptions) func(ctx context.Context, s *loop.S
 		}
 		o := opt
 		o.TestsBefore = s.TestsBefore
-		v := w.Gate(ctx, o, as, s.Wrote, &r.Report, r.IsWire, s.Ask)
+		v := w.Gate(ctx, s, o, as, s.Wrote, &r.Report, r.IsWire, s.Ask)
+		// the council circuit-breaker (freeze review 2026-10-07): the same gate failing on
+		// the same file-set for the same agent is a spec defect, not an authoring skill —
+		// after breakerAt repeats, the fail text hardens into the only lawful next acts.
+		w.breaker(as, s.Wrote, &v)
 		holes := append([]string(nil), v.Holes...)
 		if opt.Log && opt.Enabled {
 			result := "done"
@@ -260,7 +354,62 @@ func (w *Workspace) EndGate(opt GateOptions) func(ctx context.Context, s *loop.S
 		if v.Word == "fail" {
 			return v.String(), holes, fmt.Errorf("gate fail — %s", strings.Join(v.Reasons, "; "))
 		}
+		if v.Word == "pass" {
+			// pair policy (freeze review 2026-10-07): a doc that moved and PASSED policy marks the
+			// pairing window — later waves that touch the ownership without re-moving the doc pair
+			// against the mark, once (the gate spends marks after its wrote loop). Failures never
+			// register marks: a lawful wave is the only lawful evidence.
+			for _, rel := range s.Wrote {
+				if owner := w.Owner(rel); owner != nil && owner.Dir != "" && normRel(rel) == normRel(owner.Dir+"/README.md") {
+					w.mu.Lock()
+					w.pairMarks[normRel(owner.Dir+"/README.md")] = time.Now()
+					w.mu.Unlock()
+				}
+			}
+		}
 		return v.String(), holes, nil
+	}
+}
+
+// gateStreak is one agent's circuit-breaker reading: how often the same signature
+// (sorted file-set) failed its gate in a row. A pass or a differently-shaped wave resets it.
+type gateStreak struct {
+	Sig string
+	N   int
+}
+
+// gateBreakerAt: the streak that says the spec is broken, not the agent.
+const gateBreakerAt = 3
+
+// breaker stamps the circuit-breaker directive into a streaked fail verdict. It refuses the
+// thrash loop the way the policy affords: naming the only lawful next acts in the fail text the
+// model reads (rewrite the commission with each member's doc duty, @SPLIT, or escalate);
+// a dispatch-side hard veto is the next slice, flagged in the freeze wrap-up.
+func (w *Workspace) breaker(as string, wrote []string, v *Verdict) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	st := w.gateStreaks[as]
+	if st == nil {
+		st = &gateStreak{}
+		w.gateStreaks[as] = st
+	}
+	if v.Word == "pass" {
+		st.N, st.Sig = 0, ""
+		return
+	}
+	if v.Word != "fail" {
+		return
+	}
+	sorted := append([]string(nil), wrote...)
+	sort.Strings(sorted)
+	sig := strings.Join(sorted, "|")
+	if st.Sig == sig {
+		st.N++
+	} else {
+		st.Sig, st.N = sig, 1
+	}
+	if st.N >= gateBreakerAt {
+		v.Reasons = append(v.Reasons, fmt.Sprintf("council circuit-breaker — this same gate failed %d times in a row on this exact file-set for %s; the spec is broken, not the agent. Lawful next acts: rewrite the commission naming each member's doc duty, @SPLIT it narrower, or escalate to the human. Retrying identically burns the subagent clock.", st.N, as))
 	}
 }
 
@@ -279,6 +428,98 @@ func (w *Workspace) LogPath() string { return w.Dir() + "/" + w.Lex.Log }
 // domain owners is true for a verdict word from a workspace with a gate holder (pass | fail), false for the
 // no-gate-holder line, which already reads `Gate: n/a (…)`.
 func isVerdictWord(word string) bool { return word == "pass" || word == "fail" }
+
+// docMovedEarlier is arm 3 of pairing (session-pair): the member's own doc moved in a
+// witnessed earlier wave this process — the mark. The gate spends marks after the wrote loop
+// (see Gate), so a rider re-marks only by moving the doc again.
+func (w *Workspace) docMovedEarlier(owner *Member) bool {
+	if owner == nil || owner.Dir == "" {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, ok := w.pairMarks[normRel(owner.Dir+"/README.md")]
+	return ok
+}
+
+// subagentPairedDoc is arm 2 of own-pair reconciliation (decree 2026-10-01): the owner's doc is
+// attributable to a recorded subagent write of this workspace's agents AND sits on disk drifted off
+// the clean git baseline. The subagent-write ledger (workspace/subagent.go subagentGated) records what a
+// Subagent wrote and gated on its own account — lane A per-engine (dies at the engine's Close),
+// lane B cross-session keyed by member name (Close keeps it; subagent.go subagentWrites). Arm 2
+// first reads lane A on the session's own engine; when that lane has closed it consults lane
+// B — the asked-for pairing narrows to the ledger record itself: the doc write the orchestrator is
+// being asked to re-do is exactly the write the record attributes to its writer member. The baseline leg
+// is git's clean tree (HEAD when tracked, staged copy when new): a doc identical to its clean
+// state is a pre-existing doc nobody re-authored, never this session's pairing. The
+// refnames leg ("refs/notes/..." HEAD) refuses a detached or in-flux work tree rather than
+// guess. No work tree at all (no ledger hit can be proven clean-or-drifted against git) is
+// conservative: no pairing, the same verdict as before the decree.
+func (w *Workspace) subagentPairedDoc(s *loop.Session, owner *Member) bool {
+	if s == nil {
+		return false
+	}
+	w.mu.Lock()
+	rec, subagent := w.subagentWrote[s.Engine][normRel(owner.Doc)]
+	// Lane B (2026-10-03 reshoot-final): the per-engine lane dies at Close. No session
+	// walks workspace (no w.Par/w.Sessions — the commission's pseudonyms unmet), so the
+	// narrowest truthful consult is the workspace-resident name lane itself: the asking
+	// session's member, and the owner whose doc the orchestrator re-authors.
+	if !subagent {
+		if m := w.subagentWrites[owner.Name]; m != nil && m[normRel(owner.Doc)].Writer != "" {
+			rec, subagent = m[normRel(owner.Doc)], true
+		}
+	}
+	if !subagent && s.Engine.As != "" && s.Engine.As != owner.Name {
+		if m := w.subagentWrites[s.Engine.As]; m != nil && m[normRel(owner.Doc)].Writer != "" {
+			rec, subagent = m[normRel(owner.Doc)], true
+		}
+	}
+	w.mu.Unlock()
+	if !subagent {
+		return false // never touched by this session's subagents
+	}
+	if rec.Writer == "" {
+		return false // recorded without a writer: no attribution to re-derive pairing from
+	}
+	drifted, ok := w.docDriftedFromBaseline(owner.Doc)
+	return ok && drifted
+}
+
+// docDriftedFromBaseline reads whether the doc differs from its clean git baseline:
+// (drifted, true) when the reading is conclusive, (false, false) when git cannot speak.
+func (w *Workspace) docDriftedFromBaseline(rel string) (drifted bool, ok bool) {
+	rel = normRel(rel)
+	// refs/heads-style refnames tell a clean work tree; a detached HEAD or an in-flux rebase
+	// is not a baseline to judge drift against — refuse rather than guess.
+	if out, err := w.gitOut("symbolic-ref -q --short HEAD"); err != nil || strings.TrimSpace(out) == "" {
+		return false, false
+	}
+	cur, err := os.ReadFile(filepath.Join(w.Root, filepath.FromSlash(rel)))
+	if err != nil {
+		return false, false // gone from disk: not on-disk, never a pairing
+	}
+	base, berr := w.gitOut("show HEAD:./" + rel)
+	if berr != nil {
+		// untracked (new file): the staged copy is the clean baseline when one exists, else
+		// absent — an untracked, unstaged doc is drift by definition (its clean baseline is
+		// nothing), which still only pairs when the ledger attributes it to a subagent.
+		if staged, serr := w.gitOut("show :" + rel); serr == nil {
+			return string(cur) != staged, true
+		}
+		return true, true
+	}
+	return string(cur) != base, true
+}
+
+// gitOut runs one git command in the workspace's root, returning stdout; an error means git
+// could not speak (no work tree, unknown revision, in-flux state).
+func (w *Workspace) gitOut(args string) (string, error) {
+	c := exec.Command("git", strings.Fields(args)...)
+	c.Dir = w.Root
+	out, err := c.Output()
+	return string(out), err
+}
 
 func policyTable(w *Workspace) bool {
 	d := DefaultRanks(w.Lex)

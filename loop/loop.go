@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,10 @@ const (
 	Escalate   = "ESCALATE"
 	Denied     = "DENIED"
 	Checkpoint = "CHECKPOINT"
+	// Suspended: the turn parked its unanswered human question durably (the card is on the
+	// instruments shelf) and ended cleanly — the human's word, whenever it comes, revives the
+	// thread through Resume at the exact step it stopped (freeze review 2026-10-07).
+	Suspended = "SUSPENDED"
 )
 
 // Exit maps a status to loop.js's exit code.
@@ -47,6 +52,8 @@ func Exit(status string) int {
 		return 4
 	case Checkpoint:
 		return 5
+	case Suspended:
+		return 6
 	}
 	return 0
 }
@@ -54,8 +61,11 @@ func Exit(status string) int {
 const (
 	DefaultSteps   = 50
 	DefaultMinutes = 30
-	DefaultRetries = 2
-	tailBytes      = 400
+	// DefaultSalvageTokens caps a subagent's journalise turn when the workspace's config leaves
+	// policy.budget.salvageTokens at 0 — enough for @S/@F/@U/@E and nothing more.
+	DefaultSalvageTokens = 4096
+	DefaultRetries       = 2
+	tailBytes            = 400
 )
 
 // Budget is every ceiling the engine reads before it acts. Zero takes the default; a negative
@@ -141,8 +151,9 @@ type Hooks struct {
 	// guard). nil: "unknown tool" and never a stop.
 	Missing func(ctx context.Context, s *Session, call provider.ToolCall) (content string, stop bool)
 	// Guard refuses a catastrophic command before the policy and the gate: a non-empty answer is
-	// the refusal, and no approval can run it.
-	Guard func(tool string, input json.RawMessage) string
+	// the refusal, and no approval can run it. The session rides along so agent-scoped guards
+	// (per-agent scratch dirs) know who is acting.
+	Guard func(s *Session, tool string, input json.RawMessage) string
 	// Stream sees every agent's streamed text ("text") and reasoning ("thinking") as it arrives.
 	Stream func(s *Session, kind, text string)
 	// Decide is the permission rule before the gate (config.Decide): allow silences the gate
@@ -153,6 +164,10 @@ type Hooks struct {
 	// stderr). PostTool runs after a done act.
 	PreTool  func(ctx context.Context, s *Session, st *StepRecord) string
 	PostTool func(ctx context.Context, s *Session, st *StepRecord)
+	// Note runs after a done act; a non-empty return rides the tool result back to the agent as
+	// advisory text. Advisory only — refusal is PreTool's seat. (The onto census hooks land
+	// here: ledger row always, one unowned-soil line per run.)
+	Note func(ctx context.Context, s *Session, st *StepRecord) string
 	// State reports the agent's state for the live subagent: thinking · tool · waiting on gate ·
 	// done.
 	State func(s *Session, state string)
@@ -202,46 +217,81 @@ func (l Lexicon) workspaceDir() string {
 
 // Engine is one configured loop. Every field is a switch.
 type Engine struct {
-	Provider provider.Provider
-	Tools    *tool.Registry
-	Gate     *gate.Gate
-	Root     string
-	As       string
-	Budget   Budget
-	Hooks    Hooks
-	Policy   tool.Policy
-	Lexicon  Lexicon
-	Journal  string    // directory; "" means <Root>/<WorkspaceDir>/instruments/loop; "-" disables
-	Trace    io.Writer // step-by-step trace for the human; nil is quiet
-	Unsaid   bool      // the commission asked +unsaid: a report with no @U is a hole
-	Cap      int       // @CAP on the final report; 0 means no ceiling
+	Provider       provider.Provider
+	Tools          *tool.Registry
+	Gate           *gate.Gate
+	Root           string
+	As             string
+	Budget         Budget
+	Hooks          Hooks
+	Policy         tool.Policy
+	Lexicon        Lexicon
+	Journal        string    // directory; "" means <Root>/<WorkspaceDir>/instruments/loop; "-" disables
+	Trace          io.Writer // step-by-step trace for the human; nil is quiet
+	Unsaid         bool      // the commission asked +unsaid: a report with no @U is a hole
+	UnsaidExplicit bool      // the caller named +unsaid (dispatch args or text), not the ambient policy's default — only explicit demands bounce for a missing @U
+	// Guts: the per-step value sense (guts.go) — nil keeps the loop dumb. When set, every act is
+	// scored, the windowed momentum tracks direction, and a slide past the floor speaks inside the
+	// tool result of the act that caused it.
+	Guts *Guts
+	// ClosingCheck: on the first turn the agent closes with no tool call, send the ask back once
+	// ("is it applied end-to-end?") — the bench-class failure this catches is an answer that
+	// closes mid-plan ("let me merge…") with the merge never run. Live sessions keep it off.
+	ClosingCheck bool
+	// PlanOpen returns "" when the agent may close clean, else one line naming the open plan
+	// item. Wired by the workspace to the agent's deck: a run never closes clean on an open plan —
+	// the closing check's re-ask carries why, and a stubborn close is named a hole on the report.
+	PlanOpen func() string
+	Cap      int // @CAP on the final report; 0 means no ceiling
 	IsRecord func(rel string) bool
-	Wire     bool              // the answer is expected on the wire (a Subagent): providers with guided decoding constrain it
-	OnDelta  func(text string) // streamed text, as it arrives
+	// ZoneOwner names the member authoring a root-relative path's zone — the file kit quotes
+	// it in write/edit/delete results so every landing names its soil's persistent agent (nil-safe).
+	ZoneOwner func(rel string) string
+	Wire      bool              // the answer is expected on the wire (a Subagent): providers with guided decoding constrain it
+	OnDelta   func(text string) // streamed text, as it arrives
 	// OnThinking is the model's reasoning, as it arrives (shown, never replayed from here).
 	OnThinking func(text string)
+	// Doom: notes-stress auto-relief (policy.budget doomLoop). > 0: when the guts' spoke streak
+	// reaches it (sustained momentum-collapse readings without recovery), the run ends in a
+	// CHECKPOINT carrying the relief arms (retire-with-handoff / split / configuration-shift) for the
+	// dispatcher to choose. 0 = off. Guts alone nudges; Doom ends the drift.
+	Doom      int
+	lastRunID string // the run id of the most recent Run (a subagent circuit reads it to resume the dying session)
 }
 
 // Session is a running conversation on an Engine: the messages, the readings, the journal.
 type Session struct {
-	Engine    *Engine
-	RunID     string
-	Journal   *Journal
-	Messages  []provider.Message
-	Started   time.Time
-	Turns     int
-	Steps     int
-	Spend     provider.Usage
-	Last      provider.Usage
-	Context   instrument.Context // the session's own goroutine reads it directly; others use Reading
-	ctxMu     sync.RWMutex       // guards Context against readers on other goroutines (status line, board)
-	Wrote     []string           // the writes the gate has yet to see; cleared once a turn's gate ran
-	Ask       string             // the first ask of the session (the commission)
-	failures  int
-	base      snapshot // the workspace tree as last stamped (snapshot.go)
-	nowatch   bool     // the tree could not be stamped: shell writes go unseen, the hole named
-	gated     bool     // the last turn's writes passed the end gate
-	gateTries int      // failed gates sent back to the model this turn
+	Engine        *Engine
+	RunID         string
+	Journal       *Journal
+	Messages      []provider.Message
+	Started       time.Time
+	Turns         int
+	Steps         int
+	Spend         provider.Usage
+	Last          provider.Usage
+	Context       instrument.Context // the session's own goroutine reads it directly; others use Reading
+	ctxMu         sync.RWMutex       // guards Context against readers on other goroutines (status line, board)
+	Wrote         []string           // the writes the gate has yet to see; cleared once a turn's gate ran
+	Ask           string             // the first ask of the session (the commission)
+	failures      int
+	base          snapshot // the workspace tree as last stamped (snapshot.go)
+	nowatch       bool     // the tree could not be stamped: shell writes go unseen, the hole named
+	gated         bool     // the last turn's writes passed the end gate
+	unsaidBounces int      // count of @U bounces this session — separate from wireTries (which resets per wire-correct turn)
+	gateTries     int      // failed gates sent back to the model this turn
+	wireTries     int      // off-the-wire answers sent back to the model this turn
+	closingAsked  bool     // the closing check has been asked this session (it asks once, never twice)
+	// the guts' readings (nil Engine.Guts: never appended, never read)
+	gutsVals      []int
+	gutsLastSpoke int
+	gutsSpoke     int // consecutive spoke windows without recovery — feeds Engine.Doom's relief ladder
+	gutsPrevKey   string
+	gutsLastWhy   string               // the most recent non-empty reading — the spoke note names the run's losing ground, not the crossing act's
+	gutsBench     []string             // recent act workbench keys, echo-penalty window
+	gutsBenchWrot map[string]int       // bench → cumulative writes as of its last visit
+	gutsBenchHits map[string]*benchHit // bench → visit tally (red/green/muted) — the thrash arm's and pulse's record
+	wroteTot      int                  // every write the workspace has landed (echo penalty's divider)
 	// TestsBefore is the test files' text as the turn opened (the gate's "tests intact" check).
 	TestsBefore map[string]string
 }
@@ -261,6 +311,10 @@ type Result struct {
 	Context instrument.Context `json:"context"`
 	Journal string             `json:"journal,omitempty"`
 	Turns   int                `json:"turns"`
+	// Strains is the turn's governance sent-back count: consecutive failed acts standing at
+	// the end + failed-gate re-asks + off-wire re-asks. A clean turn reads 0; a struggling one
+	// reads how often its note-line broke. The dispatch ledger weighs it per agent.
+	Strains int `json:"strains,omitempty"`
 }
 
 func (r *Result) hole(h string) {
@@ -283,7 +337,7 @@ func (e *Engine) as() string {
 }
 
 func (e *Engine) env() tool.Env {
-	return tool.Env{Root: e.Root, WorkspaceDir: e.Lexicon.workspaceDir(), Policy: e.Policy, IsRecord: e.IsRecord}
+	return tool.Env{Root: e.Root, WorkspaceDir: e.Lexicon.workspaceDir(), Policy: e.Policy, IsRecord: e.IsRecord, ZoneOwner: e.ZoneOwner}
 }
 
 // JournalDir is where this engine journals; "" when journaling is off.
@@ -321,8 +375,14 @@ func (e *Engine) NewSession() *Session {
 
 // Run is the one-shot form: a fresh session, one turn.
 func (e *Engine) Run(ctx context.Context, ask string) (*Result, error) {
-	return e.NewSession().Turn(ctx, ask)
+	s := e.NewSession()
+	e.lastRunID = s.RunID
+	return s.Turn(ctx, ask)
 }
+
+// LastRunID is the run id of the most recent Run — a subagent-side circuit needs it to resume
+// the session it is about to lose (the journalise turn before the clock's grace ends).
+func (e *Engine) LastRunID() string { return e.lastRunID }
 
 func (s *Session) trace(format string, a ...interface{}) {
 	if s.Engine.Trace != nil {
@@ -388,14 +448,43 @@ func (e *Engine) DefaultSystem(s *Session) string {
 	}
 	fmt.Fprintf(&b, "You are %s, an agent working inside the workspace rooted at %s. Ownership is inward: every path is relative to that root.\n", e.as(), e.Root)
 	b.WriteString("Every tool call is one step with a class — read, write (inside the workspace), outward (beyond it), destructive (irreversible). Outward and destructive steps are put to " + e.Lexicon.human() + " at a gate before they run; a denial ends the turn. Declare `class` on bash when you know a command reaches further than it looks; a declaration can only tighten.\n")
+	b.WriteString("Sweeping a package: `skim <dir-or-file>` draws its outline before any reads (types, funcs, line anchors); `read`'s `paths` batches windows into one call. Reach for them before a read sweep — a grep-then-read dance through one package is a five-commission waste tonight's ghosts already paid for once.\n")
 	b.WriteString("Budgets are readings: steps, wall clock and the context window are checked before every step; past one, the run checkpoints and stops.\n")
+	if e.Guts != nil {
+		b.WriteString("The guts are a reading too: every act is scored, and when the run slides they say so inside a tool result — when they speak, change course; when they are silent, proceed.\n")
+	}
 	if e.Wire {
-		b.WriteString("Answer on the wire: `@S <status>` opens, one `@F <file:line> <fact>` per finding, `@? <hole>` for anything you could not settle (never guess), `@U <policy|team|domain> <text>` for each thing you know that nothing on disk says, `@E <bytes>` closes. No greetings, nothing long — a long thing lives on disk and crosses as a path.\n")
+		b.WriteString("Answer on the wire: `@S <status>` opens, one `@F <file:line> <fact>` per finding, `@? <hole>` for anything you could not settle (never guess), `@U <policy|team|ownership> <text>` for each thing you know that nothing on disk says, `@E <bytes>` closes. No greetings, nothing long — a long thing lives on disk and crosses as a path.\n")
+		// a run that proved a repeating need names its draft: @FORGE rides the report up, the
+		// working notes (the human's `/forge register`) lands it — a skill becomes a workspace note, a tool a
+		// tools.custom patch; drafts never register themselves mid-turn
+		b.WriteString("When the run proved a repeating need, name its draft once: `@FORGE skill:<name> | one line saying when + how`, or `@FORGE tool:<name> | <summary> | <argv template>` (holes as `{{param}}`).\n")
+		// an agent that may dispatch may also order: @$ names work for the layer below, drained
+		// by the Subagent after the turn (never registered by the agent mid-turn — the wire carries
+		// the order, the harness enforces the chain); a report in hand travels as plain prose.
+		if e.Tools != nil {
+			for _, n := range e.Tools.Names() {
+				if n == "dispatch" {
+					b.WriteString("Order work one layer down with `@$ <body>: <ask>` — one line per order; the Subagent drains them after your report, re-checked against the hierarchy.\n")
+					break
+				}
+			}
+		}
 	} else {
 		b.WriteString("You speak to " + e.Lexicon.human() + " directly: answer in plain language, in full sentences — what you did, what you found, and anything you could not settle. The wire (`@S … @E`) is for the reports of bodies you dispatch, never for the human.\n")
 	}
 	if e.Tools != nil {
 		fmt.Fprintf(&b, "Tools: %s.\n", strings.Join(e.Tools.Names(), ", "))
+		named := false
+		for _, n := range e.Tools.Names() {
+			if n == "dispatch" {
+				named = true
+				break
+			}
+		}
+		if named {
+			b.WriteString("When the ask names a Subagent agent (a member on the roster) and hands it work — \"dispatch <body> …\", \"have <body> …\", \"<body>, look at …\" — call the `dispatch` tool for it; never do that work in the agent's place.\n")
+		}
 	}
 	return b.String()
 }
@@ -419,7 +508,20 @@ func (s *Session) defs() []provider.ToolDef {
 }
 
 // Turn runs one ask to its end: the model plans, each tool call is a step, the model answers.
-func (s *Session) Turn(ctx context.Context, ask string) (*Result, error) {
+func (s *Session) Turn(ctx context.Context, ask string) (r *Result, err error) {
+	// a panic in a hook, a stream callback or a tool shell down-stack becomes a failed turn,
+	// never a dead process: the caller's recover (tui.go, dispatch.go) still runs and the
+	// session's journal carries the stack
+	defer func() {
+		if rec := recover(); rec != nil {
+			s.Journal.Log(Event{"t": "panic", "n": s.Turns, "panic": fmt.Sprint(rec), "stack": string(debug.Stack())})
+			s.saveTranscript()
+			s.state("panic")
+			r = &Result{RunID: s.RunID, Journal: journalRel(s), Status: Fail,
+				Holes: []string{fmt.Sprintf("panic: %v", rec)}}
+			err = nil
+		}
+	}()
 	if strings.TrimSpace(ask) == "" {
 		return nil, fmt.Errorf("loop: empty ask")
 	}
@@ -469,12 +571,14 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 	s.watch(r) // the turn's baseline: every write from here on is seen, whatever tool makes it
 	stepsThisTurn := 0
 	s.gateTries = 0
+	s.wireTries = 0
 	end := func(status string, why string) (*Result, error) {
 		r.Status = status
 		if why != "" {
 			r.hole(why)
 		}
 		r.Usage, r.Context, r.Turns = s.Spend, s.Context, s.Turns
+		r.Strains = s.failures + s.gateTries + s.wireTries
 		if status != Done && status != Dry {
 			// a turn stopped short of finish still owns what it changed on disk
 			for _, w := range s.seen() {
@@ -482,7 +586,13 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 			}
 			s.saveTranscript()
 		}
-		s.Journal.Log(Event{"t": "end", "status": status, "turns": s.Turns, "steps": s.Steps, "ms": time.Since(s.Started).Milliseconds(), "holes": r.Holes})
+		ev := Event{"t": "end", "status": status, "turns": s.Turns, "steps": s.Steps, "ms": time.Since(s.Started).Milliseconds(), "holes": r.Holes}
+		// a turn that ended because the hand was lowered mid-drive is not a DONE the work earned:
+		// the cause names the one who lowered it — the lexicon's word for the human (Operator 2026-10-03)
+		if ctx.Err() != nil {
+			ev["cause"] = e.Lexicon.human()
+		}
+		s.Journal.Log(ev)
 		s.state("done")
 		return r, nil
 	}
@@ -541,7 +651,11 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 				h(s, "thinking", t)
 			}
 		}
-		req := provider.Request{System: s.system(), Messages: s.Messages, Tools: s.defs(), MaxTokens: e.Budget.MaxTokens, Wire: e.Wire, OnDelta: onDelta, OnThinking: onThink}
+		// the wire's copy is the compacted one; the session keeps the whole conversation.
+		// a subagent's fan-out grows input-token cost against context replay — this fold +
+		// thinking-drop keeps the growth sub-linear in turn count (see compact.go)
+		wire := compactReplay(s.Messages)
+		req := provider.Request{System: s.system(), Messages: wire, Tools: s.defs(), MaxTokens: e.Budget.MaxTokens, Wire: e.Wire, OnDelta: onDelta, OnThinking: onThink}
 		if len(rc.Anchors)+len(rc.Tools) > 0 {
 			req.SystemTail = recallBlock(rc)
 		}
@@ -571,6 +685,9 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 			res, err := s.finish(ctx, r, resp, end)
 			if err == errGateRetry {
 				continue // the gate's reasons are the model's next message
+			}
+			if err == errWireRetry {
+				continue // the wire violation's wording is the model's next message
 			}
 			return res, err
 		}
@@ -666,6 +783,7 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	}
 	// PLAN: the class, then the gate
 	env := e.env()
+	env.Self = s.Pulse // the pulse tool reads the acting session's own state through the env
 	cls, holes := t.Settle(env, call.Input)
 	st.Class, st.Effective = cls, cls.Class.String()
 	for _, h := range holes {
@@ -673,7 +791,7 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	}
 	s.observe(st, "start")
 	if e.Hooks.Guard != nil {
-		if why := e.Hooks.Guard(t.Name, call.Input); why != "" {
+		if why := e.Hooks.Guard(s, t.Name, call.Input); why != "" {
 			st.Status = "refused"
 			s.Journal.Log(Event{"t": "gate", "id": st.ID, "tool": t.Name, "effective": st.Effective, "why": why, "needed": true, "decision": "refused", "by": "guard"})
 			s.Journal.Log(Event{"t": "record", "id": st.ID, "status": "refused", "attempts": 0})
@@ -724,6 +842,13 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	st.Gate = ans
 	s.Journal.Log(Event{"t": "gate", "id": st.ID, "tool": t.Name, "heuristic": st.Effective, "effective": st.Effective, "why": cls.Why, "needed": ans.Needed, "decision": string(ans.Decision), "by": ans.By, "rule": rule.Why})
 	switch ans.Decision {
+	case gate.Suspended:
+		// the human's word didn't come: the card goes durable and the turn parks — Resume
+		// carries it back (this is not a denial: nothing was refused, the question waits)
+		st.Status = "denied"
+		s.Journal.Log(Event{"t": "record", "id": st.ID, "status": "denied", "attempts": 0, "suspend": true})
+		s.trace("○ %s %s [%s] suspended — %s", st.ID, t.Name, st.Effective, ans.Why)
+		return st, deny("suspended pending the human's word: " + ans.Why + " — resume: agent-one resume " + s.RunID), Suspended, ans.Why
 	case gate.Denied:
 		st.Status = "denied"
 		s.Journal.Log(Event{"t": "record", "id": st.ID, "status": "denied", "attempts": 0})
@@ -763,15 +888,40 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	s.Journal.Log(Event{"t": "act", "id": st.ID, "attempt": 1, "ok": !res.Err, "ms": st.Ms, "out": tail(res.Output), "wrote": res.Wrote})
 	// VERIFY: the tool's own reading — an error result is a failed act
 	s.Journal.Log(Event{"t": "verify", "id": st.ID, "attempt": 1, "code": map[bool]int{false: 0, true: 1}[res.Err]})
+	gutsNote := s.gutsNote(st, call, res)
+	if (len(res.Wrote) > 0 || cls.Class >= tool.Write) && !res.Err {
+		s.gutsSpoke = 0 // a landed write is the opposite of thrash — streak resets
+	}
+	if e.Hooks.Note != nil {
+		gutsNote += e.Hooks.Note(ctx, s, st)
+	}
+	if e.Doom > 0 && s.gutsSpoke >= e.Doom {
+		why := fmt.Sprintf("notes-stress relief (doomLoop, streak %d ≥ %d): the guts kept speaking through %d windows with no recovery — auto-checkpoint, not another burn. Arms for the dispatcher: retire (handoff the durables, re-authorize the remnant), split (re-divide the slice into two fresh agents), configuration-shift (re-spawn on the lane's fallback model). journal %s",
+			s.gutsSpoke, e.Doom, s.gutsSpoke, journalRel(s))
+		s.Journal.Log(Event{"t": "budget", "why": "doomLoop:guts", "streak": s.gutsSpoke, "threshold": e.Doom})
+		s.trace("☠ doomLoop: %s", why)
+		// the relief must relieve: the streak and window that fired this doom are spent — without
+		// the reset the session carries an armed doom into the next turn, and any later guts at
+		// floor instant-checkpoints it (the pre-armed doom caught live 2026-10-03: a wake-run
+		// died on its first act because the streak of the checkpointed turn before it stood at 3)
+		s.gutsSpoke, s.gutsVals = 0, nil
+		content := res.Output
+		if content == "" {
+			content = "(no output)"
+		}
+		return st, provider.ToolResult{ID: call.ID, Content: content + gutsNote + "\n[doomLoop: relief ladder — this run is being checkpointed; the parent receives the split/retire/configuration-shift arms]", IsError: res.Err}, Checkpoint, why
+	}
 	for _, w := range res.Wrote {
 		st.Wrote = append(st.Wrote, env.Rel(w))
 		s.Wrote = appendUnique(s.Wrote, env.Rel(w))
+		s.wroteTot++
 	}
 	if cls.Class >= tool.Write {
 		// what the act changed on disk, whether or not the tool named it (the shell never does)
 		for _, w := range s.seen() {
 			st.Wrote = appendUnique(st.Wrote, w)
 			s.Wrote = appendUnique(s.Wrote, w)
+			s.wroteTot++
 		}
 	}
 	// RECORD
@@ -782,10 +932,10 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 		s.trace("  failed (%dms): %s", st.Ms, lastLine(res.Output))
 		s.observe(st, "end")
 		if s.failures > e.Budget.retries() {
-			return st, provider.ToolResult{ID: call.ID, Content: res.Output, IsError: true}, Escalate,
+			return st, provider.ToolResult{ID: call.ID, Content: res.Output + gutsNote, IsError: true}, Escalate,
 				fmt.Sprintf("%d consecutive failed acts, last %s (%s) — one hop up: the dispatcher decides; journal %s", s.failures, st.ID, lastLine(res.Output), journalRel(s))
 		}
-		return st, provider.ToolResult{ID: call.ID, Content: res.Output, IsError: true}, "", ""
+		return st, provider.ToolResult{ID: call.ID, Content: res.Output + gutsNote, IsError: true}, "", ""
 	}
 	s.failures = 0
 	st.Status = "done"
@@ -801,11 +951,17 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	if out == "" {
 		out = "(no output)"
 	}
-	return st, provider.ToolResult{ID: call.ID, Content: out}, "", ""
+	return st, provider.ToolResult{ID: call.ID, Content: out + gutsNote}, "", ""
 }
 
 // errGateRetry tells drive that finish sent a failed gate back to the model.
 var errGateRetry = errors.New("gate retry")
+
+// errWireRetry tells drive that finish sent an off-the-wire answer back to the model. Bounded
+// to one re-ask — the policy is pulled, not begged in a loop.
+var errWireRetry = errors.New("wire retry")
+
+const wireRetries = 1
 
 func (s *Session) finish(ctx context.Context, r *Result, resp provider.Response, end func(string, string) (*Result, error)) (*Result, error) {
 	e := s.Engine
@@ -818,7 +974,32 @@ func (s *Session) finish(ctx context.Context, r *Result, resp provider.Response,
 	}
 	rep, isWire := wire.ParseReport(r.Text)
 	r.Report, r.IsWire = rep, isWire
+	// The wire is policy for a dispatched agent, coded not begged: an answer that never opened @S is
+	// sent back once, exactly as a failed gate is. The violation's wording is the model's next
+	// message; one re-ask, then the agent stands undisciplined and the hole is the record.
+	if !isWire && e.Wire && s.wireTries < wireRetries {
+		s.wireTries++
+		r.Holes = append(r.Holes, fmt.Sprintf("answer off the wire — sent back (%d of %d)", s.wireTries, wireRetries))
+		s.Journal.Log(Event{"t": "wire", "id": "turn", "kind": "retry", "try": s.wireTries})
+		s.Messages = append(s.Messages, provider.Message{Role: provider.User, Text: fmt.Sprintf(
+			"Your answer was not on the wire (%d of %d sent back): it never opened `@S <status>`. A dispatched agent answers only on the wire — `@S <status>` opens, one `@F <file:line> <fact>` per finding, `@? <hole>` for what you could not settle, `@U <policy|team|ownership> <text>` for what nothing on disk says, `@E <bytes>` closes. Answer the same ask again, on the wire.", s.wireTries, wireRetries)})
+		return nil, errWireRetry
+	}
+	if isWire {
+		s.wireTries = 0 // the agent answered on the wire; a later turn's slip is its own
+	}
 	if isWire && e.Unsaid && len(rep.Unsaid) == 0 {
+		// +unsaid owes the @U line (requireUnsaid:true cables it into every commission). One bounce to
+		// land it — same medicine as the missing-@S retry, bound to ephemeral subagents (e.Wire). OWN counter
+		// (unsaidBounces): wireTries is zeroed by the isWire reset above.
+		if e.Wire && s.unsaidBounces < wireRetries {
+			s.unsaidBounces++
+			r.Holes = append(r.Holes, fmt.Sprintf("report carries no @U line — sent back (%d of %d)", s.unsaidBounces, wireRetries))
+			s.Journal.Log(Event{"t": "wire", "id": "turn", "kind": "unsaid-retry", "try": s.unsaidBounces})
+			s.Messages = append(s.Messages, provider.Message{Role: provider.User, Text: fmt.Sprintf(
+				"Your report answered on the wire but the `+unsaid` ask you carried forces an `@U` line, and yours has none (%d of %d sent back). Re-answer the same ask with the full wire shape — `@S` opens, `@F` findings, `@?` holes, `@U <policy|team|ownership> <text>` for each thing you know that nothing on disk says (answer `@U nothing unsaid` when there genuinely is none), `@E <bytes>` closes.", s.unsaidBounces, wireRetries)})
+			return nil, errWireRetry
+		}
 		r.hole("report carries no @U line — nothing unsaid, or the duty failed (the dispatcher may ask)")
 	}
 	if !isWire && e.Unsaid {
@@ -861,7 +1042,80 @@ func (s *Session) finish(ctx context.Context, r *Result, resp provider.Response,
 	if e.Gate != nil && e.Gate.DryRun {
 		return end(Dry, "")
 	}
+	open := ""
+	if e.PlanOpen != nil {
+		open = e.PlanOpen()
+	}
+	if e.ClosingCheck && !s.closingAsked {
+		s.closingAsked = true
+		s.Journal.Log(Event{"t": "closingcheck", "wrote": s.Wrote, "steps": s.Steps, "plan": open})
+		ask := "closing check: the agent's run is about to close. Read the ask once more — if anything it requests is " +
+			"not yet applied end-to-end, apply it now; your tools stand. Otherwise answer again and that answer is the report."
+		if open != "" {
+			ask += "\nplan open — " + open + ": tick it done (the plan tool walks one step), or finish it first."
+		}
+		ask += witnessDemand(s.Ask, s.Wrote)
+		ask += forgeDemand(s.Steps)
+		s.Messages = append(s.Messages, provider.Message{Role: provider.User, Text: ask})
+		return nil, errGateRetry
+	}
+	if open != "" {
+		r.hole("closed with an open plan: " + open)
+	}
 	return end(Done, "")
+}
+
+// witnessDemand is the closing check's falsification demand: an agent that wrote earns its close
+// by naming each behavior it requires of the output, the check it ran that could have proven it
+// wrong, and what that check observed — a close on belief ships nobody's transform verified. When
+// the ask carries invariance words ("unchanged", "identical", "preserve", "equivalent", …), only
+// a byte-level compare on representative untouched inputs admits; anything softer is the parse-
+// round-trip failure the fj cell taught (2026-09-29). Read-only runs are not asked for witnesses.
+func witnessDemand(ask string, wrote []string) string {
+	if len(wrote) == 0 {
+		return ""
+	}
+	w := wrote
+	if len(w) > 8 {
+		w = w[len(w)-8:]
+	}
+	t := "\nThis run wrote files (" + strings.Join(w, ", ") + "). Before you close: name every behavior you require of the output, " +
+		"the check you ran that could have proven it wrong, and what it observed. No witness named means you have not looked — look now." +
+		"\nAdmissible witnesses: a machine-check that could fail (a test, a diff, an assertion on the output), or an independent " +
+		"second method that shares no codepath with the first. Reading the same output again at higher fidelity is not a witness — " +
+		"it cannot disprove the first read. Name the forest before you name the leaf: enumerate what the artifact contains before " +
+		"answering what it says."
+	if invariantAsk(ask) {
+		t += "\nThe ask requires some inputs to survive unchanged/identical: the only admissible witness for that is a byte-level " +
+			"compare (cmp/sha) of your outputs against their inputs on a representative untouched sample (entities, self-closing " +
+			"voids, attribute ordering, mixed quoting — whatever the input class offers). Run it now if you have not."
+	}
+	return t
+}
+
+// forgeDemand is the closing check's crystallization question for long runs: an agent that burned
+// many steps carved a path with its feet, and paths walked twice should become skills. Under the
+// step floor the question stays silent (short runs teach nothing worth registering); over it the close
+// must either name a @FORGE draft or answer why the path is one-off.
+func forgeDemand(steps int) string {
+	if steps < 12 {
+		return ""
+	}
+	return "\nThis run cost " + fmt.Sprintf("%d", steps) + " steps. If the path it carved repeats — a tour, a probe, a ritual — " +
+		"name its draft once: @FORGE skill:<name> | one line saying when + how (the working notes registers it; the next agent walks it in three steps). " +
+		"If the path is one-off, say so in a word and close."
+}
+
+// invariantAsk reads the commission for invariance language. Substrings, lowercase — cheap and
+// generic; a false positive only buys the agent one extra verification step.
+func invariantAsk(ask string) bool {
+	q := strings.ToLower(ask)
+	for _, w := range []string{"unchanged", "identical", "preserve", "equivalent", "untouched", "unaltered", "byte-identical", "byte-for-byte", "as-is"} {
+		if strings.Contains(q, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // Emit renders the turn's answer for the human or the dispatcher: the model's report under
@@ -890,24 +1144,35 @@ func (s *Session) saveTranscript() {
 		return
 	}
 	p := strings.TrimSuffix(s.Journal.Path, ".jsonl") + ".transcript.json"
-	b, err := json.Marshal(map[string]interface{}{"runId": s.RunID, "ask": s.Ask, "messages": s.Messages, "wrote": s.Wrote, "steps": s.Steps, "spend": s.Spend})
-	if err == nil {
+	if b := s.Transcript(); b != nil {
 		_ = os.WriteFile(p, b, 0o644)
 	}
 }
 
-// Resume reopens a checkpointed, denied or escalated run from its transcript. Budgets restart
-// with this process; a tool call cut mid-flight is answered "interrupted", never replayed —
-// the model re-issues it and the gate asks again.
-func (e *Engine) Resume(ctx context.Context, runID string, ask string) (*Result, error) {
+// Transcript marshals the resume pack for this run: what Resume reads back. Written by
+// saveTranscript at the end of every failed/checkpointed/denied turn, and readable early
+// by a circuit that needs the pack before the run has finished dying (a subagent about to be
+// axed by its own clock journalizes to prepare for the time-out).
+func (s *Session) Transcript() []byte {
+	b, err := json.Marshal(map[string]interface{}{"runId": s.RunID, "ask": s.Ask, "messages": s.Messages, "wrote": s.Wrote, "steps": s.Steps, "spend": s.Spend})
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// ResumeWithSession is Resume plus the resumed session handle: hosts that rebind their live
+// thread to the run (the suspended-card flow — the human's word revives the question at the
+// step it died) need the session, not just the result.
+func (e *Engine) ResumeWithSession(ctx context.Context, runID string, ask string) (*Result, *Session, error) {
 	dir := e.JournalDir()
 	if dir == "" {
-		return nil, fmt.Errorf("loop: journaling is off; nothing to resume from")
+		return nil, nil, fmt.Errorf("loop: journaling is off; nothing to resume from")
 	}
 	p := filepath.Join(dir, runID+".transcript.json")
 	b, err := os.ReadFile(p)
 	if err != nil {
-		return nil, fmt.Errorf("loop: no transcript for %s (%v) — only CHECKPOINT, DENIED, ESCALATE and FAIL runs keep one", runID, err)
+		return nil, nil, fmt.Errorf("loop: no transcript for %s (%v) — only CHECKPOINT, DENIED, ESCALATE, SUSPENDED and FAIL runs keep one", runID, err)
 	}
 	var t struct {
 		Ask      string             `json:"ask"`
@@ -917,7 +1182,7 @@ func (e *Engine) Resume(ctx context.Context, runID string, ask string) (*Result,
 		Spend    provider.Usage     `json:"spend"`
 	}
 	if err := json.Unmarshal(b, &t); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s := e.NewSession()
 	s.RunID = runID
@@ -942,7 +1207,17 @@ func (e *Engine) Resume(ctx context.Context, runID string, ask string) (*Result,
 	default:
 		s.Messages = append(s.Messages, provider.Message{Role: provider.User, Text: ask})
 	}
-	return s.drive(ctx)
+	r, err := s.drive(ctx)
+	return r, s, err
+}
+
+// Resume reopens a checkpointed, denied or escalated run from its transcript. Budgets restart
+// with this process; a tool call cut mid-flight is answered "interrupted", never replayed —
+// the model re-issues it and the gate asks again. Hosts needing the resumed session (the
+// suspended-card flow) use ResumeWithSession.
+func (e *Engine) Resume(ctx context.Context, runID string, ask string) (*Result, error) {
+	r, _, err := e.ResumeWithSession(ctx, runID, ask)
+	return r, err
 }
 
 func journalRel(s *Session) string {

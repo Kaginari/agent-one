@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"image/color"
 	"strings"
 	"sync"
 
@@ -18,7 +20,7 @@ var (
 // light, or notty when the terminal has no colour), no document margin so the text sits
 // flush with the blocks around it. A render failure falls back to the plain text.
 func (t Theme) Markdown(md string, width int) string {
-	md = strings.ReplaceAll(strings.TrimSpace(md), "\t", "    ")
+	md = textSanitize(strings.ReplaceAll(strings.TrimSpace(md), "\t", "    "))
 	if md == "" {
 		return ""
 	}
@@ -87,7 +89,50 @@ func (t Theme) styleConfig() ansi.StyleConfig {
 	sc.Document.BlockPrefix = ""
 	sc.Document.BlockSuffix = ""
 	sc.CodeBlock.Margin = &zero
+	if t.Color {
+		sc = t.brandStyleConfig(sc)
+	}
 	return sc
+}
+
+// brandStyleConfig re-paints the stock dark/light config into the workspace palette (the same
+// tokens the blocks hold — board.css carried to the terminal): the gold global lane on
+// headings and strong text, the verdant coordinator lane on links, the ember domain owner lane on emphasis,
+// the chartreuse zone worker lane on inline code, code blocks resting on the pane's own honest
+// background, and quotes sunk into the dim. no-tricks policy: colours only, never a fake.
+func (t Theme) brandStyleConfig(sc ansi.StyleConfig) ansi.StyleConfig {
+	gold := hexOf(t.accent.GetForeground())
+	verdant := hexOf(t.lane("coord"))
+	ember := hexOf(t.lane("domain"))
+	chartreuse := hexOf(t.lane("zone"))
+	dimC := hexOf(t.dim.GetForeground())
+	paneBgHex := hexOf(t.paneBg())
+
+	sc.Heading.Color = &gold
+	sc.Strong.Color = &gold
+	sc.Emph.Color = &ember
+	sc.Link.Color = &verdant
+	sc.LinkText.Color = &verdant
+	ital := true
+	sc.LinkText.Italic = &ital
+	sc.Code.Color = &chartreuse
+
+	sc.BlockQuote.Color = &dimC
+	sep := "▎ "
+	sc.BlockQuote.IndentToken = &sep
+	sc.CodeBlock.StyleBlock.BackgroundColor = &paneBgHex
+
+	return sc
+}
+
+// hexOf renders a palette colour as glamour's "#rrggbb". A nil colour (a lane the rank
+// doesn't have) yields a neutral grey rather than a bad escape.
+func hexOf(c color.Color) string {
+	if c == nil {
+		return "#888888"
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
 }
 
 func itoa(n int) string {

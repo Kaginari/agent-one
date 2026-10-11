@@ -33,7 +33,8 @@ func ranksFor(cfg *config.Config, lex workspace.Lexicon) workspace.Ranks {
 	for _, r := range cfg.Ranks() {
 		name := designRank(r.Name)
 		wr := workspace.Rank{Name: name, ReportsTo: designRank(r.ReportsTo), Job: r.Job, Authors: r.Authors, HoldsGate: r.HoldsGate, Sideways: r.Sideways,
-			Agent: r.Agent, Role: r.Role, Tools: append([]string(nil), r.Tools...), Base: designRank(r.PromotesFrom)}
+			Agent: r.Agent, Role: r.Role, Tools: append([]string(nil), r.Tools...), Base: designRank(r.PromotesFrom), Layer: r.Layer,
+			DivineRules: append([]string(nil), r.DivineRules...), PromotesWhen: r.PromotesWhen}
 		if d, ok := def[name]; ok && r.Builtin {
 			wr.Dir, wr.Prefix = d.Dir, d.Prefix
 			if wr.ReportsTo == "" {
@@ -130,10 +131,10 @@ func relOrAbs(root, p string) string {
 // hookOptions is config's word on the workspace's hooks.
 func hookOptions(cfg *config.Config, rules []workspace.Rule) workspace.HookOptions {
 	h := workspace.DefaultHooks()
-	h.Recall = workspace.RecallOptions{Enabled: cfg.Memory.Long.Enabled || cfg.Toolbox.Enabled, Memory: cfg.Memory.Long.Enabled, Toolbox: cfg.Toolbox.Enabled, K: cfg.Memory.Recall.K, Budget: cfg.Toolbox.BudgetTokens}
+	h.Recall = workspace.RecallOptions{Enabled: cfg.Memory.Long.Enabled || cfg.Toolbox.Enabled, Memory: cfg.Memory.Long.Enabled, Toolbox: cfg.Toolbox.Enabled, K: cfg.Memory.Recall.K, Budget: cfg.Toolbox.BudgetTokens, RebuildOnStale: cfg.Memory.Long.RebuildOnStale}
 	h.Record = workspace.RecordOptions{Enabled: cfg.Memory.Shared.Workspace.Enabled, Unsaid: cfg.Memory.Shared.Workspace.Enabled, Landed: false}
 	h.Gate = workspace.GateOptions{Enabled: cfg.Policy.Gate.Enabled, RightAuthor: cfg.Policy.Gate.RightAuthor, InvariantsHold: cfg.Policy.Gate.InvariantsHold, DutiesDone: cfg.Policy.Gate.DutiesDone,
-		DocTruthful: cfg.Policy.Gate.DocTruthful || cfg.Policy.DocsAsCode.Enabled, Log: cfg.Policy.Log.Enabled, Retries: cfg.Policy.Gate.Retries, TestsIntact: cfg.Policy.Gate.TestsIntact}
+		DocTruthful: cfg.Policy.Gate.DocTruthful || cfg.Policy.DocsAsCode.Enabled, Log: cfg.Policy.Log.Enabled, Retries: cfg.Policy.Gate.Retries, TestsIntact: cfg.Policy.Gate.TestsIntact, Timeout: cfg.Policy.Gate.VerifyTimeout.D()}
 	for _, ck := range cfg.Checks("", "") {
 		h.Gate.Checks = append(h.Gate.Checks, workspace.Check{Name: ck.ID, Command: ck.Command, Timeout: ck.Timeout, Scope: ck.Scope})
 	}
@@ -151,7 +152,7 @@ func hookOptions(cfg *config.Config, rules []workspace.Rule) workspace.HookOptio
 		}
 	}
 	h.Prompt = workspace.PromptOptions{Principles: cfg.Policy.Principles.Enabled, Identity: true, Ontology: workspace.OntologyOptions{Enabled: cfg.Ontology.Enabled, Budget: cfg.Ontology.ProjectBudgetTokens},
-		Instructions: cfg.Discovery.Instructions.Enabled, Member: true, Memory: cfg.Memory.Long.Enabled || cfg.Memory.Shared.Workspace.Enabled}
+		Instructions: cfg.Discovery.Instructions.Enabled, Member: true, Memory: cfg.Memory.Long.Enabled || cfg.Memory.Shared.Workspace.Enabled, SelfState: cfg.Policy.Guts.Enabled}
 	for _, r := range cfg.Rules {
 		if r.Text != "" {
 			h.Prompt.Rules = append(h.Prompt.Rules, workspace.Rule{Text: r.Text, Scope: r.Scope})
@@ -180,6 +181,26 @@ func compactOptions(cfg *config.Config, window int) compact.Options {
 func policyBudget(cfg *config.Config, maxTokens int) loop.Budget {
 	return loop.Budget{Steps: cfg.Policy.Budget.Steps, Minutes: cfg.Policy.Budget.Minutes, Retries: cfg.Policy.Escalation.MaxRetries, MaxTokens: maxTokens,
 		Context: instrument.Budget{Limit: cfg.Policy.Budget.ContextTokens, Stress: cfg.Policy.Budget.StressTokens}}
+}
+
+// policyGuts: the loop's per-step value sense, shared by orchestrator and subagent children (N13 evening
+// audit: children ran gutless — the flailing zone worker got zero in-band nudges). nil = off.
+func policyGuts(cfg *config.Config) *loop.Guts {
+	if !cfg.Policy.Guts.Enabled {
+		return nil
+	}
+	return &loop.Guts{Window: cfg.Policy.Guts.Window, Floor: cfg.Policy.Guts.Floor,
+		BenchThrashVisits: cfg.Policy.Guts.BenchThrashVisits, DigestEvery: cfg.Policy.Guts.DigestEvery}
+}
+
+// policyDoom: the notes-stress auto-relief ladder (policy.yaml doomLoop). An agent's guts spoke
+// streak past threshold ends its run CHECKPOINT with the three arms (retire / split /
+// configuration-shift) named on the wire — relief is automatic, the dispatcher picks the arm. 0 = off.
+func policyDoom(cfg *config.Config) int {
+	if !cfg.Policy.DoomLoop.Enabled {
+		return 0
+	}
+	return cfg.Policy.DoomLoop.Threshold
 }
 
 // router resolves and meters the provider for a workspace route (dispatch or session).

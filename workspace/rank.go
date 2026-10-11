@@ -14,25 +14,70 @@ import (
 // the whole table. Ownership, the gate and dispatch read Authors, HoldsGate and Tools; nothing
 // below names coord, domain or zone worker.
 type Rank struct {
-	Name      string   // canonical id: coord | domain | zone | service | principal_coordinator | principal_domain_owner | auditor | anything from config
-	ReportsTo string   // the rank one hop up; "orchestrator" at the top
-	Job       string   // one line
-	Authors   bool     // authors changes in its ownership (ownership is enforced on it)
-	HoldsGate bool     // gates the authoring ranks below it
-	Sideways  bool     // may dispatch its own rank (domain ⇄ domain)
-	Agent     string   // ephemeral | persistent
-	Role      string   // default role: analyst | judge | drafter
-	Tools     []string // tool names its shelf is cut to
-	Dir       string   // folder under the workspace dir; "" for a rank with no members on disk
-	Prefix    string   // member-id prefix, Dir + "-"
-	Base      string   // an promoted rank keeps everything its base held
+	Name         string   // canonical id: coordinator | domain owner | zone worker | service owner | principal_coordinator | principal_domain_owner | auditor | anything from config
+	ReportsTo    string   // the rank one hop up; "orchestrator" at the top
+	Job          string   // one line
+	Authors      bool     // authors changes in its ownership (ownership is enforced on it)
+	HoldsGate    bool     // gates the authoring ranks below it
+	Sideways     bool     // may dispatch its own rank (domain owner → domain owner) and know its layer-mates
+	Agent        string   // subagent | persistent agent
+	Role         string   // default role: analyst | judge | drafter
+	Tools        []string // tool names its shelf is cut to
+	Dir          string   // folder under the workspace dir; "" for a rank with no members on disk
+	Prefix       string   // member-id prefix, Dir + "-"
+	Base         string   // a promoted rank keeps everything its base held
+	Layer        int      // config-declared layer (0 when unset); two ranks share a layer iff equal and nonzero
+	DivineRules  []string // a promoted rank's absolute rules; they reach the base rank as coded rules
+	PromotesWhen string   // the metrics condition under which a body of this rank promotes (ASL); "" = never
+}
+
+// Relation names the three coded bonds between two ranks.
+type Relation int
+
+const (
+	RelNone     Relation = iota // no bond
+	RelParent                   // a is one hop above b (a= ReportsTo b)
+	RelChild                    // a is one hop below b
+	RelDivine                   // a promotes b (a.Base == b) or b promotes a
+	RelNeighbor                 // a and b share a layer (one rank, or two at one configured Layer)
+)
+
+// Divine reports whether this rank is a promotion (a principal-domain-owner over domain owner).
+func (r Rank) Divine() bool { return r.Base != "" }
+
+// relate is the bond between two ranks, coded from the tree — never inferred from names.
+func (rs Ranks) relate(a, b string) Relation {
+	if a == "" || b == "" {
+		return RelNone
+	}
+	if a == b {
+		return RelNeighbor
+	}
+	ra, oka := rs.Get(a)
+	rb, okb := rs.Get(b)
+	if !oka || !okb {
+		return RelNone
+	}
+	if ra.Base == b || rb.Base == a {
+		return RelDivine
+	}
+	if ra.ReportsTo == b {
+		return RelChild // a reports to b
+	}
+	if rb.ReportsTo == a {
+		return RelParent // a is above b
+	}
+	if ra.Layer != 0 && ra.Layer == rb.Layer {
+		return RelNeighbor
+	}
+	return RelNone
 }
 
 // Orchestrator is the root of every table: the session, no dir, every tool.
 const Orchestrator = "orchestrator"
 
 // AllTools is the shelf a rank with no Tools listed gets (orchestrator's).
-var AllTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy", "dispatch"}
+var AllTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy", "dispatch", "plan"}
 
 var baseTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy"}
 
@@ -41,12 +86,12 @@ func DefaultRanks(lex Lexicon) []Rank {
 	d := func(r string) string { return lex.Ranks[r] }
 	p := func(r string) string { return lex.Prefixes[r] }
 	return []Rank{
-		{Name: "coord", ReportsTo: Orchestrator, Job: "the shared skill and voice: thinks across domains, routes work to domain owners, speaks back up", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: d("coord"), Prefix: p("coord")},
-		{Name: "domain", ReportsTo: "coord", Job: "rules its domain, commands its zone workers, holds the gate", HoldsGate: true, Sideways: true, Agent: "ephemeral", Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain")},
+		{Name: "coord", ReportsTo: Orchestrator, Job: "the shared skill and voice: thinks across domains, routes work to domain owners, speaks back up — on an order from above it first writes its plan deck (`plan` tool: one line per slice, each named to the domain owner whose domain owns it), then dispatches — domain owners in parallel (background: true) when the slices are independent", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: d("coord"), Prefix: p("coord")},
+		{Name: "domain", ReportsTo: "coord", Job: "rules its domain, commands its zone workers, holds the gate — the slice's verify is written before its zone worker is ordered (the gate proves the landing, never after)", HoldsGate: true, Sideways: true, Agent: "ephemeral", Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain")},
 		{Name: "zone", ReportsTo: "domain", Job: "the ground truth of its zone: authors changes there", Authors: true, Agent: "ephemeral", Role: "analyst", Tools: baseTools, Dir: d("zone"), Prefix: p("zone")},
 		{Name: "service", ReportsTo: Orchestrator, Job: "standing domain lead: owns one subsystem end-to-end across sessions", Authors: true, HoldsGate: true, Agent: "persistent", Role: "judge", Tools: AllTools, Dir: d("service"), Prefix: p("service")},
-		{Name: "principal_coordinator", ReportsTo: Orchestrator, Job: "promoted coord: the cross-domain invariants an coordinator consolidated", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: d("coord"), Prefix: p("coord"), Base: "coord"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Job: "promoted domain: the domain invariants an domain owner consolidated", HoldsGate: true, Sideways: true, Agent: "ephemeral", Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain"), Base: "domain"},
+		{Name: "principal_coordinator", ReportsTo: Orchestrator, Job: "promoted coordinator: the cross-domain invariants a coordinator consolidated", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: d("coord"), Prefix: p("coord"), Base: "coord", PromotesWhen: "promote coord when intelligence >= 70 && reports >= 5"},
+		{Name: "principal_domain_owner", ReportsTo: "coord", Job: "promoted domain owner: the domain invariants a domain owner consolidated", HoldsGate: true, Sideways: true, Agent: "ephemeral", Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain"), Base: "domain", PromotesWhen: "promote domain when intelligence >= 70 && reports >= 5"},
 		{Name: "auditor", ReportsTo: Orchestrator, Job: "the auditor: reviews verdicts and the log, never authors", Agent: "persistent", Role: "judge", Tools: []string{"read", "bash", "glob", "grep", "policy"}, Dir: d("auditor"), Prefix: p("auditor")},
 	}
 }
@@ -161,6 +206,21 @@ func (rs Ranks) Validate() error {
 				return fmt.Errorf("promoted rank %s has unknown base %s", r.Name, r.Base)
 			}
 		}
+		if r.PromotesWhen != "" {
+			if r.Base == "" {
+				return fmt.Errorf("rank %s: promotesWhen is a promoted rank's field (%s has no base)", r.Name, r.Name)
+			}
+			as, err := ParseASL(r.PromotesWhen)
+			if err != nil {
+				return fmt.Errorf("rank %s: promotesWhen %q: %v", r.Name, r.PromotesWhen, err)
+			}
+			if as.Target != r.Base {
+				return fmt.Errorf("rank %s: promotesWhen promotes %s, not its base %s", r.Name, as.Target, r.Base)
+			}
+		}
+		if len(r.DivineRules) > 0 && r.Base == "" {
+			return fmt.Errorf("rank %s: divineRules is a promoted rank's field (%s has no base)", r.Name, r.Name)
+		}
 		if r.Dir != "" && r.Prefix != "" && r.Prefix != r.Dir+"-" {
 			return fmt.Errorf("rank %s: prefix %q must be dir %q + \"-\"", r.Name, r.Prefix, r.Dir)
 		}
@@ -189,13 +249,20 @@ func reachesRoot(rs Ranks, name string) bool {
 // Layout is the onto layout of this table under a lexicon.
 func (rs Ranks) Layout(lex Lexicon) onto.Layout {
 	l := onto.Layout{WorkspaceDir: lex.WorkspaceDir, Policy: lex.Policy, Ranks: []onto.RankDir{}}
+	baseDirs := map[string]bool{}
+	for _, r := range rs {
+		if r.Base == "" && r.Dir != "" {
+			baseDirs[r.Dir] = true
+		}
+	}
 	for _, r := range rs {
 		if r.Dir == "" {
 			continue
 		}
 		parent := r.ReportsTo
-		// an promoted rank's members live in the base's dir under the base's class
-		if r.Base != "" {
+		// a promoted rank's members live in the base's dir under the base's class — unless
+		// config gave the promoted its own dir, which walks as its own class
+		if r.Base != "" && baseDirs[r.Dir] {
 			continue
 		}
 		l.Ranks = append(l.Ranks, onto.RankDir{Name: r.Name, Dir: r.Dir, Parent: parent})
@@ -258,4 +325,154 @@ func RoleOf(ask string) string {
 		return o
 	}
 	return "analyst"
+}
+
+// ─── Layers, neighbors, divine rules, strict flow, promotion ────────────────────────────
+
+// NeighborRanks lists the rank names sharing `rank`'s layer. Knowledge, not permission: every
+// rank knows its layer-mates (you told it zone workers know their neighbors; so do domain owners and coordinators).
+// Whether an agent may *dispatch* a neighbor is the rank's Sideways flag, enforced in the
+// Dispatcher — never here. A layer is the configured Layer number when set, else the set of
+// ranks reporting to one parent. orchestrator is alone.
+func (rs Ranks) NeighborRanks(rank string) []string {
+	if rank == "" || rank == Orchestrator {
+		return nil
+	}
+	r, ok := rs.Get(rank)
+	if !ok {
+		return nil
+	}
+	out := []string{rank}
+	bound := map[string]bool{rank: true, Orchestrator: true}
+	for _, o := range rs {
+		if bound[o.Name] {
+			continue
+		}
+		if r.Layer != 0 && o.Layer == r.Layer {
+			out = append(out, o.Name)
+			bound[o.Name] = true
+			continue
+		}
+		if r.Layer == 0 && o.Layer == 0 && o.ReportsTo == r.ReportsTo {
+			out = append(out, o.Name)
+			bound[o.Name] = true
+		}
+	}
+	return out
+}
+
+// DivineRulesFor collects the absolute rules promoted ranks declare for `base` — every rank
+// whose Base is `base`, in table order. Coded, never prompted: the harness laces them into the
+// base rank's "Rules in force" block.
+func (rs Ranks) DivineRulesFor(base string) []string {
+	var out []string
+	for _, r := range rs {
+		if r.Base == base {
+			out = append(out, r.DivineRules...)
+		}
+	}
+	return out
+}
+
+// nextHop is the rank directly under `from` on the path to `to`, walking `to`'s ReportsTo
+// chain; "" when `to` is not below `from`.
+func (rs Ranks) nextHop(from, to string) string {
+	if from == to {
+		return from
+	}
+	hop := ""
+	seen := map[string]bool{}
+	for cur := to; cur != "" && cur != Orchestrator && !seen[cur]; {
+		seen[cur] = true
+		r, ok := rs.Get(cur)
+		if !ok {
+			return ""
+		}
+		if r.ReportsTo == from {
+			hop = cur
+		}
+		cur = r.ReportsTo
+	}
+	return hop
+}
+
+// firstChildRank is the first rank directly under `name` in table order; "" when none.
+// Coded, used by the refusal texts to name the lawful next hop.
+func (rs Ranks) firstChildRank(name string) string {
+	for _, r := range rs {
+		if r.ReportsTo == name {
+			return r.Name
+		}
+	}
+	return ""
+}
+
+// DirectChild reports whether `to` is exactly one hop under `from`: the strict layer flow.
+// Between two ranks at one layer it reports whether they neighbor (a sideways hop). Strict
+// flow holds neighbors and the ladder; the divine bond is not a layer — a promoted overload
+// dispatches over its base's layer.
+func (rs Ranks) DirectChild(from, to string) bool {
+	if from == Orchestrator {
+		r, ok := rs.Get(to)
+		return ok && r.ReportsTo == Orchestrator
+	}
+	if !rs.In(to) || !rs.In(from) {
+		return false
+	}
+	if rel := rs.relate(from, to); rel == RelNeighbor {
+		return true // a sideways intead of down, within one layer
+	}
+	return rs.nextHop(from, to) == to
+}
+
+// In reports whether the rank name is on the table (orchestrator counts).
+func (rs Ranks) In(name string) bool {
+	_, ok := rs.Get(name)
+	return ok
+}
+
+// ChainDepth is the longest ReportsTo chain under orchestrator — how deep a dispatch may nest before
+// it passes the table's floor rank. It never counts the floor's own dispatch: the floor holds
+// no dispatch tool (its Tools list decides), so one rank past it suffices to stop. Used as the
+// effective dispatch depth when config sets none (defaults.go maxDepth pairs with the default
+// table's orchestrator → coordinator → domain owner → zone worker = 3; a configured table walks its own length).
+func (rs Ranks) ChainDepth() int {
+	best := 0
+	for _, r := range rs {
+		depth, cur, seen := 0, r.Name, map[string]bool{}
+		for cur != "" && cur != Orchestrator && !seen[cur] {
+			seen[cur] = true
+			depth++
+			p, ok := rs.Get(cur)
+			if !ok || p.Name == Orchestrator {
+				break
+			}
+			cur = p.ReportsTo
+		}
+		if depth > best {
+			best = depth
+		}
+	}
+	return best
+}
+
+// Promotion pairs a rank that can promote with the rank it promotes to.
+type Promotion struct {
+	From, To string
+	When     string // the ASL condition on the promoted rank
+}
+
+// Promotions walks the table's divine bonds: each promoted rank that names an promotesWhen is
+// one evaluation the runtime owes.
+func (rs Ranks) Promotions() []Promotion {
+	var out []Promotion
+	for _, r := range rs {
+		if r.Base != "" && strings.TrimSpace(r.PromotesWhen) != "" {
+			when, err := ParseASL(r.PromotesWhen)
+			if err == nil && when.Target == r.Base {
+				out = append(out, Promotion{From: r.Base, To: r.Name, When: r.PromotesWhen})
+			}
+		}
+	}
+	return out
 }

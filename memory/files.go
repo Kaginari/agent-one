@@ -229,7 +229,7 @@ type NamedPath struct {
 	Name, P string
 }
 
-var SkillBases = []string{".opencode/skills", ".opencode/skill", ".claude/skills"}
+var SkillBases = []string{".agent-one/crafted-skills", ".agent-one/base-skills", ".opencode/skills", ".opencode/skill", ".claude/skills"}
 var CommandBases = []string{".claude/commands", ".opencode/commands", ".opencode/command"}
 
 func Skills(root string) []NamedPath {

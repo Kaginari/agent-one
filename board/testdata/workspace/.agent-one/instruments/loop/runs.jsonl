@@ -1,0 +1,5 @@
+{"t":"run","id":"r1","agent":"orchestrator-operation-room-litellm","as":"zone-auth","ask":"smoke"}
+{"t":"act","id":"r1","i":0,"tool":"noop"}
+{"t":"record","id":"r1","i":0,"tool":"noop","status":"done"}
+{"t":"end","id":"r1","status":"PASS"}
+

@@ -94,8 +94,10 @@ budgets:
 		{Route{}, "claude-opus-5", "models.default"},
 		{Route{Role: "analyst"}, "claude-haiku-4-5", "models.roles.analyst"},
 		{Route{Role: "analyst"}, "claude-haiku-4-5", "models.roles.analyst"},
+		// roles lens policy (member → role → task → default): the commission's role hat
+		// decides — ranks never pitch a model, only name who an agent is
 		{Route{Rank: "zone", Role: "judge"}, "claude-opus-5", "models.roles.judge"},
-		{Route{Rank: "zone"}, "claude-sonnet-5", "models.ranks.zone"},
+		{Route{Rank: "zone"}, "claude-opus-5", "models.default"},
 		{Route{Task: "drain"}, "claude-haiku-4-5", "models.tasks.drain"},
 		{Route{Task: "gate"}, "claude-opus-5", "models.default"},
 	}
@@ -146,7 +148,8 @@ budgets:
 			t.Errorf("record lacks %s: %s", k, lines[0])
 		}
 	}
-	// 100 in × $1/M + 10 out × $5/M + 1000 cache read × $0.1/M = 0.0001 + 0.00005 + 0.0001
+	// 100 in × $1/M + 10 out × $5/M + 1000 cache read × $0.1/M = 0.00025 — the role hat
+	// (models.roles.analyst → haiku) lenses now: rank pins are dead by policy
 	if usd, _ := rec["usd"].(float64); usd < 0.00024 || usd > 0.00026 || rec["agent"] != "zone-auth" || rec["role"] != "analyst" || rec["model"] != "anthropic/claude-haiku-4-5" || rec["cacheRead"].(float64) != 1000 {
 		t.Errorf("priced record: %s", lines[0])
 	}
@@ -268,5 +271,10 @@ providers:
 func TestFinishReasonErrorFallsBack(t *testing.T) {
 	if !retryable(fmt.Errorf("openai: the upstream ended the answer with finish_reason error (model m) — a failed call, not an answer")) {
 		t.Fatal("an upstream error ending must move the call to the fallback")
+	}
+	// a missing model group on the gateway (HTTP 404) IS the fallback's purpose: availability —
+	// the secondary rides on (2026-09-28: the bench workspace ran domain owner verdicts on a 404ing group)
+	if !retryable(fmt.Errorf("openai: HTTP 404: model group glm-5-conduit not found")) {
+		t.Fatal("a gateway 404 on the primary must move the call to the fallback")
 	}
 }

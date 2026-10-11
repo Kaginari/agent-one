@@ -21,12 +21,14 @@ import (
 // typed mid-turn is queued and reaches the agent at its next tool step; Subagents may run in the
 // background and wake the session with their reports; slash commands read the instruments.
 func (a *App) REPL(ctx context.Context) int {
+	a.planBoot = time.Now() // plan decks penned before now are last session's memory, never gate-holders
 	e, err := a.Engine()
 	if err != nil {
 		fmt.Fprintf(a.Opt.Err, "@S FAIL\n@? %v\n", err)
 		return 2
 	}
 	s := e.NewSession()
+	defer a.logExit(s) // veil-exit row: a mid-prompt hand-lower is its own chronicle fact (Operator 2026-10-03)
 	out, errw := a.Opt.Out, a.Opt.Err
 	a.Hooks.SessionStart(ctx)
 	fmt.Fprintf(errw, "%s · %s · %s · session %s · /help\n", a.Cfg.Dist.Name, a.mountModel.Ref.Model, a.Root, a.SessionID)
@@ -151,8 +153,11 @@ func (a *App) REPL(ctx context.Context) int {
 				continue
 			}
 			if turnDone != nil {
-				_ = a.Subagent.Send(workspace.Orchestrator, line)
-				fmt.Fprintln(errw, "queued for the next tool step")
+				// B: FIFO — the line waits for the turn-done drain below (which pulls
+				// Inbox and starts it as the next turn). Never injected mid-turn, so the
+				// running task completes first; ctrl+c pivots straight to the queue.
+				_ = a.Subagent.Enqueue(workspace.Orchestrator, line)
+				fmt.Fprintln(errw, "queued — runs after the current turn")
 				continue
 			}
 			if why := a.Hooks.UserPrompt(ctx, line); why != "" {
@@ -164,7 +169,12 @@ func (a *App) REPL(ctx context.Context) int {
 		case r := <-turnDone:
 			finish(r)
 			// what arrived after the turn's last tool step is not lost: it opens the next turn
-			pending := append(a.Subagent.Inbox(workspace.Orchestrator), a.Subagent.TakeWake()...)
+			pending := append(a.Subagent.DrainAll(workspace.Orchestrator), a.Subagent.TakeWake()...)
+			// @$ — work the model ordered one layer down in a wire report — becomes its own
+			// dispatch prompt first (it sits *under* any plain inbox/wake), so a drained order
+			// is never drowned out by the human's queued line.
+			orders := a.Subagent.OrderBook()
+			pending = append(a.dispatchOrders(orders), pending...)
 			if len(pending) > 0 {
 				start(strings.Join(pending, "\n\n"))
 				continue
@@ -256,7 +266,7 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 	case "quit", "exit", "q":
 		return true
 	case "help", "?":
-		fmt.Fprintln(out, "/dash · /agents · /send <agent> <text> · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
+		fmt.Fprintln(out, "/dash · /agents · /send <agent> <text> · /forge [register n] · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
 		var names []string
 		for _, c := range a.Found.Commands {
 			names = append(names, "/"+c.Name)
@@ -293,6 +303,8 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 		} else {
 			fmt.Fprintf(out, "queued for %s's next tool step\n", agent)
 		}
+	case "forge":
+		a.forgeCmd(out, errw, rest)
 	case "usage":
 		recs, _ := ReadUsage(a.Journal.Dir)
 		for _, l := range RollupOf(recs, timeZero(), a.SessionID).Lines() {
@@ -434,6 +446,21 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 // queueTurn hands a command's expanded text to the REPL as if typed: it rides the wake queue.
 func (a *App) queueTurn(text string) {
 	a.Subagent.Wake(text)
+}
+
+// dispatchOrders renders drained @$ orders as turn prompts the REPL starts. An order that
+// names an agent whose Subagent already finished carries that report as context, so the dispatcher
+// sees the thread instead of starting cold.
+func (a *App) dispatchOrders(orders []struct{ Agent, Ask, Report string }) []string {
+	out := make([]string, 0, len(orders))
+	for _, o := range orders {
+		text := fmt.Sprintf("dispatch %s: %s", o.Agent, o.Ask)
+		if o.Report != "" {
+			text += fmt.Sprintf("\n\n(the same agent's earlier Subagent reported — the thread so far:)\n%s", o.Report)
+		}
+		out = append(out, text)
+	}
+	return out
 }
 
 // loadSession rebuilds a loop session from a session file.

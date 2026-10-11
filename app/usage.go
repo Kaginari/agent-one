@@ -69,12 +69,13 @@ type UsageJournal struct {
 	mu     sync.Mutex
 	total  Spend
 	agents map[string]*Spend
+	ranks  map[string]*Spend // the layer pills in the vitals card
 	off    bool
 }
 
 // NewUsageJournal opens the journal for a session; dir "" keeps totals without writing.
 func NewUsageJournal(dir, session string) *UsageJournal {
-	return &UsageJournal{Dir: dir, Session: session, agents: map[string]*Spend{}, off: dir == ""}
+	return &UsageJournal{Dir: dir, Session: session, agents: map[string]*Spend{}, ranks: map[string]*Spend{}, off: dir == ""}
 }
 
 // Path is the session's journal file ("" when off).
@@ -105,6 +106,16 @@ func (j *UsageJournal) Record(r UsageRecord) error {
 		j.agents[r.Agent] = b
 	}
 	b.add(r)
+	rk := r.Rank
+	if rk == "" {
+		rk = "orchestrator"
+	}
+	rk2 := j.ranks[rk]
+	if rk2 == nil {
+		rk2 = &Spend{}
+		j.ranks[rk] = rk2
+	}
+	rk2.add(r)
 	if j.off {
 		return nil
 	}
@@ -145,6 +156,20 @@ func (j *UsageJournal) Agent(name string) Spend {
 		return *b
 	}
 	return Spend{}
+}
+
+// Ranks is a copy of the per-rank token spend so far (session rims in the pills).
+func (j *UsageJournal) Ranks() map[string]Spend {
+	out := map[string]Spend{}
+	if j == nil {
+		return out
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for k, v := range j.ranks {
+		out[k] = *v
+	}
+	return out
 }
 
 // ReadUsage reads every record under dir (all sessions), oldest file first.

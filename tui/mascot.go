@@ -53,8 +53,27 @@ func mascotFor(dist string) sprite {
 
 // Mascot draws the distribution's sprite as half-block rows, and its tagline.
 func Mascot(dist string) (rows []string, tagline string) {
+	return mascotArt(dist, false)
+}
+
+// mascotArt is Mascot with a blink frame: closed swaps the eye pixels for agent, so the sprite
+// blinks where it lives — the sidebar.
+func mascotArt(dist string, closed bool) (rows []string, tagline string) {
 	sp := mascotFor(dist)
-	return halfBlocks(sp.pixels, sp.palette), sp.tagline
+	pixels := sp.pixels
+	if closed {
+		swapped := make([]string, len(pixels))
+		for i, row := range pixels {
+			swapped[i] = strings.Map(func(r rune) rune {
+				if r == 'E' {
+					return rune(sp.body)
+				}
+				return r
+			}, row)
+		}
+		pixels = swapped
+	}
+	return halfBlocks(pixels, sp.palette), sp.tagline
 }
 
 // Title is the distribution's name on its gradient.

@@ -121,6 +121,9 @@ func LoadWith(o Options) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if local, err = rd.localSections(local, filepath.Join(root, dist.WorkspaceDir), layers[0].Node); err != nil {
+		return nil, err
+	}
 	if disableProject {
 		project.Present, project.Node = false, nil
 		local.Present, local.Node = false, nil
@@ -738,6 +741,65 @@ func sortedKeys[T any](m map[string]T) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// localSections folds per-section local files beside config.local.yaml into the local layer;
+// <section>.local.yaml (or .yml, .json) holds one top-level section's value, machine-only,
+// never traveling by git — the local mirror of sections(): it comes after config.local.yaml
+// in the same layer, so it wins there even bare of any config.local.yaml, and its values
+// keep their own file for `config explain`. A name that is no section is left alone;
+// two local files for one section fail exactly like two section files would.
+func (r *reader) localSections(l Layer, dir string, defaults *yaml.Node) (Layer, error) {
+	known := map[string]bool{}
+	if defaults != nil {
+		for _, k := range defaults.Keys {
+			known[k] = true
+		}
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return l, nil
+	}
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	seen := map[string]string{}
+	for _, n := range names {
+		ext := strings.ToLower(filepath.Ext(n))
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+			continue
+		}
+		section, ok := strings.CutSuffix(strings.TrimSuffix(n, ext), ".local")
+		if !ok {
+			continue // config.local.yaml is named for no section — the dirLayer keeps it
+		}
+		if a, ok := sectionAliases[section]; ok {
+			section = a
+		}
+		if !known[section] {
+			continue
+		}
+		if prev, ok := seen[section]; ok {
+			return l, fmt.Errorf("%s: one file per section — %s and %s both hold %q", dir, prev, n, section)
+		}
+		seen[section] = n
+		node, err := r.file(filepath.Join(dir, n))
+		if err != nil {
+			return l, err
+		}
+		wrap := yaml.MapNode(filepath.Join(dir, n), 0)
+		wrap.Set(section, node)
+		wrap = normalize(wrap)
+		l.Files = append(l.Files, filepath.Join(dir, n))
+		if l.Present {
+			l.Node = merge(l.Node, wrap)
+		} else {
+			l.Node, l.Present, l.Path = wrap, true, filepath.Join(dir, n)
+		}
+	}
+	return l, nil
 }
 
 // sectionAliases are the file names a section also answers to (guards.yaml is the guard section).

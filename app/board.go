@@ -71,6 +71,7 @@ func (a *App) webBus() *webBus {
 	defer a.mu.Unlock()
 	if a.web == nil {
 		a.web = newWebBus()
+		a.web.tapStream(a.Root)
 	}
 	return a.web
 }
@@ -188,8 +189,10 @@ func (a *App) serveBoard(ctx context.Context) {
 	}()
 	a.mu.Lock()
 	a.boardAddr = addr
+	a.boardH = b
 	a.mu.Unlock()
-	fmt.Fprintf(a.Opt.Err, "board: http://%s/ · dashboard: http://%s/dash\n", addr, addr)
+	// no stderr line here: the TUI holds the URL in the sidebar (OSC-8 link), and the
+	// dashboard-only run prints its own address. The quiet serves /status and `boardLine`.
 }
 
 // cmdBoard serves the board alone, without a session, until interrupted.
@@ -240,4 +243,24 @@ func (a *App) boardLine() string {
 		return "board: off (ui.board.autostart " + a.Cfg.Where("ui.board.autostart") + ")"
 	}
 	return fmt.Sprintf("board: not running here — `%s board` serves it on 127.0.0.1:%d", a.Cfg.Dist.Name, a.Cfg.UI.Board.Port)
+}
+
+// boardToken returns the session board's token (the X-Board-Token the dashboard's acts
+// carry). It is test plumbing: the board serveBoard mounts is the one with the token, so
+// the token is read from the retained board, serving it first if it never came up.
+// zone-app-commands adopt standing content: boardH retained in serveBoard + boardToken accessor for gate-flow HTTP test.
+func (a *App) boardToken(ctx context.Context) string {
+	a.mu.Lock()
+	b := a.boardH
+	a.mu.Unlock()
+	if b == nil {
+		a.serveBoard(ctx)
+		a.mu.Lock()
+		b = a.boardH
+		a.mu.Unlock()
+		if b == nil {
+			return ""
+		}
+	}
+	return b.Token()
 }

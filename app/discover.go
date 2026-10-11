@@ -107,7 +107,7 @@ func Discover(cfg *config.Config, root, home string) Discovered {
 // known says whether the discover package already reads a dir (its fixed CC/OC set).
 func known(dir string) bool {
 	d := filepath.ToSlash(dir)
-	for _, suffix := range []string{"/.claude/skills", "/.opencode/skill", "/.opencode/skills", "/.agents/skills", "/.config/opencode/skill", "/.config/opencode/skills",
+	for _, suffix := range []string{"/.agent-one/crafted-skills", "/.agent-one/base-skills", "/.claude/skills", "/.opencode/skill", "/.opencode/skills", "/.agents/skills", "/.config/opencode/skill", "/.config/opencode/skills",
 		"/.claude/commands", "/.opencode/command", "/.opencode/commands", "/.config/opencode/command", "/.config/opencode/commands",
 		"/.claude/agents", "/.opencode/agent", "/.opencode/agents", "/.config/opencode/agent", "/.config/opencode/agents"} {
 		if strings.HasSuffix(d, suffix) {

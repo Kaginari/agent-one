@@ -254,6 +254,7 @@
   }
 
   function onEvent(e) {
+    treeEvent(e);
     switch (e.type) {
       case 'ask': newTurn(e.text, { 'data-queued': e.queued || false }); if (!e.queued) setAsk('running'); break;
       case 'turnstart': newTurn(e.auto ? '(a report came in) ' + String(e.text || '').slice(0, 200) : e.text); setAsk('running'); break;
@@ -369,7 +370,9 @@
       $('#world').textContent = s.workspace || '—';
       $('#model').textContent = s.model || '—';
       const st = s.session ? (s.running ? 'running' : 'idle') : 'no session';
-      const p = pill(st); p.id = 'state'; $('#state').replaceWith(p);
+      const p = pill(st); p.id = 'state';
+      if (s.budgetsOff) p.title = 'step/time budgets off by this workspace\'s policy (-1) — the heartbeat watchdog carries the safety';
+      $('#state').replaceWith(p);
       const m = $('#ctx');
       if (s.ctxKnown) {
         m.style.setProperty('--meter-value', s.ctxPct + '%');
@@ -379,7 +382,23 @@
       m.querySelector('.meter-label').textContent = s.ctx || 'ctx —';
       $('#cost').textContent = s.cost || '—';
       const lc = $('#live-count');
-      lc.hidden = !s.live; lc.textContent = (s.live || 0) + ' ' + word('bodies', 'agents') + ' live';
+      lc.hidden = !s.live; lc.textContent = (s.live || 0) + ' ' + word('agents', 'agents') + ' live';
+      // the wedge banner: a workspace that waits on you says it (freeze 2026-10-07 policy:
+      // waiting is a state the human must be able to SEE)
+      const gw = $('#gatewait');
+      const waitMs = s.gateWaitMs | 0, queueN = s.queued | 0;
+      if (waitMs > 0) {
+        gw.hidden = false;
+        const mins = Math.floor(waitMs / 60000), secs = Math.floor((waitMs % 60000) / 1000);
+        gw.textContent = 'waiting on you · ' + (s.choices || 1) + ' card(s) · ' + (mins > 0 ? mins + 'm ' : '') + secs + 's' + (queueN > 0 ? ' · ' + queueN + ' queued' : '');
+        gw.dataset.tone = waitMs > 5 * 60 * 1000 ? 'danger' : 'warn';
+      } else if (queueN > 0) {
+        gw.hidden = false;
+        gw.textContent = queueN + ' ask(s) queued behind a running turn';
+        gw.dataset.tone = 'info';
+      } else {
+        gw.hidden = true;
+      }
       if (s.session && form.dataset.state !== 'waiting') setAsk(s.running ? 'running' : 'idle');
       if (!s.session) { field.disabled = sendBtn.disabled = true; }
     }).catch(() => { const p = pill('board offline'); p.id = 'state'; $('#state').replaceWith(p); });
@@ -532,11 +551,18 @@
     row('bonds', bonds.join(' · ') || '—');
     const docPath = n.doc || (n.desk && n.desk.src) || '';
     const doc = el('pre', { class: 'kcard-doc', text: docPath ? 'reading ' + docPath + '…' : 'no doc — the ontology notes it' });
+    const plan = el('pre', { class: 'kcard-plan', text: isSkill(n) ? '' : 'plan …' });
     box.append(el('article', { class: 'kcard' },
-      el('div', { class: 'kcard-title' }, n.name, el('span', { class: 'pill', 'data-tone': 'info', text: isMind(n) ? word('skill', 'skill') : (n.rank || 'body') }), liveNames.has(id) ? pill('running') : null),
-      el('dl', {}, rows), doc));
+      el('div', { class: 'kcard-title' }, n.name, el('span', { class: 'pill', 'data-tone': 'info', text: isSkill(n) ? word('skill', 'skill') : (n.rank || 'agent') }), liveNames.has(id) ? pill('running') : null),
+      el('dl', {}, rows), doc, plan));
     if (docPath) fetch('api/doc?path=' + encodeURIComponent(docPath)).then(r => r.ok ? r.text() : Promise.reject(new Error(r.status)))
       .then(t => { doc.textContent = t.split('\n').slice(0, 60).join('\n'); }).catch(() => { doc.textContent = docPath + ' — not readable here'; });
+    if (!isSkill(n)) fetch('/api/plan?agent=' + encodeURIComponent(id)).then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+      .then(p => {
+        if (!p || p.empty || !(p.items || p.deck || []).length) { plan.textContent = p && p.agent && !n.name ? 'no deck for ' + p.agent : 'no deck'; return; }
+        const head = 'plan ' + (p.agent || id) + (p.updated ? ' · ' + p.updated : '');
+        plan.textContent = head + '\n' + (p.items || p.deck).map(it => `[${it.status || '·'}] ${it.text || ''}`).join('\n');
+      }).catch(() => { plan.textContent = ''; });
   }
   const label2 = id => ((team && team.labels.find(l => l.id === id)) || {}).label || id;
   const nameOf = id => ((team && team.nodes.find(n => n.id === id)) || {}).name || id;
@@ -699,10 +725,152 @@
     on('onto', loadTeam);
   }
 
-  // ---------- start ----------
+  // ────────── the folder tree: the workspace's ownership, live heat ──────────
+  // Slice 1 laziness: one fetch of /api/tree/children per expanded dir —
+  // the workspace is never walked at once. A dir expands on click; its children
+  // come from the endpoint; heat on an unrendered path warms the nearest
+  // rendered ancestor chain instead of a prebuilt index. Heat decays over
+  // ~3.4s; paints are batched in one rAF.
+  const treeBox = $('#tree');
+  let treeIdx = new Map(), treeDirty = false, decayOn = false;
+  const HEAT_LIFE = 3400;
+  function rankOf(body) {
+    if (!body) return 'other';
+    const low = String(body).toLowerCase();
+    for (const r of ['zone', 'auditor', 'principal-coordinator', 'principal-domain-owner', 'orchestrator', 'service', 'domain', 'coord']) if (low === r || low.startsWith(r + '-')) return r;
+    for (const w of [WORDS['rank.zone'], WORDS['rank.domain'], WORDS['rank.coord'], WORDS['rank.service']].filter(Boolean)) if (low.includes(String(w).toLowerCase())) return w;
+    return 'other';
+  }
+  function treeRow(depth, it) {
+    return el('span', { class: 'tree-node', 'data-d': it.dir ? 'dir' : '', 'data-path': it.path, tabindex: 0, role: 'treeitem', 'aria-expanded': it.dir ? 'false' : false, style: { '--tree-depth': String(depth) } },
+      svg('svg', { class: 'tree-icon', 'data-d': it.dir ? 'dir' : false, viewBox: '0 0 16 16', 'aria-hidden': 'true' }, svg('path', {
+        d: it.dir ? 'M1 3a1 1 0 0 1 1-1h4l2 2h6a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1z' : 'M3 1h7l3 3v11H3z',
+        fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4',
+      })),
+      el('span', { class: 'tree-name', text: it.name || '' }),
+      el('span', { class: 'tree-path', text: it.path || '' }));
+  }
+  function treeFetch(path) {
+    const q = path ? '?path=' + encodeURIComponent(path) : '';
+    return fetch('api/tree/children' + q, { cache: 'no-store', headers: { 'X-Board-Token': TOKEN } })
+      .then(r => { if (!r.ok) throw new Error(r.status + ''); return r.json(); });
+  }
+  function treeExpand(row, depth) {
+    const path = row.getAttribute('data-path');
+    if (!path) return;
+    const li = row.closest('li');
+    if (!li) return;
+    if (row.getAttribute('aria-expanded') === 'true') {
+      // Collapse: forget the subtree so a re-expand refetches fresh.
+      const sub = li.querySelector('ul.tree-list');
+      if (sub) { sub.querySelectorAll('.tree-node').forEach(n => treeIdx.delete(n.getAttribute('data-path'))); sub.remove(); }
+      row.setAttribute('aria-expanded', 'false');
+      const rec = treeIdx.get(path); if (rec) rec.expanded = false;
+      return;
+    }
+    row.setAttribute('aria-expanded', 'true');
+    treeFetch(path).then(d => {
+      if (!d || !Array.isArray(d.children)) return;
+      const ul = el('ul', { class: 'tree-list', role: 'group' });
+      const rec = treeIdx.get(path);
+      const parents = rec ? [...rec.parents, path] : [path];
+      let dircount = 0;
+      for (const n of d.children) {
+        const nd = { name: n.name, path: n.path, dir: !!n.dir, parents };
+        treeIdx.set(n.path, nd);
+        if (nd.dir) dircount++;
+        const kidRow = treeRow(depth + 1, nd);
+        if (nd.dir) kidRow.addEventListener('click', () => treeExpand(kidRow, depth + 1));
+        ul.append(el('li', { class: 'tree-li' }, kidRow));
+      }
+      li.append(ul);
+      const r2 = treeIdx.get(path); if (r2) r2.expanded = true;
+      if (d.truncated) li.append(el('p', { class: 'tree-truncated', text: 'folder capped — some entries not shown' }));
+    }).catch(() => {
+      row.setAttribute('aria-expanded', 'false');
+    });
+  }
+  function treeLoad() {
+    if (!treeBox) return;
+    treeIdx = new Map();
+    treeFetch('').then(d => {
+      if (!d || !Array.isArray(d.nodes)) { treeBox.replaceChildren(el('p', { class: 'tree-empty', text: 'no tree source' })); return; }
+      const ul = el('ul', { class: 'tree-list', role: false });
+      let dirs = 0;
+      for (const n of d.nodes) {
+        const nd = { name: n.name, path: n.path, dir: !!n.dir, parents: [] };
+        treeIdx.set(n.path, nd);
+        if (nd.dir) dirs++;
+        const row = treeRow(0, nd);
+        if (nd.dir) row.addEventListener('click', () => treeExpand(row, 0));
+        ul.append(el('li', { class: 'tree-li' }, row));
+      }
+      treeBox.replaceChildren(ul,
+        d.truncated ? el('p', { class: 'tree-truncated', text: 'tree capped — some files not shown' }) : null);
+      $('.panel-note[data-note="tree"]').textContent = 'workspace ownership — ' + d.nodes.length + ' roots · ' + dirs + ' folders · lazy';
+    }).catch(() => { treeIdx = new Map(); treeBox.replaceChildren(el('p', { class: 'tree-empty', text: 'no tree source' })); });
+  }
+  function treeHeat(path, className, body) {
+    if (!treeIdx || !path) return;
+    const rec = treeIdx.get(path);
+    if (!rec) return;
+    const rank = rankOf(body);
+    const touch = (r, bubble) => {
+      const row = treeBox.querySelector('[data-path="' + CSS.escape(r.path) + '"]');
+      if (!row) return;
+      row.dataset.class = className || 'read';
+      row.dataset.agent = body || '';
+      row.dataset.rank = rank;
+      row.style.setProperty('--glow-opacity', bubble ? '0.22' : (className === 'read' ? '0.32' : '0.42'));
+      if (bubble) row.setAttribute('data-bubble', ''); else row.removeAttribute('data-bubble');
+      row.dataset.heatAt = String(Date.now());
+      row.setAttribute('data-lit', bubble ? '' : 'hot');
+    };
+    touch(rec, false);
+    for (const p of rec.parents) {
+      const prec = treeIdx.get(p);
+      if (prec) touch(prec, true);
+    }
+    if (!decayOn) { decayOn = true; requestAnimationFrame(() => treeDecay(Date.now())); }
+  }
+  function treeDecay(now) {
+    let any = false;
+    for (const row of treeBox.querySelectorAll('.tree-node[data-heat-at]')) {
+      const a = +row.dataset.heatAt || 0;
+      const k = Math.max(0, 1 - (now - a) / HEAT_LIFE);
+      if (k <= 0.03) {
+        row.removeAttribute('data-lit'); row.removeAttribute('data-bubble'); row.removeAttribute('data-heat-at');
+        row.removeAttribute('data-class'); row.removeAttribute('data-agent'); row.removeAttribute('data-rank');
+        row.style.setProperty('--glow-opacity', '0');
+        continue;
+      }
+      const base = row.hasAttribute('data-bubble') ? 0.22 : (row.dataset.class === 'read' ? 0.32 : 0.42);
+      row.style.setProperty('--glow-opacity', (base * k).toFixed(3));
+      any = true;
+    }
+    if (any) requestAnimationFrame(() => treeDecay(Date.now())); else decayOn = false;
+  }
+  function treeEvent(e) {
+    if (!e || !treeIdx) return;
+    const cls = c => ['read', 'write', 'gate', 'outward', 'destructive'].includes(c) ? c : 'read';
+    if (e.type === 'tool' || e.type === 'bodystep') {
+      const t = e.tool || {};
+      const body = e.agent || t.agent || '';
+      const cx = cls(t.class || e.class || '');
+      const paths = new Set();
+      if (Array.isArray(t.wrote)) for (const w of t.wrote) if (typeof w === 'string') paths.add(w);
+      if (t.diff && typeof t.diff.path === 'string' && t.diff.path) paths.add(t.diff.path);
+      if (!paths.size) return;
+      if (!treeDirty) { treeDirty = true; requestAnimationFrame(() => { treeDirty = false; [...paths].forEach(p => treeHeat(p, cx, body)); }); return; }
+      [...paths].forEach(p => treeHeat(p, cx, body));
+    } else if (e.type === 'state' && e.tool) {
+      requestAnimationFrame(() => treeHeat(e.tool, 'read', e.agent || ''));
+    }
+  }
+
   header(); setInterval(header, 1500);
-  loadTeam(); metrics(); courtPoll();
-  setInterval(courtPoll, 2000); setInterval(metrics, 15000);
+  loadTeam(); metrics(); subagentPoll(); treeLoad();
+  setInterval(subagentPoll, 2000); setInterval(metrics, 15000);
   stream(); boardEvents();
   field.focus();
 })();

@@ -35,14 +35,30 @@ func (a *App) TUI(ctx context.Context) int {
 		return 2
 	}
 	ui := tui.Start(ctx, h, tui.DetectTheme(a.Opt.Env, a.Cfg.Dist.EnvPrefix), h.words, nil, nil)
-	// the mascot drops in unless <PREFIX>NO_INTRO says otherwise
-	if v := a.Opt.Env(a.Cfg.Dist.EnvPrefix + "NO_INTRO"); v == "" || v == "0" || v == "false" {
-		ui.Model.SetIntro(true)
-	}
+	// the zone worker lives in the sidebar now; the launch drop is retired
 	h.attach(fanout{ui, a.webBus()})
 	a.webBus().attach(h)
 	defer a.webBus().close()
-	return h.run(ui.Run)
+	code := h.run(ui.Run)
+	// veil-exit: the human's stop is its own chronicle row — an end with no cause could read
+	// earned DONE either way; this one names the hand (Operator 2026-10-03)
+	a.logExit(h.s)
+	return code
+}
+
+// logExit drops the exit row into the session journal: the human stopped the workspace between
+// turns. Midnight audits count them separately from instrument-checkpointed turns. The cause
+// names the lexicon's word for the human ("operator"); a workspace without a lexicon falls back to
+// "the human" so the row is never anonymous.
+func (a *App) logExit(s *loop.Session) {
+	if s == nil || s.Journal == nil {
+		return
+	}
+	cause := a.Lex.Human
+	if cause == "" {
+		cause = "the human"
+	}
+	s.Journal.Log(loop.Event{"t": "exit", "cause": cause, "ms": time.Since(s.Started).Milliseconds()})
 }
 
 // sender is where the host's events go: the program, or a test harness.
@@ -79,19 +95,25 @@ type tuiHost struct {
 	out *bytes.Buffer // what slash commands and the engine's writers print
 	mu  sync.Mutex
 
-	cancel        context.CancelFunc
-	running       bool
-	streamed      bool
-	denyReason    string
-	quiet         bool              // notices held back (a reload the UI already announces)
-	before        map[string]string // step id → file text before a write-class act
-	subagentAsk   map[string]string
-	subagentSeen  map[string]bool
-	subagentStart map[string]time.Time
-	files         []string
-	filesAt       time.Time
-	words         tui.Words
-	exit          int
+	cancel         context.CancelFunc
+	turnCtx        context.Context // the running turn's ctx; gate/ask waits select on it so esc can free them
+	running        bool
+	streamed       bool
+	turnStart      time.Time // when the running turn opened — the plan-outcome sweep's freshness window (decks updated inside it rode this turn)
+	denyReason     string
+	choiceOpen     int               // open gate/ask cards; finish never re-registers h.ctx under an open card
+	pulse          time.Time         // last heartbeat (any send); the per-turn watchdog reads it
+	suspending     bool              // watchdog's suspend layer is mid-flight: Interrupt resolves the card as suspend, not deny
+	pendingSuspend *pendingSuspend   // the parked card waiting on the human's word to resume its run
+	quiet          bool              // notices held back (a reload the UI already announces)
+	before         map[string]string // step id → file text before a write-class act
+	subagentAsk    map[string]string
+	subagentSeen   map[string]bool
+	subagentStart  map[string]time.Time
+	files          []string
+	filesAt        time.Time
+	words          tui.Words
+	exit           int
 }
 
 func (a *App) tuiWords() tui.Words {
@@ -145,6 +167,7 @@ func (a *App) tuiHost(ctx context.Context) (*tuiHost, error) {
 		h.state(agent, state)
 	}
 	a.Subagent.onFinish = h.subagentFinished
+	a.planBoot = time.Now() // plan decks penned before now are last session's memory, never gate-holders
 	e, err := a.Engine()
 	if err != nil {
 		// no program will own the terminal: why it did not start is said there
@@ -195,6 +218,18 @@ func (h *tuiHost) run(loop func() error) int {
 func (h *tuiHost) send(ev tea.Msg) {
 	h.mu.Lock()
 	ui := h.ui
+	h.pulse = time.Now() // the workspace's last heartbeat the watchdog reads — every event out is a breath
+	h.mu.Unlock()
+	if ui != nil {
+		ui.Send(ev)
+	}
+}
+
+// sendQuiet speaks without a breath: the watchdog's own cries must not re-arm the silence
+// meter they report on (a notice that pulses would notice itself forever).
+func (h *tuiHost) sendQuiet(ev tea.Msg) {
+	h.mu.Lock()
+	ui := h.ui
 	h.mu.Unlock()
 	if ui != nil {
 		ui.Send(ev)
@@ -214,11 +249,6 @@ func (h *tuiHost) Welcome() tui.Welcome {
 		roles = append(roles, o+" → "+a.Cfg.Models.Roles[o].Model)
 	}
 	w.Roles = roles
-	a.mu.Lock()
-	if a.boardAddr != "" {
-		w.Board = "http://" + a.boardAddr + "/dash  (/dash opens it)"
-	}
-	a.mu.Unlock()
 	w.Off = len(a.Cfg.Off())
 	w.Holes = a.Holes()
 	return w
@@ -234,15 +264,61 @@ func (h *tuiHost) Footer() tui.FooterView {
 	case tot.Unpriced == 0:
 		cost = fmt.Sprintf("$%.4f", tot.USD)
 	}
-	ctx, pct, known := "ctx —", 0, false
+	ctx, pct, known, zone := "ctx —", 0, false, ""
+	ctxMax := "∞"
+	var ctxTokens, ctxLimit int
 	if r := readingOf(h.s); r.Available {
 		pct, known = r.Percent(), true
 		ctx = fmt.Sprintf("ctx %d%%", r.Percent())
 		if r.Stressed() {
 			ctx += " (stress)"
 		}
+		zone = string(r.Zone)
+		if r.Limit > 0 {
+			ctxMax = humanish(r.Limit)
+		}
+		ctxTokens, ctxLimit = r.Tokens, r.Limit
 	}
-	return tui.FooterView{Model: a.mountModel.Ref.Model, Ctx: ctx, Cost: cost, Live: a.Subagent.Live(), Workspace: tilde(a.Root, a.Opt.Home), Subagents: h.words.Subagents, Tokens: tot.Tokens(), CtxPct: pct, CtxKnown: known}
+	fv := tui.FooterView{Model: a.mountModel.Ref.Model, Ctx: ctx, Cost: cost, Live: a.Subagent.Live(), Workspace: tilde(a.Root, a.Opt.Home), Subagents: h.words.Subagents, Tokens: tot.Tokens(), CtxPct: pct, CtxKnown: known, Zone: zone, CtxMax: ctxMax, CtxTokens: ctxTokens, CtxLimit: ctxLimit}
+	a.mu.Lock()
+	if a.boardAddr != "" {
+		fv.Dash = "http://" + a.boardAddr + "/dash"
+	}
+	a.mu.Unlock()
+	ranks := a.Journal.Ranks()
+	order := []string{"orchestrator", "coord", "domain", "zone", "service", "auditor", "principal-domain-owner", "principal-coordinator"}
+	seen := map[string]bool{}
+	th := tui.DetectTheme(func(k string) string { return a.Opt.Env(k) }, a.Cfg.Dist.EnvPrefix)
+	mk := func(rank string) {
+		if seen[rank] || rank == "" {
+			return
+		}
+		seen[rank] = true
+		s, ok := ranks[rank]
+		if !ok {
+			return
+		}
+		fv.Layers = append(fv.Layers, tui.RailLayer{Rank: rank, Tokens: s.Tokens(), Lane: th.Lane(rank)})
+	}
+	for _, r := range order {
+		mk(r)
+	}
+	for r := range ranks {
+		mk(r)
+	}
+	return fv
+}
+
+// humanish is the ctx cap in k/M ("128k", "1M"): what the panel shows before "∞" — the
+// sign it ships when nothing's configured.
+func humanish(tokens int) string {
+	switch {
+	case tokens >= 1_000_000:
+		return fmt.Sprintf("%dM", tokens/1_000_000)
+	case tokens >= 1_000:
+		return fmt.Sprintf("%dk", tokens/1_000)
+	}
+	return fmt.Sprintf("%d", tokens)
 }
 
 func (h *tuiHost) Submit(text string) string {
@@ -255,10 +331,17 @@ func (h *tuiHost) Submit(text string) string {
 
 func (h *tuiHost) Queue(text string) string {
 	h.a.webBus().note(map[string]any{"type": "ask", "text": text, "queued": true})
-	_ = h.a.Subagent.Send(workspace.Orchestrator, text)
-	return "reaches the agent at its next tool step"
+	// the Subagent's next-turn lane, unified (freeze policy): never a host-side buffer that a
+	// dead turn can own forever; finish's DrainAll reaches it on every exit path.
+	if err := h.a.Subagent.Enqueue(workspace.Orchestrator, text); err != nil {
+		return err.Error()
+	}
+	return "queued — runs after the current turn (esc interrupts and takes it next)"
 }
 
+// Interrupt aborts the running turn. Any queued line is left in the inbox, so the
+// turn-done drain immediately starts it as the next turn — esc pivots, never resumes
+// the aborted task.
 func (h *tuiHost) Interrupt() {
 	h.mu.Lock()
 	cancel := h.cancel
@@ -266,6 +349,25 @@ func (h *tuiHost) Interrupt() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// Pipe hands a line typed at an agent in the agents pane to that agent's inbox: it lands at its
+// next turn boundary (the FIFO contract — never mid-turn). A done agent refuses: its context
+// died with its task.
+func (h *tuiHost) Pipe(agent, text string) string {
+	name := strings.ToLower(agent)
+	for _, b := range h.a.Subagent.Agents() {
+		if b.Name == name {
+			if b.State == "done" {
+				return name + " is done — its context died with its task; dispatch it again"
+			}
+			break
+		}
+	}
+	if err := h.a.Subagent.Enqueue(name, text); err != nil {
+		return err.Error()
+	}
+	return "piped into " + name + "'s inbox — it lands at its next turn boundary"
 }
 
 func (h *tuiHost) Slash(line string) ([]string, bool) {
@@ -393,19 +495,51 @@ func (h *tuiHost) start(text string, auto bool) {
 	h.mu.Lock()
 	if h.running {
 		h.mu.Unlock()
-		_ = h.a.Subagent.Send(workspace.Orchestrator, text)
+		// busy: hold the line in the inbox. The running turn finishes and its drain
+		// starts this as the next turn — never injected mid-turn (FIFO, B).
+		h.a.Subagent.Enqueue(workspace.Orchestrator, text)
 		return
 	}
-	tctx, cancel := context.WithCancel(h.ctx)
-	h.cancel, h.running, h.streamed = cancel, true, false
-	h.mu.Unlock()
-	if auto {
-		h.send(tui.EvTurnStart{Text: text, Auto: true})
-	} else {
-		h.a.webBus().note(map[string]any{"type": "ask", "text": text})
+	// the resume route (freeze review, card spine): the human's typed word after a
+	// suspension revives the parked run's own transcript, at the parked step — never a
+	// fresh turn that forgot the question; only the live-thread route clears the park
+	ps := h.pendingSuspend
+	if !auto && ps != nil {
+		h.pendingSuspend = nil
 	}
+	tctx, cancel := context.WithCancel(h.ctx)
+	h.turnCtx, h.cancel, h.running, h.streamed, h.turnStart = tctx, cancel, true, false, time.Now()
+	h.pulse = h.turnStart // a fresh turn is a fresh breath — the watchdog ages from here
+	h.mu.Unlock()
+	h.watchdog(tctx)
+	h.a.webBus().note(map[string]any{"type": "ask", "text": text})
 	go func() {
-		r, err := h.s.Turn(tctx, text)
+		// a panic anywhere in the turn becomes a failed turn, never a dead process:
+		// running clears, the harness lives (Session.Turn recovers first and journals
+		// the stack; this is the outermost backstop)
+		defer func() {
+			if rec := recover(); rec != nil {
+				hole := fmt.Sprintf("panic: %v — the harness survived; the turn did not", rec)
+				h.finish(&loop.Result{Status: loop.Fail, Holes: []string{hole}}, false)
+			}
+		}()
+		var r *loop.Result
+		var err error
+		if ps != nil {
+			ask := "the human answered your parked card " + ps.CardID + ": " + text + " — continue from where the run stopped"
+			var s2 *loop.Session
+			r, s2, err = h.s.Engine.ResumeWithSession(tctx, ps.RunID, ask)
+			if err == nil && s2 != nil {
+				h.mu.Lock()
+				h.s = s2 // the resumed session owns the thread now
+				h.mu.Unlock()
+			}
+		} else {
+			if auto {
+				h.send(tui.EvTurnStart{Text: text, Auto: true})
+			}
+			r, err = h.s.Turn(tctx, text)
+		}
 		if err != nil {
 			r = &loop.Result{Status: loop.Fail, Holes: []string{err.Error()}}
 		}
@@ -420,7 +554,7 @@ func (h *tuiHost) finish(r *loop.Result, interrupted bool) {
 	streamed := h.streamed
 	reason := h.denyReason
 	h.denyReason = ""
-	h.cancel, h.running = nil, false
+	h.cancel, h.turnCtx, h.running = nil, nil, false
 	h.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -442,23 +576,90 @@ func (h *tuiHost) finish(r *loop.Result, interrupted bool) {
 	if r.Status == loop.Checkpoint {
 		ev.Hint = fmt.Sprintf("the session hit a budget — a good point to stop; resume with: %s resume %s", a.Cfg.Dist.Name, a.SessionID)
 	}
+	if r.Status == loop.Suspended {
+		h.mu.Lock()
+		ps := h.pendingSuspend
+		h.mu.Unlock()
+		if ps != nil {
+			ev.Hint = "the card " + ps.CardID + " is parked on the instruments shelf — type your answer and this run resumes at its parked step (or /resume " + ps.RunID + " by hand)"
+		}
+	}
 	if lines := h.drain(); len(lines) > 0 {
 		h.send(tui.EvLines{Lines: lines})
 	}
+	h.planOutcomeSweep(string(r.Status))
 	h.send(ev)
 	if h.ctx.Err() != nil {
 		return
 	}
-	// a denial with a reason opens the next turn with the operator's words (the policy: a denial
-	// ends the turn; the reason reaches the model as the operator speaking)
-	if r.Status == loop.Denied && reason != "" {
-		h.send(tui.EvTurnStart{Text: reason})
-		h.start(reason, false)
+	// a suspended turn owns the next act: the parked card is the open question — nothing
+	// typed meanwhile chains behind it; the human's word resumes the parked run itself
+	h.mu.Lock()
+	suspended := h.pendingSuspend != nil || h.suspending
+	h.suspending = false
+	h.mu.Unlock()
+	if r.Status == loop.Suspended || suspended {
 		return
 	}
-	pending := append(a.Subagent.Inbox(workspace.Orchestrator), a.Subagent.TakeWake()...)
+	// the queue, first: both lanes (mid-turn leftovers, next-turn FIFO) plus wake reports
+	// fold into whatever turn opens next — a denial with a reason no longer strands voice
+	pending := append(a.Subagent.DrainAll(workspace.Orchestrator), a.Subagent.TakeWake()...)
+	// a denial with a reason opens the next turn with the human's words (the policy: a denial
+	// ends the turn; the reason reaches the model as the human speaking)
+	if r.Status == loop.Denied && reason != "" {
+		text := reason
+		if len(pending) > 0 {
+			text = strings.Join(append([]string{reason}, pending...), "\n\n")
+		}
+		h.send(tui.EvTurnStart{Text: reason})
+		h.start(text, false)
+		return
+	}
 	if len(pending) > 0 {
-		h.start(strings.Join(pending, "\n\n"), true)
+		text := strings.Join(pending, "\n\n")
+		h.send(tui.EvTurnStart{Text: text})
+		// Fix B (R2 ctx-ancestry): the old turn's ctx is cancelled and finish nulled h.cancel;
+		// if left alone the next start() would WithCancel a dead parent. Re-register h.ctx from a
+		// live root so context.WithCancel(h.ctx) in start() builds the next turn on a live branch.
+		// Never under an open card (freeze-2026-10-07 policy): a swap mid-wait would orphan its select.
+		h.mu.Lock()
+		h.cancel = nil
+		if h.choiceOpen == 0 {
+			h.ctx = context.Background()
+		}
+		h.mu.Unlock()
+		h.start(text, true)
+	}
+}
+
+// planOutcomeSweep closes the scenario funnel's loop at a turn's end (scenario-3-2-1 policy):
+// every plan deck updated within the running turn rides that turn's verdict out as one
+// plan-outcome row on the bus tap — agent, cards count, the chosen slice, its evidence.
+func (h *tuiHost) planOutcomeSweep(verdict string) {
+	dir := h.a.planDir()
+	h.mu.Lock()
+	turnStart := h.turnStart
+	h.mu.Unlock()
+	if turnStart.IsZero() {
+		return
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	for _, p := range files {
+		d := planRead(dir, strings.TrimSuffix(filepath.Base(p), ".json"))
+		if d.Agent == "" {
+			continue
+		}
+		if at, ok := planUpdatedAt(d); !ok || at.Before(turnStart.Truncate(time.Second)) {
+			continue
+		}
+		chosen, why := "", ""
+		for _, it := range d.Items {
+			if it.Status == "in_progress" {
+				chosen = it.ID
+				why = it.Why
+			}
+		}
+		h.send(tui.EvPlanOutcome{Agent: d.Agent, Verdict: verdict, Cards: len(d.Items), Chosen: chosen, Why: why})
 	}
 }
 
@@ -483,23 +684,43 @@ var diffTools = map[string]bool{"write": true, "edit": true, "multiedit": true, 
 
 func (h *tuiHost) observe(s *loop.Session, st *loop.StepRecord, phase string) {
 	agent := agentName(s)
-	if agent != workspace.Orchestrator {
-		if phase == "start" {
-			h.send(tui.EvState{Agent: agent, State: "tool", Tool: st.Tool})
-		}
-		// the Subagent's own log, for the agent view
-		h.send(tui.EvBodyStep{Agent: agent, Tool: h.toolView(st), End: phase == "end"})
-		return
-	}
-	switch phase {
-	case "start":
-		if st.Tool == "dispatch" {
+	// a dispatch step seeds and lands its Subagent's card at EVERY depth: the start names the
+	// Subagent's ask; the end carries its wire report. A Subagent dispatched by a Subagent never gets
+	// a card close anywhere else — its own session's steps reach this host only as its
+	// parent's steps — so without this the card sat in the live area forever (the zombie
+	// card Operator saw: DONE on its face, the clock still ticking under it).
+	if st.Tool == "dispatch" {
+		switch phase {
+		case "start":
 			var in struct{ Agent, Ask string }
 			_ = json.Unmarshal(st.Input, &in)
 			h.mu.Lock()
 			h.subagentAsk[strings.ToLower(in.Agent)] = in.Ask
 			h.mu.Unlock()
+		case "end":
+			if st.Status == "done" || st.Status == "failed" {
+				if rep, ok := wire.ParseReport(st.Result.Output); ok {
+					var in struct{ Agent string }
+					_ = json.Unmarshal(st.Input, &in)
+					h.subagentReport(strings.ToLower(in.Agent), rep, st.Result.Err, st.Result.Output)
+					if agent == workspace.Orchestrator {
+						// the session's dispatch step has no tool block of its own: the Subagent's card is it
+						return
+					}
+				}
+			}
 		}
+	}
+	if agent != workspace.Orchestrator {
+		if phase == "start" {
+			h.send(tui.EvState{Agent: agent, State: "tool", Tool: st.Tool})
+		}
+		// the Subagent's own log, for the agent view
+		h.send(tui.EvAgentStep{Agent: agent, Tool: h.toolView(st), End: phase == "end"})
+		return
+	}
+	switch phase {
+	case "start":
 		if diffTools[st.Tool] {
 			if p := stepPath(st.Input); p != "" {
 				h.mu.Lock()
@@ -513,14 +734,6 @@ func (h *tuiHost) observe(s *loop.Session, st *loop.StepRecord, phase string) {
 		}
 		h.send(tui.EvToolStart{Tool: h.toolView(st)})
 	case "end":
-		if st.Tool == "dispatch" && (st.Status == "done" || st.Status == "failed") {
-			if rep, ok := wire.ParseReport(st.Result.Output); ok {
-				var in struct{ Agent string }
-				_ = json.Unmarshal(st.Input, &in)
-				h.subagentReport(strings.ToLower(in.Agent), rep, st.Result.Err, st.Result.Output)
-				return
-			}
-		}
 		if st.Tool == "ask" && st.Status == "done" {
 			return
 		}
@@ -567,11 +780,22 @@ func (h *tuiHost) state(agent, state string) {
 	}
 	h.mu.Lock()
 	seen := h.subagentSeen[agent]
+	ask := h.subagentAsk[agent]
+	if !seen && state == "done" {
+		// terminal state for an agent whose banner already closed (subagentReport landed, or it was
+		// never opened): no zombie banner, no second tombstone.
+		h.mu.Unlock()
+		return
+	}
 	if !seen {
 		h.subagentSeen[agent] = true
 		h.subagentStart[agent] = time.Now()
 	}
-	ask := h.subagentAsk[agent]
+	started, startedOK := h.subagentStart[agent]
+	if state == "done" {
+		delete(h.subagentSeen, agent)
+		delete(h.subagentStart, agent)
+	}
 	h.mu.Unlock()
 	if !seen {
 		v := tui.SubagentView{Name: agent, State: state, Ask: ask, Word: h.words.Subagent}
@@ -583,9 +807,26 @@ func (h *tuiHost) state(agent, state string) {
 		h.send(tui.EvSubagent{Subagent: v})
 		return
 	}
-	if state != "done" {
-		h.send(tui.EvState{Agent: agent, State: state})
+	if state == "done" {
+		// a @$-drained agent's report never rides the dispatcher's step end, so no subagentReport
+		// lands for it: its banner must close here, at the loop's terminal state, once.
+		v := tui.SubagentView{Name: agent, State: "done", Ask: ask, Word: h.words.Subagent}
+		if startedOK && !started.IsZero() {
+			v.Elapsed = time.Since(started)
+		}
+		for _, b := range h.a.Subagent.Agents() {
+			if b.Name == agent {
+				v.Rank, v.Role, v.Model = b.Rank, b.Role, b.Model
+				// leg 2a: the card face carries the exit verdict the Subagent recorded at Finish
+				// (the run journal's t:end word), never the lifecycle alone.
+				v.Exit = b.Exit
+				v.Failed = b.Failed
+			}
+		}
+		h.send(tui.EvSubagent{Subagent: v})
+		return
 	}
+	h.send(tui.EvState{Agent: agent, State: state})
 }
 
 // subagentReport lands a Subagent's report as its block (foreground dispatch).
@@ -595,7 +836,7 @@ func (h *tuiHost) subagentReport(agent string, rep wire.Report, failed bool, raw
 	delete(h.subagentSeen, agent)
 	delete(h.subagentStart, agent)
 	h.mu.Unlock()
-	v := tui.SubagentView{Name: agent, State: "done", Failed: failed, Word: h.words.Subagent, Report: reportView(rep)}
+	v := tui.SubagentView{Name: agent, State: "done", Exit: exitVerdict(rep), Failed: failed, Word: h.words.Subagent, Report: reportView(rep)}
 	if !started.IsZero() {
 		v.Elapsed = time.Since(started)
 	}
@@ -627,6 +868,24 @@ func reportView(rep wire.Report) *tui.ReportView {
 	return v
 }
 
+// exitVerdict is the run journal's exit word riding a wire report's @S line: the loop stamps
+// a non-DONE exit as "FAIL — PASSED" (the agent's own self-judged status after the dash), so
+// the first token is the verdict. "" when the report carried no @S line (a working-notes-level DONE
+// fallback wrote it) or it names no known verdict.
+func exitVerdict(rep wire.Report) string {
+	if rep.Status == "" {
+		return ""
+	}
+	tok := strings.ToUpper(strings.Fields(rep.Status)[0])
+	switch tok {
+	case "DONE":
+		return "PASSED" // a green journal face reads PASSED — DONE is the lifecycle word, never a verdict
+	case "FAIL", "ESCALATE", "DENIED", "INTERRUPTED":
+		return tok
+	}
+	return ""
+}
+
 // --- the gate and the ask tool ---
 
 func (h *tuiHost) approve(r gate.Request) (gate.Answer, bool) {
@@ -647,13 +906,39 @@ func (h *tuiHost) approve(r gate.Request) (gate.Answer, bool) {
 		view.Agent = r.Agent
 	}
 	reply := make(chan tui.ChoiceAnswer, 1)
+	h.mu.Lock()
+	h.choiceOpen++
+	turnCtx := h.turnCtx // the running turn's ctx: esc/interrupt must be able to free this wait
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.choiceOpen--
+		h.mu.Unlock()
+	}()
 	h.send(tui.EvChoice{View: view, Reply: reply})
 	var ans tui.ChoiceAnswer
 	select {
 	case ans = <-reply:
+	case <-turnCtxDone(turnCtx):
+		// the turn ctx fired while the card waited. Two voices can lower the hand: the
+		// human's (interrupt — a lawful denial) or the watchdog's (suspend layer — the workspace
+		// parks the card durably and the thread waits for the word to resume it).
+		h.mu.Lock()
+		suspending := h.suspending
+		h.mu.Unlock()
+		if suspending {
+			cardPath := h.parkCard(r, view)
+			h.send(tui.EvChoiceAnswered{Class: r.Class.String(), Tool: r.Tool, Answer: "parked: suspended at the watchdog layer"})
+			return gate.Answer{Decision: gate.Suspended, By: "watchdog", Why: "card parked (" + cardPath + ") — the human's word revives this run"}, true
+		}
+		h.send(tui.EvChoiceAnswered{Class: r.Class.String(), Tool: r.Tool, Answer: "aborted: turn interrupted"})
+		return gate.Answer{Decision: gate.Denied, By: "tui", Why: "interrupted while waiting for " + h.words.Human + "'s word"}, true
 	case <-h.ctx.Done():
 		return gate.Answer{Decision: gate.Denied, By: "tui", Why: "the session ended before an answer"}, true
 	}
+	// the choice ledger: what was asked, class-wise and tool-wise, rides the session store — the
+	// evidence a review lane graduates rules from; never a live nudge (the gate stays silent).
+	h.send(tui.EvChoiceAnswered{Class: r.Class.String(), Tool: r.Tool, Answer: choiceAnswerText(view.Options, ans), Recommended: view.Recommended})
 	switch {
 	case ans.Aborted:
 		return gate.Answer{Decision: gate.Denied, By: "tui", Why: "the session ended before an answer"}, true
@@ -761,7 +1046,41 @@ func (h *tuiHost) addRule(match string) (string, error) {
 	h.quiet = false
 	h.mu.Unlock()
 	a.Missing.SetConfig(next)
+	// The pairing hook (Docs-as-code / pairing-is-a-class): any auto-growing file under a
+	// member's ownership moves its tending doc in the same write. config.local.yaml is
+	// instance one — growth by hand or by loop from a permissions rule is the same event,
+	// and the owner's doc carries a dated Notes line so the gate and the human's memory
+	// stand together. Failure to pair is a hole, never a refusal: the rule stands.
+	if werr := a.Workspace.Reload(); werr != nil {
+		a.hole("pairing: workspace reload after rule " + match + ": " + werr.Error())
+	} else if own := a.Workspace.Owner(relOrAbs(a.Root, file)); own != nil && own.Doc != "" {
+		pairIfDoc(a.Root, own.Doc, match)
+	}
 	return relOrAbs(a.Root, file), nil
+}
+
+// pairIfDoc appends a dated pairing line to the owning member's doc under ## Working notes
+// in the same write wave as the tend target, so Docs-as-code sees the paired move.
+func pairIfDoc(root, docRel, match string) {
+	docPath := filepath.Join(root, filepath.FromSlash(docRel))
+	b, err := os.ReadFile(docPath)
+	if err != nil {
+		return
+	}
+	dt := time.Now().UTC().Format("2006-01-02")
+	line := "- " + dt + " — paired: `" + match + "` grew config.local.yaml; this doc moved in the same write (Docs-as-code, pairing-is-a-class)."
+	t := string(b)
+	if !strings.HasSuffix(t, "\n") {
+		t += "\n"
+	}
+	// append under the "## Working notes" heading if present, else append after the doc's last line
+	if idx := strings.Index(t, "\n## Working notes\n"); idx >= 0 {
+		rest := t[idx+len("\n## Working notes\n"):]
+		head := t[:idx+len("\n## Working notes\n")]
+		lines := strings.Split(strings.TrimSuffix(rest, "\n"), "\n")
+		out := head + line + "\n" + strings.Join(lines, "\n") + "\n"
+		_ = os.WriteFile(docPath, []byte(out), 0o644)
+	}
 }
 
 func yamlQuote(s string) string {
@@ -769,17 +1088,53 @@ func yamlQuote(s string) string {
 	return string(b)
 }
 
-// ask answers the ask tool (and a Genesis proposal) with a question block.
+// turnCtxDone is the Done channel of the running turn's ctx; nil ctx (a gate asked outside
+// a turn) yields a never-firing channel — the old wait semantics, unchanged.
+func turnCtxDone(ctx context.Context) <-chan struct{} {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Done()
+}
+
+// choiceAnswerText reduces the human's pick to one reviewable token for the ledger.
+func choiceAnswerText(opts []string, a tui.ChoiceAnswer) string {
+	switch {
+	case a.Aborted:
+		return "aborted"
+	case a.Index >= 0 && a.Index < len(opts):
+		return opts[a.Index]
+	case strings.TrimSpace(a.Text) != "":
+		return "text: " + oneLineOf(a.Text)
+	default:
+		return "none"
+	}
+}
+
+// ask answers the ask tool (and a Provisioning proposal) with a question block.
 func (h *tuiHost) ask(ctx context.Context, q tool.Question) (string, error) {
 	view := tui.ChoiceView{Title: "Question", Why: q.Text, Options: q.Options, Free: q.Free || len(q.Options) == 0}
+	if q.Recommended >= 1 && q.Recommended <= len(q.Options) {
+		view.Recommended = q.Options[q.Recommended-1] // the asker's lawful advice, rendered and pre-seated — never auto-picked
+	}
 	reply := make(chan tui.ChoiceAnswer, 1)
+	h.mu.Lock()
+	h.choiceOpen++
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.choiceOpen--
+		h.mu.Unlock()
+	}()
 	h.send(tui.EvChoice{View: view, Reply: reply})
 	select {
 	case ans := <-reply:
 		switch {
 		case ans.Aborted:
 			return "", fmt.Errorf("no answer: the session ended")
-		case ans.Index >= 0 && ans.Index < len(q.Options):
+		}
+		h.send(tui.EvChoiceAnswered{Tool: "ask", Answer: choiceAnswerText(q.Options, ans), Recommended: view.Recommended})
+		if ans.Index >= 0 && ans.Index < len(q.Options) {
 			return q.Options[ans.Index], nil
 		}
 		return ans.Text, nil
