@@ -1,4 +1,4 @@
-/* @component cfgtree — tokens: --step--1, --hairline, --line, --space-2xs, --space-s, --space-xs, --space-3xs, --weight-bold, --font-code, --ink, --accent, --time-fast, --ease, --focus-width, --focus, --step--2, --ink-muted, --radius-s, --ok, --warn, --accent-wash. The resolved config as a tree: a section folds (details), a leaf is key · value · origin — the value toned (on, off, null), the origin a mono tag that says which layer wrote it, data-layer="default" quiet. Read-only by design. */
+/* @component cfgtree — tokens: --step--1, --hairline, --line, --space-2xs, --space-s, --space-xs, --space-3xs, --weight-bold, --font-code, --ink, --accent, --time-fast, --ease, --focus-width, --focus, --step--2, --ink-muted, --radius-s, --ok, --warn, --accent-wash, --font-body. The resolved config as a tree: a section folds (details), a leaf is key · value · origin, a quiet line under it saying what the key does (a section's beside its name) — the value toned (on, off, null), the origin a mono tag that says which layer wrote it, data-layer="default" quiet. Read-only by design. */
 @layer components {
   .cfgtree { font-size: var(--step--1); }
   .cfgtree details { border-inline-start: var(--hairline) solid var(--line); margin-inline-start: var(--space-2xs); padding-inline-start: var(--space-s); }
@@ -26,6 +26,9 @@
   .cfgtree-origin[data-layer="default"] { color: var(--ink-muted); border-color: var(--line); }
   .cfgtree-leaf[data-match] { background: var(--accent-wash); }
   .cfgtree-empty { margin: 0; color: var(--ink-muted); }
+  .cfgtree-desc { font: var(--step--2) var(--font-body); color: var(--ink-muted); font-weight: normal; }
+  .cfgtree-leaf > .cfgtree-desc { grid-column: 1 / -1; padding-inline-start: var(--space-s); }
+  .cfgtree summary > .cfgtree-desc { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   @media (max-width: 40rem) {
     .cfgtree-leaf { grid-template-columns: minmax(0, 1fr) auto; }
     .cfgtree-val { grid-column: 1 / -1; grid-row: 2; }

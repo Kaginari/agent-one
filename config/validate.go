@@ -47,6 +47,16 @@ func (c *Config) checkScalars() error {
 	if err := enum("output.color", c.Output.Color, "auto", "always", "never"); err != nil {
 		return err
 	}
+	if err := enum("registry.packages.policy", strings.ToLower(c.Registry.Packages.Policy), "all", "private-only", "only-private", "private"); err != nil {
+		return err
+	}
+	// a literal registry token never sits in the tracked project config: a clone would carry it
+	for _, k := range []string{"auth", "npmAuth", "pipAuth", "goAuth"} {
+		path := "registry.packages." + k + ".token"
+		if o, ok := c.Origins[path]; ok && o.Layer == "project" {
+			return fmt.Errorf("%s: %s: a literal token %s — name the variable with tokenEnv, or keep it in config.local.yaml", o, path, fromClone)
+		}
+	}
 	switch m := c.Tools.TmpRedirect.Mode; m {
 	case "", "rewrite", "refuse":
 	default:

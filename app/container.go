@@ -225,8 +225,10 @@ func DockerAgent(dist string, args []string, io IO) (code int, handled bool) {
 	spec := ContainerSpec{Dist: dist, Image: image, Exe: exe, Root: root, Cwd: cwd, Home: home, UID: os.Getuid(), GID: os.Getgid(),
 		TTY: isTerminal(os.Stdin) && isTerminal(os.Stdout), RO: hostReadOnly(dist, home), RW: []string{store},
 		EnvKeys: passEnv(dist, os.Environ()), EnvSet: reg.Packages.PackageEnv(), Argv: rest}
-	if t := reg.Packages.TokenEnv; t != "" && !contains(spec.EnvKeys, t) {
-		spec.EnvKeys = append(spec.EnvKeys, t)
+	for _, t := range reg.Packages.AuthEnv() {
+		if !contains(spec.EnvKeys, t) {
+			spec.EnvKeys = append(spec.EnvKeys, t)
+		}
 	}
 	cmd := exec.Command(docker, spec.Args()...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

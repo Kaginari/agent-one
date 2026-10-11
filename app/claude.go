@@ -315,6 +315,13 @@ func (h *policyHost) preTool(in ccIn) int {
 			return h.permission("deny", guard.Refusal(r))
 		}
 	}
+	if in.ToolName == "Bash" {
+		var a struct{ Command string }
+		_ = json.Unmarshal(in.ToolInput, &a)
+		if why := registryRefusal(h.cfg.Registry.Packages, a.Command); why != "" {
+			return h.permission("deny", why)
+		}
+	}
 	name, input, cls, ok := h.ccTool(in.ToolName, in.ToolInput)
 	if !ok {
 		return 0

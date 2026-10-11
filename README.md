@@ -421,13 +421,28 @@ packages:                                   # set in every shell command and in 
   npm: https://artifactory.example.corp/artifactory/api/npm/npm-remote/
   pip: https://artifactory.example.corp/artifactory/api/pypi/pypi-remote/simple
   go:  https://artifactory.example.corp/artifactory/api/go/go-remote
-  tokenEnv: ARTIFACTORY_TOKEN               # let through by name — the agent can read it: use a read-only token
+  auth: { usernameEnv: ARTIFACTORY_USER, tokenEnv: ARTIFACTORY_TOKEN }   # the login every manager presents
+  # npmAuth / pipAuth / goAuth: { … }       # one manager's own login, over the shared one
+  policy: private-only                      # all (default) | private-only: no package from anywhere else
   env: { GONOSUMDB: example.corp }
 containers:                                 # for --docker-agent
   base: artifactory.example.corp/docker-remote/debian:bookworm-slim
   apt:  https://artifactory.example.corp/artifactory/debian-remote
   # image: artifactory.example.corp/docker-local/agent-one-runtime:1   # pull a prebuilt runtime instead
 ```
+
+Each package manager logs in the way it reads a login — the harness writes them under the workspace's
+`tmp/registry/` (gitignored, owner-only), rewritten at every start: npm gets an npmrc whose token stays a
+`${VAR}` reference npm expands itself, pip and uv get the login in their index URL, go gets a netrc for
+its proxy host. The variables a login names are let through to the shell by name — the agent can read
+them: use a read-only token. A literal `token:` is the fallback where no variable can exist, and only in
+`config.local.yaml`; the tracked config refuses it.
+
+`policy: private-only` keeps every manager on those URLs. GOPROXY loses its `direct` fallback, a manager
+with no private URL is switched off (`GOPROXY=off`, `PIP_NO_INDEX=1`), and the guard refuses — before any
+approval — a command that points a manager elsewhere (`--registry`, `--index-url`, `-i`, a `GOPROXY`
+override, `npm config set registry`), installs from a URL or a repository (`pip install git+https://…`),
+fetches from a public registry host, or installs with a manager that has no private URL.
 
 For a private container registry, `docker login artifactory.example.corp` first: docker's own login
 answers for the pull.

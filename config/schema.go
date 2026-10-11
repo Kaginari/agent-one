@@ -866,9 +866,63 @@ type Packages struct {
 	Pip string `json:"pip"` // PIP_INDEX_URL, UV_INDEX_URL
 	Go  string `json:"go"`  // GOPROXY
 	// TokenEnv names the variable holding the registry's token; it is let through to the shell
-	// (the agent can read it — give it a read-only token). The value is never written.
+	// (the agent can read it — give it a read-only token). It is the token of `auth` when that
+	// names none.
 	TokenEnv string            `json:"tokenEnv"`
 	Env      map[string]string `json:"env"` // anything else: PIP_TRUSTED_HOST, GONOSUMDB, CARGO_REGISTRIES_…
+	// Auth is the login the package managers present to the registry hosts — npm through a
+	// generated npmrc, pip, uv and go through a generated netrc (both under the workspace's tmp,
+	// owner-only). NpmAuth, PipAuth and GoAuth override it for one manager.
+	Auth PackageAuth `json:"auth"`
+	// Policy is where packages may come from: all (the default) or private-only — every
+	// manager kept on the URLs above, a command pointing one elsewhere refused by the guard.
+	Policy  string      `json:"policy"`
+	NpmAuth PackageAuth `json:"npmAuth"`
+	PipAuth PackageAuth `json:"pipAuth"`
+	GoAuth  PackageAuth `json:"goAuth"`
+}
+
+// PackageAuth is one registry login. Env-first (usernameEnv, tokenEnv name the variables);
+// the literal fields are the fallback for a machine where no variable can exist — keep those
+// in config.local.yaml, never in a tracked file. No username: npm sends the token as a bearer,
+// netrc logs in as "token" (Artifactory, GitLab, GitHub and Nexus accept a token so).
+type PackageAuth struct {
+	Username    string `json:"username"`
+	UsernameEnv string `json:"usernameEnv"`
+	Token       string `json:"token"`
+	TokenEnv    string `json:"tokenEnv"`
+}
+
+// Set reports whether the login names anything.
+func (a PackageAuth) Set() bool {
+	return a.Username != "" || a.UsernameEnv != "" || a.Token != "" || a.TokenEnv != ""
+}
+
+// AuthFor is the login one manager (npm, pip, go) presents: its own when set, else the shared
+// one, whose token falls back to tokenEnv.
+func (p Packages) AuthFor(manager string) PackageAuth {
+	a := map[string]PackageAuth{"npm": p.NpmAuth, "pip": p.PipAuth, "go": p.GoAuth}[manager]
+	if !a.Set() {
+		a = p.Auth
+	}
+	if a.Token == "" && a.TokenEnv == "" {
+		a.TokenEnv = p.TokenEnv
+	}
+	return a
+}
+
+// AuthEnv is every variable a login names: let through to the shell and into the container.
+func (p Packages) AuthEnv() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range []string{p.TokenEnv, p.Auth.UsernameEnv, p.Auth.TokenEnv, p.NpmAuth.UsernameEnv, p.NpmAuth.TokenEnv,
+		p.PipAuth.UsernameEnv, p.PipAuth.TokenEnv, p.GoAuth.UsernameEnv, p.GoAuth.TokenEnv} {
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Containers is --docker-agent's registry: a prebuilt runtime image, or the base and apt mirror to
@@ -887,7 +941,43 @@ type Containers struct {
 	TokenEnv    string `json:"tokenEnv"`
 }
 
-// PackageEnv is the environment the package registries set, sorted by name.
+// PrivateOnly reports the private-only policy (only-private and private are read the same).
+func (p Packages) PrivateOnly() bool {
+	switch strings.ToLower(strings.TrimSpace(p.Policy)) {
+	case "private-only", "only-private", "private":
+		return true
+	}
+	return false
+}
+
+// PrivateGoProxy is GOPROXY with the public fallbacks (direct, off) taken out.
+func (p Packages) PrivateGoProxy() string {
+	var keep []string
+	for _, e := range strings.FieldsFunc(p.Go, func(r rune) bool { return r == ',' || r == '|' }) {
+		if e = strings.TrimSpace(e); e != "" && e != "direct" && e != "off" {
+			keep = append(keep, e)
+		}
+	}
+	return strings.Join(keep, ",")
+}
+
+// PrivateList names the private URLs, for a refusal: " (npm https://…, pip https://…)".
+func (p Packages) PrivateList() string {
+	var out []string
+	for _, kv := range [][2]string{{"npm", p.Npm}, {"pip", p.Pip}, {"go", p.PrivateGoProxy()}} {
+		if kv[1] != "" {
+			out = append(out, kv[0]+" "+kv[1])
+		}
+	}
+	if len(out) == 0 {
+		return " (none is configured)"
+	}
+	return " (" + strings.Join(out, ", ") + ")"
+}
+
+// PackageEnv is the environment the package registries set, sorted by name. Under the
+// private-only policy GOPROXY keeps only the private proxy, and a manager with no private URL
+// is switched off: GOPROXY=off, PIP_NO_INDEX=1.
 func (p Packages) PackageEnv() []string {
 	var out []string
 	add := func(k, v string) {
@@ -898,7 +988,18 @@ func (p Packages) PackageEnv() []string {
 	add("NPM_CONFIG_REGISTRY", p.Npm)
 	add("PIP_INDEX_URL", p.Pip)
 	add("UV_INDEX_URL", p.Pip)
-	add("GOPROXY", p.Go)
+	if p.PrivateOnly() {
+		gp := p.PrivateGoProxy()
+		if gp == "" {
+			gp = "off"
+		}
+		add("GOPROXY", gp)
+		if p.Pip == "" {
+			add("PIP_NO_INDEX", "1")
+		}
+	} else {
+		add("GOPROXY", p.Go)
+	}
 	for _, k := range sortedKeys(p.Env) {
 		add(k, p.Env[k])
 	}

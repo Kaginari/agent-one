@@ -347,7 +347,9 @@
   }
   function tree() {
     const host = $('#config-tree'), c = cfg.data;
-    const want = l => (!cfg.set || layerOf(l.origin) !== 'default') && (!cfg.q || (l.path + ' ' + fmtVal(l.value)[0] + ' ' + l.origin).toLowerCase().includes(cfg.q));
+    // docs: a line per key saying what it does (the binary's config.Describe)
+    const docs = c.docs || {};
+    const want = l => (!cfg.set || layerOf(l.origin) !== 'default') && (!cfg.q || (l.path + ' ' + fmtVal(l.value)[0] + ' ' + l.origin + ' ' + (docs[l.path] || '')).toLowerCase().includes(cfg.q));
     let shown = 0;
     const filtering = !!cfg.q || cfg.set;
     function node(key, v, path, depth) {
@@ -362,12 +364,14 @@
         const [txt, kind] = fmtVal(value);
         return el('div', { class: 'cfgtree-leaf', 'data-match': !!cfg.q && path.toLowerCase().includes(cfg.q) },
           el('span', { class: 'cfgtree-key', text: key, title: path }), el('span', { class: 'cfgtree-val', 'data-kind': kind || false, text: txt }),
-          origin ? el('span', { class: 'cfgtree-origin', 'data-layer': layerOf(origin) === 'default' ? 'default' : false, text: home(origin), title: origin }) : null);
+          origin ? el('span', { class: 'cfgtree-origin', 'data-layer': layerOf(origin) === 'default' ? 'default' : false, text: home(origin), title: origin }) : null,
+          docs[path] ? el('span', { class: 'cfgtree-desc', text: docs[path] }) : null);
       }
       const keys = Array.isArray(v) ? v.map((_, i) => i) : Object.keys(v).sort();
       const kids = keys.map(k => node(Array.isArray(v) ? '[' + k + ']' : k, v[k], path ? path + (Array.isArray(v) ? '[' + k + ']' : '.' + k) : String(k), depth + 1)).filter(Boolean);
       if (!kids.length) return null;
-      return el('details', { open: filtering || depth < 1 }, el('summary', {}, key, el('span', { class: 'cfgtree-count', text: String(kids.length) })), kids);
+      return el('details', { open: filtering || depth < 1 }, el('summary', {}, key, el('span', { class: 'cfgtree-count', text: String(kids.length) }),
+        docs[path] ? el('span', { class: 'cfgtree-desc', text: docs[path] }) : null), kids);
     }
     const top = Object.keys(c.tree).sort().map(k => node(k, c.tree[k], k, 0)).filter(Boolean);
     host.replaceChildren(...(top.length ? top : [empty('cfgtree-empty', 'no value matches')]));

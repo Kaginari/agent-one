@@ -33,6 +33,7 @@ func (a *App) theGuard() *guard.Guard {
 func (a *App) guardHook() func(s *loop.Session, tool string, input json.RawMessage) string {
 	tmp := a.tmpGuardHook()
 	sed := a.sedGuardHook()
+	reg := a.registryGuardHook()
 	var deny func(string, json.RawMessage) string
 	if g := a.theGuard(); g != nil {
 		deny = func(name string, input json.RawMessage) string {
@@ -52,7 +53,7 @@ func (a *App) guardHook() func(s *loop.Session, tool string, input json.RawMessa
 		}
 	}
 	chain := []func(s *loop.Session, tool string, input json.RawMessage) string{}
-	for _, h := range []func(s *loop.Session, tool string, input json.RawMessage) string{tmp, sed} {
+	for _, h := range []func(s *loop.Session, tool string, input json.RawMessage) string{tmp, sed, reg} {
 		if h != nil {
 			chain = append(chain, h)
 		}

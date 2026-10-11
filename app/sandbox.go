@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,13 +29,17 @@ func newSandbox(cfg *config.Config, root string) *sandbox.Sandbox {
 	if d := cfg.Memory.Shared.Machine.Path; d != "" {
 		rw = append(rw, filepath.Dir(filepath.Dir(d)))
 	}
+	// the package registries: their URLs, and the logins written where each manager reads one
+	auth, holes := registryAuth(cfg, root, os.Getenv)
+	set := overrideEnv(cfg.Registry.Packages.PackageEnv(), auth)
+	cfg.Holes = append(cfg.Holes, holes...)
 	return sandbox.New(sandbox.Options{
 		Enabled:  cfg.Tools.Bash.Sandbox != "none",
 		Root:     root,
 		RWPaths:  rw,
 		EnvDrop:  drop,
 		EnvAllow: envAllow(cfg),
-		EnvSet:   cfg.Registry.Packages.PackageEnv(),
+		EnvSet:   set,
 		Timeout:  5 * time.Second,
 	})
 }
@@ -51,11 +56,27 @@ func sandboxLine(sb *sandbox.Sandbox) string {
 	return "@? sandbox: none — " + sb.Why()
 }
 
-// envAllow is bash's allow-list plus the package registry's token, when one is named.
+// envAllow is bash's allow-list plus every variable the package registries' logins name.
 func envAllow(cfg *config.Config) []string {
-	out := append([]string(nil), cfg.Tools.Bash.EnvAllow...)
-	if t := cfg.Registry.Packages.TokenEnv; t != "" {
-		out = append(out, t)
+	return append(append([]string(nil), cfg.Tools.Bash.EnvAllow...), cfg.Registry.Packages.AuthEnv()...)
+}
+
+// overrideEnv is base with every KEY=value of over replacing base's KEY (or added).
+func overrideEnv(base, over []string) []string {
+	idx := map[string]int{}
+	out := append([]string(nil), base...)
+	for i, kv := range out {
+		k, _, _ := strings.Cut(kv, "=")
+		idx[k] = i
+	}
+	for _, kv := range over {
+		k, _, _ := strings.Cut(kv, "=")
+		if i, ok := idx[k]; ok {
+			out[i] = kv
+			continue
+		}
+		idx[k] = len(out)
+		out = append(out, kv)
 	}
 	return out
 }

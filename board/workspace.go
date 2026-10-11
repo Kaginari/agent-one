@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Kaginari/agent-one/config"
 	"github.com/Kaginari/agent-one/loop"
 	"github.com/Kaginari/agent-one/memory"
 )
@@ -395,7 +396,8 @@ func (b *Board) apiConfig(w http.ResponseWriter, r *http.Request) {
 	for _, o := range b.src.Off() {
 		off = append(off, map[string]string{"feature": o.Feature, "origin": o.Origin})
 	}
-	writeJSON(w, map[string]any{"reading": readingJSON(rd), "live": rd.Lit, "tree": tree, "off": off, "offKnown": b.liveCfg})
+	// docs: what each key does, a line per path the tree holds (config.Describe)
+	writeJSON(w, map[string]any{"reading": readingJSON(rd), "live": rd.Lit, "tree": tree, "docs": config.Docs(tree), "off": off, "offKnown": b.liveCfg})
 }
 
 // secretKey names a config key whose value is a credential: the page shows that one is set,
