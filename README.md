@@ -59,7 +59,7 @@ sandboxed shell has no network unless an `outward` act was approved.
 ```sh
 cd your-project
 export ANTHROPIC_API_KEY=…        # or any OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter)
-agent-one init --level complex      # found a workspace here — light: the policy only · medium: a team sketched from the tree · complex: the model reads all the code and hires the team
+agent-one init --level complex      # found a workspace here — light: the policy only · medium: a team read from the tree, no model · complex: the model reads all the code and hires the team
 agent-one                           # the live session — the dashboard opens at http://127.0.0.1:7411
 agent-one run "add a health check endpoint and its test"
 ```
@@ -214,7 +214,11 @@ reviews the change before the turn is done:
 | `/` · `ctrl+k` | commands · the palette |
 | `ctrl+t` | every agent, live |
 | `ctrl+o` | expand the last folded block |
-| `esc` | interrupt the turn |
+| `esc` · `ctrl+c` | interrupt the turn · clear the input (↑ brings it back) |
+| `pgup` · `pgdn` · wheel | scroll the chat |
+| drag · `ctrl+y` · `/mouse` | select and copy · copy the last answer · the mouse to the terminal |
+| `alt+s` · `alt+c` / `alt+p` / `alt+f` | hide the sidebar · fold its subagents / plan / files |
+| `/settings` · `/roles` | theme, mouse and sidebar in one form · every role and its model |
 
 ## The CLI
 
@@ -237,7 +241,7 @@ reviews the change before the turn is done:
 | `dash [--open]` | the session in the browser: the console, the neural net, metrics, relations; approvals answered there |
 | `board` | the board and a read-only dashboard without a session, on 127.0.0.1 |
 | `--containered` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
-| `init [--level light\|medium\|complex]` | found a workspace: the policy only; a team sketched from the tree (no model); or a founding session that reads all the code and decides the coordinators, domain owners, zone workers, service owners, skills, agents and relations |
+| `init [--level light\|medium\|complex]` | found a workspace: the policy only; a team read from the tree with no model — the build files (go.mod, package.json workspaces, pyproject, Cargo, Maven, Gradle), sizes and imports give a zone worker per package or module dir, domain owners over related zone workers, a coordinator per three domain owners (lane coordinators and a design coordinator on a large project), a service owner for CI and infra, verify lines only where tests exist, existing docs kept; or a founding session that reads all the code and decides the coordinators, domain owners, zone workers, service owner, skills, agents and relations |
 | `selftest` · `version` | |
 
 ## Configuration

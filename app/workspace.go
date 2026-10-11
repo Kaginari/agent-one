@@ -33,15 +33,12 @@ func ranksFor(cfg *config.Config, lex workspace.Lexicon) workspace.Ranks {
 	for _, r := range cfg.Ranks() {
 		name := designRank(r.Name)
 		wr := workspace.Rank{Name: name, ReportsTo: designRank(r.ReportsTo), Job: r.Job, Authors: r.Authors, HoldsGate: r.HoldsGate, Sideways: r.Sideways,
-			Agent: r.Agent, Role: r.Role, Tools: append([]string(nil), r.Tools...), Base: designRank(r.PromotesFrom), Layer: r.Layer,
+			Role: r.Role, Tools: append([]string(nil), r.Tools...), Base: designRank(r.PromotesFrom), Layer: r.Layer,
 			DivineRules: append([]string(nil), r.DivineRules...), PromotesWhen: r.PromotesWhen}
 		if d, ok := def[name]; ok && r.Builtin {
 			wr.Dir, wr.Prefix = d.Dir, d.Prefix
 			if wr.ReportsTo == "" {
 				wr.ReportsTo = d.ReportsTo
-			}
-			if wr.Agent == "" {
-				wr.Agent = d.Agent
 			}
 			if wr.Role == "" {
 				wr.Role = d.Role
@@ -53,12 +50,7 @@ func ranksFor(cfg *config.Config, lex workspace.Lexicon) workspace.Ranks {
 				wr.Base = d.Base
 			}
 		} else {
-			wr.Dir = r.Dir
-			if wr.Dir == "" && wr.Base != "" {
-				if b, ok := def[wr.Base]; ok {
-					wr.Dir, wr.Prefix = b.Dir, b.Prefix
-				}
-			}
+			wr.Dir = r.Dir // a promoted rank's dir is its own (config defaults it to the rank's name)
 			if wr.Dir == "" {
 				wr.Dir = strings.ReplaceAll(name, "_", "-")
 			}
@@ -66,9 +58,6 @@ func ranksFor(cfg *config.Config, lex workspace.Lexicon) workspace.Ranks {
 			if wr.Prefix == "" {
 				wr.Prefix = wr.Dir + "-"
 			}
-		}
-		if wr.Agent == "" {
-			wr.Agent = "ephemeral"
 		}
 		if wr.Role == "" {
 			wr.Role = "analyst"

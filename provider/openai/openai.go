@@ -153,7 +153,7 @@ func (c *Client) encode(req provider.Request, stream bool) request {
 		b.WriteString(textToolIntro)
 		for _, t := range req.Tools {
 			s := t.Schema
-			if len(s) == 0 {
+			if len(s) == 0 || !json.Valid(s) { // a broken schema must not break the whole request
 				s = json.RawMessage(`{"type":"object","properties":{}}`)
 			}
 			fmt.Fprintf(&b, "- %s: %s — input schema %s\n", t.Name, t.Description, string(s))
@@ -207,7 +207,7 @@ func (c *Client) encode(req provider.Request, stream bool) request {
 	if !c.text() {
 		for _, t := range req.Tools {
 			s := t.Schema
-			if len(s) == 0 {
+			if len(s) == 0 || !json.Valid(s) { // a broken schema must not break the whole request
 				s = json.RawMessage(`{"type":"object","properties":{}}`)
 			}
 			r.Tools = append(r.Tools, toolDef{Type: "function", Function: function{Name: t.Name, Description: t.Description, Parameters: s}})

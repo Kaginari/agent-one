@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -10,13 +11,14 @@ import (
 )
 
 // The chat pane's viewport (A1 of the charm-libs wave): the transcript stops being a clip and
-// becomes a scrollback — pgup/pgdn/ctrl+u/ctrl+d and the wheel walk it; new content follows the
+// becomes a scrollback — pgup/pgdn, shift+↑/↓ and the wheel walk it; new content follows the
 // bottom only while the human never scrolled up. Present only while the panes own the window.
 
-// ensureVP builds or resizes the chat viewport for the pane geometry (cw × paneH).
-func (m *Model) ensureVP(cw, paneH int) {
+// ensureVP builds or resizes the chat viewport for the pane geometry (cw × paneH); true when
+// the geometry changed.
+func (m *Model) ensureVP(cw, paneH int) bool {
 	if m.vpOK && m.vpCW == cw && m.vpH == paneH {
-		return
+		return false
 	}
 	if !m.vpOK {
 		m.vp = viewport.New(viewport.WithWidth(cw), viewport.WithHeight(paneH))
@@ -32,52 +34,66 @@ func (m *Model) ensureVP(cw, paneH int) {
 	m.vp.SetWidth(cw)
 	m.vp.SetHeight(paneH)
 	m.vpCW, m.vpH = cw, paneH
+	return true
 }
 
-// feedVP serves the transcript + live rows into the viewport. Follow mode: the pane hugs the
-// bottom while the human hasn't scrolled away (AtBottom before the feed), and leaves them where
-// they climbed when they have. Internal discipline: soft-wrap off, gutter off (block landmarks
-// are a later lift via LeftGutterFunc).
+// feedVP serves the transcript + live rows into the viewport — only when either changed (or
+// the pane did): an idle frame re-reads nothing. Follow mode: the pane hugs the bottom while
+// the human hasn't scrolled away (AtBottom before the feed), and leaves them where they climbed
+// when they have. Internal discipline: soft-wrap off, gutter off.
 func (m *Model) feedVP(live []string, cw, paneH int) []string {
-	m.ensureVP(cw, paneH)
+	resized := m.ensureVP(cw, paneH)
 	lines := m.paneChat(cw)
-	if len(live) > 0 {
-		lines = append(append([]string(nil), lines...), live...)
-	}
-	atBottom := m.vp.AtBottom()
-	m.vp.SetContentLines(lines)
-	if atBottom {
-		m.vp.GotoBottom()
+	if resized || m.vpVer != m.paneVer || !slices.Equal(m.vpLive, live) {
+		if len(live) > 0 {
+			lines = append(lines[:len(lines):len(lines)], live...) // a copy: the cache stays whole
+		}
+		atBottom := m.vp.AtBottom()
+		m.vpLines = lines
+		m.vp.SetContentLines(lines)
+		if atBottom {
+			m.vp.GotoBottom()
+		}
+		m.vpVer, m.vpLive = m.paneVer, append(m.vpLive[:0], live...)
 	}
 	return strings.Split(m.vp.View(), "\n")
 }
 
-// vpKeys are the pane-scroll bindings the chat viewport owns (space stays the textarea's —
-// pagedown-in-vp claims it but the input owns the floor).
-var vpKeys = map[string]bool{"pgup": true, "pgdn": true, "ctrl+u": true, "ctrl+d": true}
-
-// vpKey routes scroll keys into the pane viewport. Consumes true while panes hold and no menu,
-// popup, or completion owns the key line.
+// vpKey routes the pane-scroll keys into the chat viewport while the panes hold and no menu,
+// popup or completion owns the key line: pgup/pgdn page, shift+↑/↓ walk a line. ctrl+u/ctrl+d
+// stay the textarea's; shift+↑/↓ stay its selection while the input spans several rows.
 func (m *Model) vpKey(k tea.KeyPressMsg) (tea.Cmd, bool) {
-	if m.railVisible() == 0 || m.menu != nil || m.comp != nil || m.shortcuts {
+	if !m.paneMode() || m.menu != nil || m.comp != nil || m.shortcuts || !m.vpOK {
 		return nil, false
 	}
-	if !vpKeys[k.String()] {
+	switch k.String() {
+	case "pgup":
+		m.vp.PageUp()
+	case "pgdown":
+		m.vp.PageDown()
+	case "shift+up", "shift+down":
+		if m.input.LineCount() > 1 || m.input.LineInfo().Height > 1 {
+			return nil, false
+		}
+		if k.String() == "shift+up" {
+			m.vp.ScrollUp(1)
+		} else {
+			m.vp.ScrollDown(1)
+		}
+	default:
 		return nil, false
 	}
-	var cmd tea.Cmd
-	m.vp, cmd = m.vp.Update(k)
-	return cmd, true
+	return nil, true
 }
 
 // vpWheel routes the wheel into the pane viewport while panes own the window. The wheel over
 // the rail column walks the rail instead — the clamp lives in splitPanes, where content height
 // is known.
 func (m *Model) vpWheel(msg tea.MouseWheelMsg) (tea.Cmd, bool) {
-	if m.railVisible() == 0 {
+	if !m.paneMode() {
 		return nil, false
 	}
-	if msg.Mouse().X > m.width-m.railVisible() {
+	if l := m.geom(); l.rc > 0 && msg.Mouse().X >= l.divX {
 		switch msg.Button {
 		case tea.MouseWheelUp:
 			m.railScroll--

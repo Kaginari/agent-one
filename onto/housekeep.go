@@ -167,10 +167,10 @@ func healMissingEdge(w *Workspace, l Layout, f Finding) (Repair, bool) {
 
 // seatUncovered registers draft zone homes for tracked top-level dirs no member covers.
 func seatUncovered(w *Workspace, l Layout, root string) []string {
-	zrank := ""
+	zrank, zdir := "", ""
 	for _, r := range l.Ranks {
 		if ClassOf(r.Name).Local() == "Zone worker" {
-			zrank = r.Name
+			zrank, zdir = r.Name, r.Dir
 			break
 		}
 	}
@@ -187,7 +187,7 @@ func seatUncovered(w *Workspace, l Layout, root string) []string {
 			continue
 		}
 		base := strings.TrimSuffix(d, "/")
-		dir := filepath.Join(w.Root, l.WorkspaceDir, "zone", base)
+		dir := filepath.Join(w.Root, l.WorkspaceDir, zdir, base)
 		if _, err := os.Stat(filepath.Join(dir, "README.md")); err == nil {
 			continue
 		}
@@ -375,7 +375,14 @@ func (rep *HouseReport) probeDeadBonds(w *Workspace, l Layout, heal bool) {
 		rel, _ := filepath.Rel(workspaceDir, path)
 		parts := strings.Split(filepath.ToSlash(rel), "/")
 		if len(parts) == 3 {
-			live[parts[1]] = true // <rank>/<name>/README.md -> name
+			live[parts[1]] = true // <rank>/<name>/README.md -> the seat dir
+			// a bond names the member itself (domain-engine), which is the doc's title, not
+			// its seat dir (engine): both are live
+			if b, err := os.ReadFile(path); err == nil {
+				if t := docTitle(string(b)); t != "" {
+					live[t] = true
+				}
+			}
 		}
 		return nil
 	})
@@ -417,6 +424,16 @@ func (rep *HouseReport) probeDeadBonds(w *Workspace, l Layout, heal bool) {
 }
 
 // memberRankName derives a seat's rank dir and name from its doc — Rank line first, path fallback.
+// docTitle is a member doc's `# <name>` heading, or "".
+func docTitle(body string) string {
+	for ln := range strings.Lines(body) {
+		if t, ok := strings.CutPrefix(strings.TrimSpace(ln), "# "); ok {
+			return strings.TrimSpace(t)
+		}
+	}
+	return ""
+}
+
 func memberRankName(body, workspaceDir, path string) (rank, name string) {
 	rel, _ := filepath.Rel(workspaceDir, path)
 	parts := strings.Split(filepath.ToSlash(rel), "/")

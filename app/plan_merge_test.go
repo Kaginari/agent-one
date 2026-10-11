@@ -7,7 +7,7 @@ import (
 )
 
 // railPlans merges live + archived decks: live first in name order, then the archive's decks
-// with Archived=true so the rail renders them and 'c' can snap off them (tui/blocks.go:597).
+// with Archived=true so the rail renders them and alt+n can snap off them (tui/blocks.go:597).
 func TestPlanRailMergeArchived(t *testing.T) {
 	dir := t.TempDir()
 	boot := time.Now()
@@ -77,5 +77,32 @@ func TestPlanRailMergeNoArchiveDir(t *testing.T) {
 	plans := railPlans(a, pdir, boot)
 	if len(plans) != 1 || plans[0].Rank != "zone" || plans[0].Archived {
 		t.Fatalf("railPlans without an archive dir: %+v", plans)
+	}
+}
+
+// The rail's decks are read again only when a deck file moved: an unchanged dir answers from
+// the memo, a new deck is seen at the next ask.
+func TestPlansReadOnlyWhenTheyMove(t *testing.T) {
+	dir := t.TempDir()
+	boot := time.Now()
+	a := &App{Root: dir, Cfg: mustDefaults(t), planBoot: boot}
+	a.Subagent = newSubagent(a)
+	pdir := a.planDir()
+	if err := os.MkdirAll(pdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePlanFile(t, pdir, "zone-a", boot.Add(time.Hour), false)
+	h := &tuiHost{a: a}
+	if got := h.Plans(); len(got) != 1 {
+		t.Fatalf("first read: %d plans", len(got))
+	}
+	sig := h.plans.sig
+	h.plans.out = nil // a stale memo would answer empty
+	if got := h.Plans(); len(got) != 0 || h.plans.sig != sig {
+		t.Fatalf("an unchanged dir must answer from the memo: %d plans", len(got))
+	}
+	writePlanFile(t, pdir, "coord-b", boot.Add(time.Hour), false)
+	if got := h.Plans(); len(got) != 2 {
+		t.Fatalf("a new deck is read at the next ask: %d plans", len(got))
 	}
 }

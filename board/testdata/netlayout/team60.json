@@ -1,0 +1,819 @@
+{
+ "orchestrator": "orchestrator",
+ "nodes": [
+  {
+   "id": "orchestrator",
+   "name": "orchestrator",
+   "kind": "member",
+   "rank": "orchestrator",
+   "orchestrator": true,
+   "label": "Orchestrator"
+  },
+  {
+   "id": "coord-engine",
+   "name": "coord-engine",
+   "kind": "member",
+   "rank": "coord",
+   "parent": "orchestrator"
+  },
+  {
+   "id": "domain-engine",
+   "name": "domain-engine",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-engine"
+  },
+  {
+   "id": "zone-compact",
+   "name": "zone-compact",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-engine"
+  },
+  {
+   "id": "zone-loop",
+   "name": "zone-loop",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-engine"
+  },
+  {
+   "id": "zone-providers",
+   "name": "zone-providers",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-engine"
+  },
+  {
+   "id": "zone-wire",
+   "name": "zone-wire",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-engine"
+  },
+  {
+   "id": "domain-safety",
+   "name": "domain-safety",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-engine"
+  },
+  {
+   "id": "zone-gate",
+   "name": "zone-gate",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-safety"
+  },
+  {
+   "id": "zone-guard",
+   "name": "zone-guard",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-safety"
+  },
+  {
+   "id": "zone-sandbox",
+   "name": "zone-sandbox",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-safety"
+  },
+  {
+   "id": "zone-tools",
+   "name": "zone-tools",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-safety"
+  },
+  {
+   "id": "domain-compaction",
+   "name": "domain-compaction",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-engine"
+  },
+  {
+   "id": "zone-journal",
+   "name": "zone-journal",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-compaction"
+  },
+  {
+   "id": "zone-budget",
+   "name": "zone-budget",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-compaction"
+  },
+  {
+   "id": "zone-memory",
+   "name": "zone-memory",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-compaction"
+  },
+  {
+   "id": "zone-onto",
+   "name": "zone-onto",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-compaction"
+  },
+  {
+   "id": "coord-workspace",
+   "name": "coord-workspace",
+   "kind": "member",
+   "rank": "coord",
+   "parent": "orchestrator"
+  },
+  {
+   "id": "domain-workspace",
+   "name": "domain-workspace",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-workspace"
+  },
+  {
+   "id": "zone-toolbox",
+   "name": "zone-toolbox",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-workspace"
+  },
+  {
+   "id": "zone-discover",
+   "name": "zone-discover",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-workspace"
+  },
+  {
+   "id": "zone-mcp",
+   "name": "zone-mcp",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-workspace"
+  },
+  {
+   "id": "zone-workspace",
+   "name": "zone-workspace",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-workspace"
+  },
+  {
+   "id": "domain-config",
+   "name": "domain-config",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-workspace"
+  },
+  {
+   "id": "zone-config",
+   "name": "zone-config",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-config"
+  },
+  {
+   "id": "zone-schema",
+   "name": "zone-schema",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-config"
+  },
+  {
+   "id": "zone-bench",
+   "name": "zone-bench",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-config"
+  },
+  {
+   "id": "zone-board",
+   "name": "zone-board",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-config"
+  },
+  {
+   "id": "domain-ontology",
+   "name": "domain-ontology",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-workspace"
+  },
+  {
+   "id": "zone-tui",
+   "name": "zone-tui",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-ontology"
+  },
+  {
+   "id": "zone-ui",
+   "name": "zone-ui",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-ontology"
+  },
+  {
+   "id": "zone-server",
+   "name": "zone-server",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-ontology"
+  },
+  {
+   "id": "zone-client",
+   "name": "zone-client",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-ontology"
+  },
+  {
+   "id": "coord-host",
+   "name": "coord-host",
+   "kind": "member",
+   "rank": "coord",
+   "parent": "orchestrator"
+  },
+  {
+   "id": "domain-app",
+   "name": "domain-app",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-host"
+  },
+  {
+   "id": "zone-proxy",
+   "name": "zone-proxy",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-app"
+  },
+  {
+   "id": "zone-cache",
+   "name": "zone-cache",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-app"
+  },
+  {
+   "id": "zone-auth",
+   "name": "zone-auth",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-app"
+  },
+  {
+   "id": "zone-tokens",
+   "name": "zone-tokens",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-app"
+  },
+  {
+   "id": "domain-interfaces",
+   "name": "domain-interfaces",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-host"
+  },
+  {
+   "id": "zone-stream",
+   "name": "zone-stream",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-interfaces"
+  },
+  {
+   "id": "zone-replay",
+   "name": "zone-replay",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-interfaces"
+  },
+  {
+   "id": "zone-render",
+   "name": "zone-render",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-interfaces"
+  },
+  {
+   "id": "zone-metrics",
+   "name": "zone-metrics",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-interfaces"
+  },
+  {
+   "id": "coord-edge",
+   "name": "coord-edge",
+   "kind": "member",
+   "rank": "coord",
+   "parent": "orchestrator"
+  },
+  {
+   "id": "domain-gateway",
+   "name": "domain-gateway",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-edge"
+  },
+  {
+   "id": "zone-alerts",
+   "name": "zone-alerts",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-gateway"
+  },
+  {
+   "id": "zone-exporter",
+   "name": "zone-exporter",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-gateway"
+  },
+  {
+   "id": "zone-importer",
+   "name": "zone-importer",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-gateway"
+  },
+  {
+   "id": "zone-pricing",
+   "name": "zone-pricing",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-gateway"
+  },
+  {
+   "id": "domain-registry",
+   "name": "domain-registry",
+   "kind": "member",
+   "rank": "domain",
+   "parent": "coord-edge"
+  },
+  {
+   "id": "zone-catalog",
+   "name": "zone-catalog",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-registry"
+  },
+  {
+   "id": "zone-artifactory",
+   "name": "zone-artifactory",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-registry"
+  },
+  {
+   "id": "zone-registry-mirror",
+   "name": "zone-registry-mirror",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-registry"
+  },
+  {
+   "id": "zone-ledger",
+   "name": "zone-ledger",
+   "kind": "member",
+   "rank": "zone",
+   "parent": "domain-registry"
+  },
+  {
+   "id": "coord-design",
+   "name": "coord-design",
+   "kind": "member",
+   "rank": "coord",
+   "parent": "orchestrator"
+  },
+  {
+   "id": "service-release",
+   "name": "service-release",
+   "kind": "member",
+   "rank": "service",
+   "parent": "orchestrator"
+  },
+  {
+   "id": "skill-bench-run",
+   "name": "bench-run",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-loop-core",
+   "name": "loop-core",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-domain-gate-verdict",
+   "name": "domain-gate-verdict",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-review-core",
+   "name": "review-core",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-zone-wire-and-journals",
+   "name": "zone-wire-and-journals",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-zone-go-proving",
+   "name": "zone-go-proving",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-zone-member-docs",
+   "name": "zone-member-docs",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-gate-safety",
+   "name": "gate-safety",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-zone-class-contract",
+   "name": "zone-class-contract",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-service-release-pipeline",
+   "name": "service-release-pipeline",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-ui",
+   "name": "ui",
+   "kind": "skill",
+   "lane": "skill:shared"
+  },
+  {
+   "id": "skill-prose-house-style",
+   "name": "prose-house-style",
+   "kind": "skill",
+   "lane": "skill:shared"
+  }
+ ],
+ "edges": [
+  {
+   "from": "coord-engine",
+   "to": "orchestrator",
+   "bond": "reports"
+  },
+  {
+   "from": "domain-engine",
+   "to": "coord-engine",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-compact",
+   "to": "domain-engine",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-loop",
+   "to": "domain-engine",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-providers",
+   "to": "domain-engine",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-wire",
+   "to": "domain-engine",
+   "bond": "truth"
+  },
+  {
+   "from": "domain-safety",
+   "to": "coord-engine",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-gate",
+   "to": "domain-safety",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-guard",
+   "to": "domain-safety",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-sandbox",
+   "to": "domain-safety",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-tools",
+   "to": "domain-safety",
+   "bond": "truth"
+  },
+  {
+   "from": "domain-compaction",
+   "to": "coord-engine",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-journal",
+   "to": "domain-compaction",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-budget",
+   "to": "domain-compaction",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-memory",
+   "to": "domain-compaction",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-onto",
+   "to": "domain-compaction",
+   "bond": "truth"
+  },
+  {
+   "from": "coord-workspace",
+   "to": "orchestrator",
+   "bond": "reports"
+  },
+  {
+   "from": "domain-workspace",
+   "to": "coord-workspace",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-toolbox",
+   "to": "domain-workspace",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-discover",
+   "to": "domain-workspace",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-mcp",
+   "to": "domain-workspace",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-workspace",
+   "to": "domain-workspace",
+   "bond": "truth"
+  },
+  {
+   "from": "domain-config",
+   "to": "coord-workspace",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-config",
+   "to": "domain-config",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-schema",
+   "to": "domain-config",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-bench",
+   "to": "domain-config",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-board",
+   "to": "domain-config",
+   "bond": "truth"
+  },
+  {
+   "from": "domain-ontology",
+   "to": "coord-workspace",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-tui",
+   "to": "domain-ontology",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-ui",
+   "to": "domain-ontology",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-server",
+   "to": "domain-ontology",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-client",
+   "to": "domain-ontology",
+   "bond": "truth"
+  },
+  {
+   "from": "coord-host",
+   "to": "orchestrator",
+   "bond": "reports"
+  },
+  {
+   "from": "domain-app",
+   "to": "coord-host",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-proxy",
+   "to": "domain-app",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-cache",
+   "to": "domain-app",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-auth",
+   "to": "domain-app",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-tokens",
+   "to": "domain-app",
+   "bond": "truth"
+  },
+  {
+   "from": "domain-interfaces",
+   "to": "coord-host",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-stream",
+   "to": "domain-interfaces",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-replay",
+   "to": "domain-interfaces",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-render",
+   "to": "domain-interfaces",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-metrics",
+   "to": "domain-interfaces",
+   "bond": "truth"
+  },
+  {
+   "from": "coord-edge",
+   "to": "orchestrator",
+   "bond": "reports"
+  },
+  {
+   "from": "domain-gateway",
+   "to": "coord-edge",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-alerts",
+   "to": "domain-gateway",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-exporter",
+   "to": "domain-gateway",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-importer",
+   "to": "domain-gateway",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-pricing",
+   "to": "domain-gateway",
+   "bond": "truth"
+  },
+  {
+   "from": "domain-registry",
+   "to": "coord-edge",
+   "bond": "verdict"
+  },
+  {
+   "from": "zone-catalog",
+   "to": "domain-registry",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-artifactory",
+   "to": "domain-registry",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-registry-mirror",
+   "to": "domain-registry",
+   "bond": "truth"
+  },
+  {
+   "from": "zone-ledger",
+   "to": "domain-registry",
+   "bond": "truth"
+  },
+  {
+   "from": "coord-design",
+   "to": "orchestrator",
+   "bond": "reports"
+  },
+  {
+   "from": "service-release",
+   "to": "orchestrator",
+   "bond": "reports"
+  },
+  {
+   "from": "coord-engine",
+   "to": "skill-bench-run",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-wire",
+   "to": "skill-loop-core",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-tools",
+   "to": "skill-domain-gate-verdict",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-onto",
+   "to": "skill-review-core",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-mcp",
+   "to": "skill-zone-wire-and-journals",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-bench",
+   "to": "skill-zone-go-proving",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-server",
+   "to": "skill-zone-member-docs",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-cache",
+   "to": "skill-gate-safety",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-replay",
+   "to": "skill-zone-class-contract",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-alerts",
+   "to": "skill-service-release-pipeline",
+   "bond": "holds"
+  },
+  {
+   "from": "zone-catalog",
+   "to": "skill-ui",
+   "bond": "holds"
+  },
+  {
+   "from": "service-release",
+   "to": "skill-prose-house-style",
+   "bond": "holds"
+  }
+ ]
+}

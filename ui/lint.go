@@ -25,8 +25,10 @@ func (f Finding) String() string {
 	return fmt.Sprintf("%s %s [%s] %s", f.Level, at, f.Rule, f.Msg)
 }
 
-// TokenFiles are the files where literal values belong: the raw tier and its palettes.
-var TokenFiles = map[string]bool{"tokens.css": true, "palettes.css": true}
+// TokenFiles are the files where literal values belong: the raw tier and its palettes, and a
+// page's own theme layer (theme.css: its faces, its colour roles, the meaning tier mapped from
+// them — over the foundation's copies, never instead of them).
+var TokenFiles = map[string]bool{"tokens.css": true, "palettes.css": true, "theme.css": true}
 
 var (
 	reColour = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(`)

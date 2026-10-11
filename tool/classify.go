@@ -15,7 +15,9 @@ import (
 // outward. Unknown commands default to write; declare a class to tighten.
 
 // systemPrefixes are readable from inside the workspace; a write there leaves it (writesSystem).
-var systemPrefixes = []string{"/dev/", "/usr/", "/bin/", "/sbin/", "/lib/", "/lib32/", "/lib64/", "/etc/", "/proc/", "/sys/", "/opt/", "/snap/"}
+// /etc is not among them: it holds the machine's configuration and secrets (passwd, shadow,
+// keys), so even a read of it leaves the workspace and asks.
+var systemPrefixes = []string{"/dev/", "/usr/", "/bin/", "/sbin/", "/lib/", "/lib32/", "/lib64/", "/proc/", "/sys/", "/opt/", "/snap/"}
 
 // harmlessDevices take a write without anything leaving the workspace.
 var harmlessDevices = []string{"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "/dev/fd/"}
@@ -27,7 +29,7 @@ func writesSystem(abs string) bool {
 			return false
 		}
 	}
-	for _, s := range systemPrefixes {
+	for _, s := range append(systemPrefixes, "/etc/") {
 		if strings.HasPrefix(abs, s) {
 			return true
 		}

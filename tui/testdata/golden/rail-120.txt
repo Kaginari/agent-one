@@ -1,24 +1,15 @@
-╭──────────────────────────────────╮
-│ ᴠɪᴛᴀʟꜱ                           │
-│ agent-one                        │
-│ kimi-3-conduit                   │
-│ ctx ▌▌▌░░░░░ 42% / 128k          │
-│  orchestrator 8.2k   coord 2.3k  │
-│  domain 3.3k   zone 1.6k         │
-│ 15k tokens  $0.0123              │
-╰──────────────────────────────────╯
-                                    
-╭──────────────────────────────────╮
-│ ꜱᴜʙᴀɢᴇɴᴛꜱ                        │
-│ ● coord-agent-o THINKING · 1m12s │
-│ ● domain-security DONE           │
-│ ● zone-auth DONE                 │
-╰──────────────────────────────────╯
-                                    
-╭──────────────────────────────────╮
-│ ꜰɪʟᴇꜱ                            │
-│ ╰── tui/                         │
-│     ├── blocks.go                │
-│     ├── model.go                 │
-│     ╰── legacy.go                │
-╰──────────────────────────────────╯
+ agent-one                          
+ kimi-3-conduit                     
+ ▌▌▌░░░░░ 42% / 128k                
+ 15k tok · $0.0123                  
+ orchestrator 8.2k coord 2.3k       
+ domain 3.3k zone 1.6k              
+─ ▾ subagents · 3 ──────────────────
+ ● coord-agent-one   THINKING 1m12s 
+ ● domain-security           ✗ DONE 
+ ● zone-auth                 ✓ DONE 
+─ ▾ files · 3 ──────────────────────
+ ╰── tui/                           
+     ├── blocks.go                  
+     ├── model.go                   
+     ╰── legacy.go                  

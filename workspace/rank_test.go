@@ -66,11 +66,11 @@ func TestRankTable(t *testing.T) {
 // two authoring ranks under that, and an auditor beside — config's `rankSet: replace`.
 func customRanks() Ranks {
 	return Ranks{
-		{Name: "lead", ReportsTo: Orchestrator, Job: "coordinates", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: "lead", Prefix: "lead-"},
-		{Name: "persistent", ReportsTo: "lead", Job: "holds the gate", HoldsGate: true, Agent: "ephemeral", Role: "judge", Tools: AllTools, Dir: "persistent", Prefix: "persistent-"},
-		{Name: "coder", ReportsTo: "persistent", Job: "authors code", Authors: true, Agent: "ephemeral", Role: "analyst", Tools: baseTools, Dir: "coder", Prefix: "coder-"},
-		{Name: "writer", ReportsTo: "persistent", Job: "authors docs", Authors: true, Agent: "ephemeral", Role: "drafter", Tools: baseTools, Dir: "writer", Prefix: "writer-"},
-		{Name: "auditor", ReportsTo: Orchestrator, Job: "reads verdicts", Agent: "persistent", Role: "judge", Tools: []string{"read", "grep", "glob", "policy"}, Dir: "auditor", Prefix: "auditor-"},
+		{Name: "lead", ReportsTo: Orchestrator, Job: "coordinates", Role: "drafter", Tools: AllTools, Dir: "lead", Prefix: "lead-"},
+		{Name: "persistent", ReportsTo: "lead", Job: "holds the gate", HoldsGate: true, Role: "judge", Tools: AllTools, Dir: "persistent", Prefix: "persistent-"},
+		{Name: "coder", ReportsTo: "persistent", Job: "authors code", Authors: true, Role: "analyst", Tools: baseTools, Dir: "coder", Prefix: "coder-"},
+		{Name: "writer", ReportsTo: "persistent", Job: "authors docs", Authors: true, Role: "drafter", Tools: baseTools, Dir: "writer", Prefix: "writer-"},
+		{Name: "auditor", ReportsTo: Orchestrator, Job: "reads verdicts", Role: "judge", Tools: []string{"read", "grep", "glob", "policy"}, Dir: "auditor", Prefix: "auditor-"},
 	}
 }
 

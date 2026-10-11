@@ -227,6 +227,10 @@ type BuiltinTool struct {
 	// 0 keeps the built-in 30m) — without it a background run had no clock at all
 	BackgroundTimeout Duration `json:"backgroundTimeout"`
 	StrictFlow        bool     `json:"strictFlow"` // dispatch: one hop per layer — no skip-level dispatches, neighbors per the rank's Sideways
+	// Lineage (tools.dispatch.lineage, default true): an agent commissions only members whose
+	// Reports-to chain reaches it — a domain owner its own zone workers, a coordinator its own domain owners. false leaves the
+	// rank policy alone in force (any domain owner may order any zone worker).
+	Lineage bool `json:"lineage"`
 	// SessionBackground (tools.dispatch.sessionBackground): the session's own dispatches
 	// default to background — the orchestrator stays free, the Subagent rides on and wakes it with the
 	// report. Only the session (depth 0): a Subagent's own dispatches stay foreground by design.

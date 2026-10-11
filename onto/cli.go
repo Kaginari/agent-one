@@ -131,7 +131,7 @@ func CLI(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "@? owner needs a path\n%s", usage)
 			return 2
 		}
-		line, err := ownerLine(args[1])
+		line, err := ownerLine(root, args[1])
 		if err != nil {
 			fmt.Fprintf(stderr, "@? %s\n", err)
 			return 1
@@ -140,7 +140,7 @@ func CLI(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "? no owner for %s\n", args[1])
 			return 1
 		}
-		fmt.Println(stdout, line)
+		fmt.Fprintln(stdout, line)
 		return 0
 	case "assert":
 		if len(args) < 4 {

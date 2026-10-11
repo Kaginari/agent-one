@@ -55,6 +55,7 @@ type Model struct {
 	// the turn
 	busy          bool
 	turnStart     time.Time
+	turnSeq       int // counts turns: an answer's pieces share theirs
 	verb          string
 	stream        strings.Builder
 	streamed      bool
@@ -64,12 +65,18 @@ type Model struct {
 	pulses        map[string]*subagentPulse // a live Subagent row's motion, keyed by its name (motion.go)
 	files         []RailFile                // the touch ledger: who wrote what, in order, latest last (slice-2 rail)
 	plans         []RailPlan                // plan decks the rail shows; planIdx picks the visible one (ctrl+p)
+	plansBusy     bool                      // a Plans read is in flight
 	planIdx       int
 	planSticky    bool            // the human ctrl+p'd off the coordinator default: keep their pick
-	subagentRows  map[int]string  // rail row → subagent name; a click there switches the plan card
-	railCardRows  map[string]int  // rail card key ("subagents" | "plan" | "files") → its header row; a click there toggles its collapse
+	subagentRows  map[int]string  // window row → the subagent a roster row shows; a click there switches the plan card
+	railCardRows  map[string]int  // sidebar section key ("subagents" | "plan" | "files") → its rule's window row; a click there folds it
 	railScroll    int             // the rail's scroll offset in rows: the wheel over the rail column walks it
+	railMore      bool            // rows lie below the sidebar's last visible one (the ▼ on its edge)
+	railOff       bool            // the human hid the sidebar (alt+s, /sidebar): the frame keeps one column
 	railCollapsed map[string]bool // rail card key ("subagents" | "plan" | "files") → collapsed to its header
+	lay           layout          // the last frame's geometry: the mouse reads it back
+	settings      *settingsState  // /settings: the huh form floating over the frame (settings.go)
+	wel           Welcome         // the welcome's facts: the header and /roles read them
 	lastBlock     *collapsed      // the last collapsed block, for ctrl+o
 
 	// the choice
@@ -109,7 +116,7 @@ type Model struct {
 	prints chan printItem
 	// blocks is every finished block as a render at a width: a width change clears the terminal
 	// and prints them again at the new one, as the terminal's own rewrap cannot be trusted.
-	blocks    []func(w int) string
+	blocks    []*block
 	reflowSeq int
 	lastWidth int // the width the transcript was last printed at
 	bgKnown   bool
@@ -129,27 +136,89 @@ type Model struct {
 	bview      *bodyView
 	toasts     []toast
 
-	// the pane-mode chat cache: blocks rendered at cw, rebuilt when dirtied (a new block, a
-	// width change, a theme swap) — never re-rendered per frame
+	// the pane-mode chat cache: the blocks' lines at cw. A new block appends its own lines; a
+	// width change, a theme swap or a reflow rebuilds it from the blocks' own caches
 	paneDirty bool
 	paneCache []string
 	paneW     int
 	paneRef   int
+	paneN     int // blocks[:paneN] are in paneCache
+	paneVer   int // bumps whenever paneCache changes: the viewport's feed key
+	// renderGen bumps on a theme swap: every block's cached render is stale then
+	renderGen int
+	liveMemo  struct {
+		src    string
+		w, gen int
+		first  bool
+		out    string
+	}
 	// the chat pane's viewport: transcript scrollback lives here while the panes own the
 	// window (pane_vp.go)
-	vp   viewport.Model
-	vpOK bool
-	vpCW int
-	vpH  int
+	vp      viewport.Model
+	vpOK    bool
+	vpCW    int
+	vpH     int
+	vpLines []string // what the viewport holds: the transcript, then the live rows
+	vpVer   int      // the paneVer and the live rows the viewport was last fed
+	vpLive  []string
+	inputW  int // the width the textarea was last sized to
+	// the chat pane's drag selection (select.go); mouseTerm hands the mouse to the terminal
+	sel       *selection
+	clickAt   time.Time
+	clickSpot spot
+	clicks    int
+	mouseTerm bool
 	// printedIdx: blocks[:printedIdx] own the terminal scrollback already; under panes nothing
 	// prints live, so when the window narrows the panes hand the scrollback what it missed —
 	// every block exactly once, never twice
 	printedIdx int
-	// the board: full screen while open; blocks that finish meanwhile wait in held
+	// the board: full screen while open; blocks that finish meanwhile wait past printedIdx
 	board    *boardState
-	held     []string
 	sender   func(tea.Msg)
 	attached chan struct{}
+}
+
+// block is one finished block of the transcript: its render at a width, and the source it
+// was drawn from — an answer's markdown — for the copy keys.
+type block struct {
+	render func(w int) string
+	src    string
+	answer bool // a piece of the session's answer
+	turn   int  // the turn it belongs to (turnSeq)
+	// the render cache: blocks are append-only and never change once landed (ctrl+o prints an
+	// expanded copy), so one render per width and theme serves every frame and reprint
+	w, gen int
+	ok     bool
+	text   string
+	lines  []string
+}
+
+// rendered is a block at a width, from its cache when the width and theme still hold.
+func (m *Model) rendered(b *block, w int) string {
+	if !b.ok || b.w != w || b.gen != m.renderGen {
+		b.text, b.lines = b.render(w), nil
+		b.w, b.gen, b.ok = w, m.renderGen, true
+	}
+	return b.text
+}
+
+// renderedLines is rendered split into rows.
+func (m *Model) renderedLines(b *block, w int) []string {
+	t := m.rendered(b, w)
+	if b.lines == nil && t != "" {
+		b.lines = strings.Split(t, "\n")
+	}
+	return b.lines
+}
+
+// liveAnswer is the paragraph still being written, rendered once per change of text or width.
+func (m *Model) liveAnswer(s string, w int) string {
+	lm := &m.liveMemo
+	first := m.firstPiece()
+	if lm.out == "" || lm.src != s || lm.w != w || lm.gen != m.renderGen || lm.first != first {
+		lm.src, lm.w, lm.gen, lm.first, lm.out = s, w, m.renderGen, first, m.theme.answer(s, w, first)
+	}
+	return lm.out
 }
 
 type collapsed struct {
@@ -179,19 +248,22 @@ func New(host Host, theme Theme, words Words) *Model {
 	ta.Prompt = ""
 	ta.SetPromptFunc(2, func(p textarea.PromptInfo) string {
 		if p.LineNumber == 0 {
-			return "> "
+			return "› "
 		}
 		return "  "
 	})
 	ta.Placeholder = "ask, or / for commands"
 	ta.CharLimit = 0
+	// the box grows with its visual rows (soft wraps included) up to 8, then scrolls inside
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
 	ta.MaxHeight = 8
 	ta.SetHeight(1)
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 	st := ta.Styles()
 	st.Focused.CursorLine = lipgloss.NewStyle()
 	st.Focused.Base = lipgloss.NewStyle()
-	st.Focused.Prompt = theme.dim
+	st.Focused.Prompt = theme.accent
 	st.Focused.Placeholder = theme.dim
 	st.Blurred = st.Focused
 	ta.SetStyles(st)
@@ -239,6 +311,10 @@ func (m *Model) welcome() tea.Cmd {
 	}
 	m.welcomed = true
 	wel := m.host.Welcome()
+	if wel.Dash == "" {
+		wel.Dash = m.footer.Dash
+	}
+	m.wel = wel
 	return m.print(func(w int) string { return m.theme.Welcome(wel, w) })
 }
 
@@ -246,8 +322,9 @@ func (m *Model) welcome() tea.Cmd {
 func (m *Model) setTheme(t Theme) {
 	m.theme = t
 	m.paneDirty = true
+	m.renderGen++
 	st := m.input.Styles()
-	st.Focused.Prompt = t.dim
+	st.Focused.Prompt = t.accent
 	st.Focused.Placeholder = t.dim
 	st.Blurred = st.Focused
 	m.input.SetStyles(st)
@@ -290,6 +367,16 @@ func tick() tea.Cmd {
 
 // Update is the event loop.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.settings != nil && m.board == nil && m.bview == nil {
+		cmd, handled := m.settingsUpdate(msg)
+		if handled {
+			return m, cmd
+		}
+		if cmd != nil {
+			mm, next := m.update(msg)
+			return mm, tea.Batch(cmd, next)
+		}
+	}
 	var boardCmd tea.Cmd
 	if m.board != nil {
 		cmd, done := m.boardUpdate(msg)
@@ -318,7 +405,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.width < 20 {
 			m.width = 20
 		}
-		m.input.SetWidth(m.width - 4)
+		m.sizeInput()
 		if !m.ready {
 			m.ready = true
 			m.lastWidth = m.width
@@ -382,33 +469,21 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.busy || m.choice != nil {
 			m.footer = m.host.Footer()
 		}
-		if m.railVisible() > 0 {
-			plans := m.host.Plans()
-			m.plans = plans
-			if m.planSticky {
-				if m.planIdx >= len(plans) {
-					m.planIdx = 0
-				}
-			} else if len(plans) > 0 {
-				// the steady state: the orchestrator's own deck rides the rail; ctrl+p walks the others.
-				// A live orchestrator deck is preferred over a stale one (2026-10-13 relay): booting
-				// facing a stale deck armed the 'c' chord from the first keystroke.
-				m.planIdx = 0
-				for i, p := range plans {
-					if (p.Rank == "orchestrator") && !p.Stale && !p.Archived {
-						m.planIdx = i
-						break
-					}
-				}
-			}
+		// the rail's decks load off the UI goroutine, one read in flight at a time
+		var load tea.Cmd
+		if m.railVisible() > 0 && !m.plansBusy {
+			m.plansBusy = true
+			host := m.host
+			load = func() tea.Msg { return evPlans{plans: host.Plans()} }
 		}
 		if m.message != "" && time.Now().After(m.msgUntil) {
 			m.message = ""
 		}
-		if len(lands) > 0 {
-			return m, tea.Batch(append([]tea.Cmd{tick()}, lands...)...)
-		}
-		return m, tick()
+		return m, tea.Batch(append([]tea.Cmd{tick(), load}, lands...)...)
+	case evPlans:
+		m.plansBusy = false
+		m.setPlans(msg.plans)
+		return m, nil
 	case spinner.TickMsg:
 		if !m.busy {
 			return m, nil
@@ -422,33 +497,35 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		cmd, _ := m.mouseSelect(msg)
+		return m, cmd
+	case evSelScroll:
+		return m, m.selScroll()
 	case tea.MouseClickMsg:
-		// a click on a subagents-card row switches the plan card to that agent's deck — the agent's
-		// role lane tints the card (that's the role that turn is running under)
-		if msg.Button == tea.MouseLeft && m.railVisible() > 0 && m.choice == nil {
-			cw := m.width - m.railVisible()
-			if msg.X > cw && len(m.subagentRows) > 0 {
-				if name, ok := m.subagentRows[msg.Y]; ok {
-					for i, p := range m.plans {
-						if p.Agent == name {
-							m.planIdx = i
-							m.planSticky = true
-							m.say("plan · " + p.Agent)
-							break
-						}
+		if cmd, ok := m.mouseSelect(msg); ok {
+			return m, cmd
+		}
+		// the sidebar's hit regions come from its last frame (railRowsAt): a roster row
+		// switches the plan card to that agent's deck, a section's rule folds the section
+		if l := m.geom(); msg.Button == tea.MouseLeft && m.choice == nil && l.rc > 0 && msg.X >= l.divX {
+			if name, ok := m.subagentRows[msg.Y]; ok {
+				for i, p := range m.plans {
+					if p.Agent == name {
+						m.planIdx = i
+						m.planSticky = true
+						m.say("plan · " + p.Agent)
+						break
 					}
 				}
 			}
-			// a click on a card's top border collapses/expands it
-			if msg.X > cw && len(m.railCardRows) > 0 {
-				for key, y := range m.railCardRows {
-					if y == msg.Y {
-						if m.railCollapsed == nil {
-							m.railCollapsed = map[string]bool{}
-						}
-						m.railCollapsed[key] = !m.railCollapsed[key]
-						break
+			for key, y := range m.railCardRows {
+				if y == msg.Y {
+					if m.railCollapsed == nil {
+						m.railCollapsed = map[string]bool{}
 					}
+					m.railCollapsed[key] = !m.railCollapsed[key]
+					break
 				}
 			}
 		}
@@ -641,17 +718,39 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.print(fixed(strings.Join(msg.lines, "\n"))))
 		}
 		if msg.quit {
-			m.quit = true
-			cmds = append(cmds, tea.Quit)
+			cmds = append(cmds, m.leave())
 		}
 		return m, tea.Sequence(cmds...)
 	case EvQuit:
-		m.quit = true
-		return m, tea.Quit
+		return m, m.leave()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+// evPlans carries the rail's decks, read by a tea.Cmd.
+type evPlans struct{ plans []RailPlan }
+
+// setPlans takes a fresh read of the decks: a pinned pick holds, else the orchestrator's own deck
+// rides the rail (a live one over a stale one); ctrl+p walks the others.
+func (m *Model) setPlans(plans []RailPlan) {
+	m.plans = plans
+	if m.planSticky {
+		if m.planIdx >= len(plans) {
+			m.planIdx = 0
+		}
+		return
+	}
+	if len(plans) > 0 {
+		m.planIdx = 0
+		for i, p := range plans {
+			if (p.Rank == "orchestrator") && !p.Stale && !p.Archived {
+				m.planIdx = i
+				break
+			}
+		}
+	}
 }
 
 // noteWrite records a path an agent touched; the rail's ledger shows latest-last, one line per
@@ -670,10 +769,27 @@ func (m *Model) noteWrite(path, agent string) {
 	m.files = append(m.files, RailFile{Path: path, Agent: agent, Lane: m.theme.lane(rank)})
 }
 
-// railVisible: the sidebar's width for this window (railSize) — 0 keeps the session one
-// column. A choice no longer dismisses it: the modal's dim veil covers both panes evenly.
+// railVisible: the sidebar's claim on this window (railSize: its column, the divider and the
+// right border) — 0 when the window is too small for the frame or the human hid it. A choice
+// never dismisses it: the modal's dim veil covers both columns evenly.
 func (m *Model) railVisible() int {
+	if m.railOff {
+		return 0
+	}
 	return railSize(m.width, m.height)
+}
+
+// sizeInput fits the textarea to where it lives: the main column's content width under the
+// frame, the inline box's inner width otherwise.
+func (m *Model) sizeInput() {
+	w := m.width - 4
+	if l := m.layout(); l.pane {
+		w = l.input.W
+	}
+	if w != m.inputW {
+		m.inputW = w
+		m.input.SetWidth(w)
+	}
 }
 
 // choiceFloat: on windows with room the ask card is a true overlay (N16 slice 3) — the frame
@@ -686,123 +802,75 @@ func (m *Model) choiceFloat() bool {
 // width, cached and rebuilt on change (a block landed, the width moved, the theme swapped).
 // Clipping happens in splitPanes.
 func (m *Model) paneChat(cw int) []string {
-	if !m.paneDirty && m.paneCache != nil && m.paneW == cw && m.paneRef == m.reflowSeq {
+	if m.paneDirty || m.paneW != cw || m.paneRef != m.reflowSeq || m.paneN > len(m.blocks) {
+		m.paneCache, m.paneN = nil, 0
+		m.paneW, m.paneRef, m.paneDirty = cw, m.reflowSeq, false
+		m.paneVer++
+	}
+	if m.paneN == len(m.blocks) && m.paneCache != nil {
 		return m.paneCache
 	}
-	var out []string
-	for _, r := range m.blocks {
-		if b := r(cw); b != "" {
-			out = append(out, strings.Split(b, "\n")...)
-			out = append(out, "")
+	for _, b := range m.blocks[m.paneN:] {
+		if ls := m.renderedLines(b, cw); len(ls) > 0 {
+			m.paneCache = append(m.paneCache, ls...)
+			m.paneCache = append(m.paneCache, "")
 		}
 	}
-	m.paneCache, m.paneW, m.paneRef, m.paneDirty = out, cw, m.reflowSeq, false
-	return out
+	if m.paneCache == nil {
+		m.paneCache = []string{}
+	}
+	m.paneN = len(m.blocks)
+	m.paneVer++
+	return m.paneCache
 }
 
-// splitPanes is the window's frame: chat left (cw) — the transcript viewport (paneChat) plus
-// the live rows — one │ divider, the sidebar right (rail) — both padded to the pane height, so
-// the split reads as two regions, not floating text. The sidebar's cells carry its background
-// all the way down; the chat pads with terminal background. The newest chat lines win the
-// clip: the pane never scrolls the old away first.
-func (m *Model) splitPanes(live []string, rail, cw, paneH int) string {
-	cl := m.feedVP(live, cw, paneH) // the viewport's own rows: exact-height, scroll-carried
-	if len(cl) > paneH {
-		cl = cl[len(cl)-paneH:]
+// chatRows is the conversation pane's visible rows: the viewport over the transcript and the
+// live rows, the selection painted, each row truncated to the pane's width.
+func (m *Model) chatRows(live []string, l layout) []string {
+	cl := m.feedVP(live, l.chat.W, l.chat.H)
+	if len(cl) > l.chat.H {
+		cl = cl[len(cl)-l.chat.H:]
 	}
-	for len(cl) < paneH {
+	for len(cl) < l.chat.H {
 		cl = append([]string{""}, cl...)
 	}
-	for i, l := range cl {
-		l = ansi.Truncate(l, cw, "")
-		cl[i] = l + padRight(l, cw)
+	for i, r := range cl {
+		cl[i] = ansi.Truncate(r, l.chat.W, "")
 	}
-	rv := m.railView(rail - 3)
-	rl := strings.Split(m.theme.Rail(rv, rail-3), "\n")
-	// the rail's scroll: the wheel over its column walks the rows. Never scroll below the
-	// content's end — the last row may be a trailing pad we drop so the content always
-	// fills the pane; ▲/▼ on the rail's edge rows say what lies beyond.
-	content := len(rl)
-	if content > 0 && strings.TrimSpace(ansi.Strip(rl[content-1])) == "" {
-		content--
-	}
-	maxScroll := max(content-paneH, 0)
-	m.railScroll = min(max(m.railScroll, 0), maxScroll)
-	if off := m.railScroll; off > 0 && off < len(rl) {
-		rl = rl[off:]
-	}
-	// subagent hit-rows for clicks: each subagents-card row (`◆ <name>`) answers which plan to show
+	m.highlight(cl, m.vp.YOffset())
+	return cl
+}
+
+// railRowsAt is the sidebar's visible rows for the layout: scrolled (never past the content's
+// end), and its hit regions recorded in window rows — the section rules a click folds, the
+// roster rows a click opens the plan of.
+func (m *Model) railRowsAt(l layout) []railRow {
 	m.subagentRows = map[int]string{}
 	m.railCardRows = map[string]int{}
-	floor := 0
+	m.railMore = false
+	if l.rc == 0 {
+		return nil
+	}
+	rows := m.theme.railRows(m.railView(l.rc-2), l.rc)
+	maxScroll := max(len(rows)-l.rail.H, 0)
+	m.railScroll = min(max(m.railScroll, 0), maxScroll)
+	rows = rows[m.railScroll:]
+	if len(rows) > l.rail.H {
+		rows = rows[:l.rail.H]
+	}
+	m.railMore = m.railScroll < maxScroll
 	if m.bview == nil && m.board == nil {
-		for i, rl0 := range rl {
-			raw := ansi.Strip(rl0)
-			if !strings.Contains(raw, "◆ ") {
-				continue
+		for i, r := range rows {
+			y := l.rail.Y + i
+			if r.sep && r.key != "" {
+				m.railCardRows[r.key] = y
 			}
-			for _, c := range rv.Subagents {
-				if strings.Contains(raw, "◆ "+c.Name) {
-					m.subagentRows[i+floor] = c.Name
-					break
-				}
-			}
-		}
-		// each collapsible rail card answers its top border row — a click there collapses it
-		if rv.Plan != nil || len(rv.Subagents) > 0 || len(rv.Files) > 0 {
-			// the rail card order is fixed: vitals (always), subagents (when any skill), plan (when Penned), files
-			var cardKeys []string
-			cardKeys = append(cardKeys, "vitals") // exempt from collapse, skipped
-			if len(rv.Subagents) > 0 {
-				cardKeys = append(cardKeys, "subagents")
-			}
-			if rv.Plan != nil {
-				cardKeys = append(cardKeys, "plan")
-			}
-			cardKeys = append(cardKeys, "files")
-			y := 0
-			for i, rl0 := range rl {
-				raw := ansi.Strip(rl0)
-				if !strings.HasPrefix(strings.TrimSpace(raw), "╭") {
-					continue
-				}
-				if y < len(cardKeys) {
-					key := cardKeys[y]
-					if key != "vitals" {
-						m.railCardRows[key] = i + floor
-					}
-				}
-				y++
+			if r.subagent != "" {
+				m.subagentRows[y] = r.subagent
 			}
 		}
 	}
-	if len(rl) > paneH {
-		rl = rl[:paneH]
-	}
-	bg := lipgloss.NewStyle().Background(m.theme.paneBg())
-	for len(rl) < paneH {
-		rl = append(rl, bg.Render(strings.Repeat(" ", rail-3)))
-	}
-	mut := m.theme.dim
-	if !m.theme.Color {
-		mut = m.theme.dim
-	}
-	// the rail's scroll markers: ▲/▼ on the edge rows say what lies beyond
-	if m.railScroll > 0 && paneH > 0 {
-		rl[0] = bg.Render(strings.Repeat(" ", rail-3-1)) + mut.Render("▲")
-	}
-	if m.railScroll < maxScroll && paneH > 0 {
-		rl[paneH-1] = bg.Render(strings.Repeat(" ", rail-3-1)) + mut.Render("▼")
-	}
-	// the pane edge: a two-column soft shadow the rail casts on the chat (density-gradient
-	// runes tinted like the pane's sunk light), then the divider itself riding the pane's bg
-	shadow := m.theme.paneShadow()
-	sep := lipgloss.NewStyle().Background(m.theme.paneBg()).Foreground(m.theme.border.GetForeground()).Render("│")
-	rows := make([]string, paneH)
-	for i := 0; i < paneH; i++ {
-		rows[i] = cl[i] + shadow + sep + rl[i]
-	}
-	return strings.Join(rows, "\n")
+	return rows
 }
 
 // padRight returns the plain spaces that take a (possibly styled) line to exactly w cells;
@@ -857,15 +925,11 @@ func (m *Model) railView(rw int) RailView {
 		v.MaxFiles = 5
 		v.MaxSubagents = 4
 	}
-	if m.height >= 30 {
-		if art, _ := mascotArt(m.words.Dist, m.blinkOn); len(art) > 0 {
-			w := 0
-			for _, l := range art {
-				w = max(w, ansi.StringWidth(l))
-			}
-			if w+6 <= rw { // the sprite only rides where it fits inside a card's inner width
-				v.Mascot = art
-			}
+	if art, _ := mascotArt(m.words.Dist, m.blinkOn); len(art) > 0 {
+		// the sprite rides beside the vitals where the column is wide enough (no rows spent),
+		// above them on tall windows, not at all otherwise
+		if rw >= mascotWidth+2+18 || m.height >= 30 && rw >= mascotWidth {
+			v.Mascot = art
 		}
 	}
 	for _, n := range m.subagentSeq {
@@ -914,6 +978,7 @@ func (w Words) Session() string {
 
 func (m *Model) begin() {
 	m.busy = true
+	m.turnSeq++
 	m.turnStart = time.Now()
 	m.verbSeed++
 	m.state = "thinking"
@@ -931,7 +996,7 @@ func (m *Model) finish(ev EvTurnDone) tea.Cmd {
 	if ev.Streamed || m.streamed {
 		cmds = append(cmds, m.flushStream(true))
 	} else if t := strings.TrimSpace(ev.Text); t != "" {
-		cmds = append(cmds, m.print(func(w int) string { return m.theme.Assistant(t, w) }))
+		cmds = append(cmds, m.printAnswer(t))
 	}
 	for _, t := range m.tools {
 		t.Status = "failed"
@@ -979,18 +1044,45 @@ func (m *Model) finish(ev EvTurnDone) tea.Cmd {
 // upstream of this comment are the scars); the cache invalidates so the pane picks it up on
 // the next frame.
 func (m *Model) print(render func(w int) string) tea.Cmd {
-	block := render(m.width)
+	return m.push(&block{render: render})
+}
+
+// printAnswer prints a piece of the session's answer, its markdown kept for ctrl+y.
+func (m *Model) printAnswer(md string) tea.Cmd {
+	first := m.firstPiece()
+	return m.push(&block{render: func(w int) string { return m.theme.answer(md, w, first) }, src: md, answer: true, turn: m.turnSeq})
+}
+
+// firstPiece: no piece of this turn's answer has landed yet — the next one holds the gutter's ✦.
+func (m *Model) firstPiece() bool {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		b := m.blocks[i]
+		if b.answer && b.turn == m.turnSeq {
+			return false
+		}
+		if b.answer && b.turn < m.turnSeq {
+			break
+		}
+	}
+	return true
+}
+
+func (m *Model) push(b *block) tea.Cmd {
+	if m.paneMode() {
+		// the pane draws it at the chat's width: render there once, never at the full width too
+		if m.rendered(b, m.chatW()) == "" {
+			return nil
+		}
+		m.blocks = append(m.blocks, b)
+		return nil
+	}
+	block := m.rendered(b, m.width)
 	if block == "" {
 		return nil
 	}
-	m.blocks = append(m.blocks, render)
-	if m.railVisible() > 0 {
-		m.paneDirty = true
-		return nil
-	}
+	m.blocks = append(m.blocks, b)
 	if m.board != nil || m.bview != nil {
-		m.held = append(m.held, block)
-		return nil
+		return nil // held: catchUp prints it once the screen comes back
 	}
 	m.enqueue(printItem{text: block})
 	m.printedIdx = len(m.blocks)
@@ -1001,20 +1093,54 @@ func (m *Model) print(render func(w int) string) tea.Cmd {
 // panes the transcript never left — this just dirties the viewport cache and the frame follows.
 func (m *Model) reflow() tea.Cmd {
 	m.lastWidth = m.width
-	if m.railVisible() > 0 {
+	m.sel = nil // the transcript rewraps: content coordinates move
+	if m.paneMode() {
 		m.paneDirty = true
 		m.reflowSeq++
 		return nil
 	}
 	var parts []string
 	for _, r := range m.blocks {
-		if b := r(m.width); b != "" {
+		if b := m.rendered(r, m.width); b != "" {
 			parts = append(parts, b)
 		}
 	}
 	m.enqueue(printItem{text: strings.Join(parts, "\n\n"), clear: true})
 	m.printedIdx = len(m.blocks)
 	return nil
+}
+
+// leave ends the program. Under panes the transcript lived in the chat viewport and never
+// reached the scrollback: the blocks it missed print above the erased frame first, at the full
+// width, so the conversation stays in the terminal after exit.
+func (m *Model) leave() tea.Cmd {
+	m.quit = true
+	m.board, m.bview = nil, nil // the alternate screen keeps no print: leave it first
+	var parts []string
+	for _, r := range m.blocks[min(m.printedIdx, len(m.blocks)):] {
+		if b := m.rendered(r, m.width); b != "" {
+			parts = append(parts, b)
+		}
+	}
+	m.printedIdx = len(m.blocks)
+	if len(parts) == 0 {
+		return tea.Quit
+	}
+	return tea.Sequence(tea.Printf("%s\n", strings.Join(parts, "\n\n")), tea.Quit)
+}
+
+// catchUp prints the blocks the scrollback has not seen (held under the board or the agents
+// view, or kept by the panes) — every block exactly once.
+func (m *Model) catchUp() {
+	if m.printedIdx >= len(m.blocks) {
+		return
+	}
+	for _, r := range m.blocks[m.printedIdx:] {
+		if b := m.rendered(r, m.width); b != "" {
+			m.enqueue(printItem{text: b})
+		}
+	}
+	m.printedIdx = len(m.blocks)
 }
 
 func (m *Model) enqueue(it printItem) {
@@ -1069,7 +1195,7 @@ func (m *Model) flushStream(final bool) tea.Cmd {
 	}
 	if final {
 		m.stream.Reset()
-		return m.print(func(w int) string { return m.theme.Assistant(s, w) })
+		return m.printAnswer(s)
 	}
 	cut := safeCut(s)
 	if cut <= 0 {
@@ -1078,7 +1204,7 @@ func (m *Model) flushStream(final bool) tea.Cmd {
 	head, tail := s[:cut], s[cut:]
 	m.stream.Reset()
 	m.stream.WriteString(tail)
-	return m.print(func(w int) string { return m.theme.Assistant(head, w) })
+	return m.printAnswer(head)
 }
 
 // safeCut finds the last blank line outside a code fence such that the paragraph after it is
@@ -1136,16 +1262,17 @@ func (m *Model) View() tea.View {
 	v.WindowTitle = m.words.Dist + " · " + filepath.Base(m.footer.Workspace) + " · " + state
 	if m.board != nil {
 		v.MouseMode = tea.MouseModeCellMotion
-	} else if m.railVisible() > 0 {
-		// the chat pane scrolls its transcript with the wheel while the panes own the window
+	} else if m.paneMode() && !m.mouseTerm {
+		// the chat pane scrolls its transcript with the wheel and selects with a drag while the
+		// panes own the window; /mouse gives the mouse back to the terminal
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
 }
 
 // Render is the frame's text: the live area, or the board. With the sidebar on, the frame is
-// an invariant: chat pane │ divider │ sidebar rows, then the home rows — the total is always
-// m.height (crush's own lesson: its fullscreen layout is rectangle-exact; our inline mode pays
+// an invariant: the headroom row (paneTop), chat pane │ divider │ sidebar rows, then the home
+// rows — the total is always m.height (crush's own lesson: its fullscreen layout is rectangle-exact; our inline mode pays
 // the same discipline or the terminal ghosts). Without the sidebar the session flows as
 // before, one column into the scrollback.
 func (m *Model) Render() string {
@@ -1161,23 +1288,19 @@ func (m *Model) Render() string {
 	if m.intro != nil && m.ready {
 		return m.introView()
 	}
-	cw := m.width
-	rail := m.railVisible()
-	if rail == 0 && m.printedIdx < len(m.blocks) {
-		// pane exit (or an always-narrow run): the scrollback gets the blocks it never saw
-		for _, r := range m.blocks[m.printedIdx:] {
-			if b := r(m.width); b != "" {
-				m.enqueue(printItem{text: b})
-			}
-		}
-		m.printedIdx = len(m.blocks)
+	l := m.layout()
+	m.lay = l
+	if !l.pane {
+		m.catchUp() // pane exit (or an always-narrow run): the scrollback gets the blocks it never saw
 	}
-	if rail > 0 {
-		cw = m.width - rail // the rail's width carries its divider cell
+	m.sizeInput()
+	cw := m.width
+	if l.pane {
+		cw = l.chat.W
 	}
 	var live []string
 	if s := m.stream.String(); m.busy && strings.TrimSpace(s) != "" {
-		live = append(live, m.theme.Assistant(s, cw), "")
+		live = append(live, m.liveAnswer(s, cw), "")
 	}
 	for _, t := range m.tools {
 		live = append(live, m.theme.Tool(*t, cw), "")
@@ -1199,45 +1322,79 @@ func (m *Model) Render() string {
 		}
 		live = append(live, m.statusLines(m.theme.Spinner(m.spin.View(), m.theme.Shimmer(m.verb, shimmerPhase(m.shimmer, len([]rune(m.verb)))), time.Since(m.turnStart), tokens, cw)))
 	}
-	// the home rows: shortcuts (when open), the input (its textarea can grow), menu or
-	// completions under it, the footer — the panes own everything above
-	var home []string
-	if m.shortcuts {
-		home = append(home, m.theme.Shortcuts(DefaultShortcuts(), m.width))
-	}
-	home = append(home, m.theme.InputBox(m.input.View(), m.width, m.choice != nil))
-	switch {
-	case m.menu != nil:
-		home = append(home, m.theme.Menu(m.menu.items, m.menu.cursor, m.width))
-	case m.comp != nil:
-		home = append(home, m.theme.Completions(m.comp.items, m.comp.cursor, m.width))
-	}
 	f := m.footer
 	f.Queued = m.queued
-	f.Hint = "? for shortcuts · ctrl+p plans"
+	f.Hint = "? keys · ctrl+k palette · ctrl+t agents"
+	if m.mouseTerm && l.pane {
+		f.Badge = "mouse: terminal"
+	}
 	f.Message = m.message
 	if f.Subagents == "" {
 		f.Subagents = m.words.Subagents
 	}
-	home = append(home, m.theme.Footer(f, m.width))
 
-	var parts []string
-	if rail > 0 {
-		// an inline ask (window under the modal tripwire) belongs to the chat pane — inside
-		// paneH, never below it, or the frame's height would lie again
+	if l.pane {
+		// an inline ask (window under the modal tripwire) belongs to the conversation pane
 		if m.choice != nil && !m.choiceFloat() {
 			live = append(live, m.theme.Choice(m.view, cw), "")
 		}
-		paneH := max(m.height-lines(home), 4)
-		parts = append(parts, m.splitPanes(live, rail, cw, paneH), strings.Join(home, "\n"))
-	} else {
-		parts = live
-		if m.choice != nil && !m.choiceFloat() {
-			parts = append(parts, m.theme.Choice(m.view, m.width), "")
+		chat := m.chatRows(live, l)
+		input := strings.Split(m.input.View(), "\n")
+		rail := m.railRowsAt(l)
+		aside := ""
+		if m.vpOK && !m.vp.AtBottom() {
+			below := max(m.vp.TotalLineCount()-m.vp.YOffset()-m.vp.Height(), 0)
+			aside = m.theme.accent.Render(fmt.Sprintf("↓ %d more", below))
 		}
-		parts = append(parts, home...)
+		ask, askAside := m.theme.title("ask"), ""
+		switch {
+		case m.choice != nil:
+			ask = m.theme.dim.Render(smallCap("ask") + " · answer the card first")
+		case m.busy:
+			askAside = m.theme.dim.Render("enter queues for " + m.words.Session())
+		}
+		rows := m.frame(l, m.header(l.W-4), chat, input, rail, aside, ask, askAside, m.theme.StatusBar(f, l.W-4))
+		return strings.Repeat(strings.Repeat(" ", l.W)+"\n", paneTop) + m.overlay(strings.Join(rows, "\n"))
 	}
+
+	// the inline layout: the live rows, the input box, the menu or completions under it, the
+	// footer — everything finished flows into the terminal's scrollback above
+	parts := live
+	if m.choice != nil && !m.choiceFloat() {
+		parts = append(parts, m.theme.Choice(m.view, m.width), "")
+	}
+	if m.shortcuts {
+		parts = append(parts, m.theme.Shortcuts(DefaultShortcuts(), m.width))
+	}
+	if m.settings != nil {
+		parts = append(parts, m.settingsView())
+	}
+	parts = append(parts, m.theme.InputBox(m.input.View(), m.width, m.choice != nil))
+	switch {
+	case m.menu != nil:
+		parts = append(parts, m.theme.Menu(m.menu.items, m.menu.cursor, m.width))
+	case m.comp != nil:
+		parts = append(parts, m.theme.Completions(m.comp.items, m.comp.cursor, m.width))
+	}
+	f.Hint = "? for shortcuts · ctrl+p plans"
+	parts = append(parts, m.theme.Footer(f, m.width))
 	return m.overlay(strings.Join(parts, "\n"))
+}
+
+// paneTop is the headroom the panes leave above themselves: the frame still fills the window
+// (rectangle-exact), but its first row stays blank. The launching command line has scrolled
+// above the window by then, and a terminal that pins the running command over the viewport's
+// top row (VS Code's sticky scroll, on by default with shell integration) paints it there —
+// over a blank row instead of the zone worker's head and the welcome's top border.
+const paneTop = 1
+
+// frameH is the height the live frame's own rows may use: the window, less the panes'
+// headroom while they own it.
+func (m *Model) frameH() int {
+	if m.board == nil && m.bview == nil && m.paneMode() {
+		return m.height - paneTop
+	}
+	return m.height
 }
 
 // lines is the row count of a joined multi-line string list.

@@ -185,8 +185,9 @@ func (l *bodyLog) step(t ToolView, end bool) {
 
 type bodyView struct {
 	sel    int
-	scroll int  // lines up from the bottom; 0 follows the tail
-	pipe   bool // i: a line is being typed for the selected agent's inbox
+	scroll int    // lines up from the bottom; 0 follows the tail
+	pipe   bool   // i: a line is being typed for the selected agent's inbox
+	draft  string // the session input's own draft, put back when the pipe closes
 }
 
 // agents are the session and every Subagent seen, in order.
@@ -219,11 +220,11 @@ func (m *Model) bodiesKey(k tea.KeyPressMsg) tea.Cmd {
 		switch k.String() {
 		case "esc":
 			v.pipe = false
-			m.input.Reset()
+			m.setInput(v.draft)
 			return nil
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
-			m.input.Reset()
+			m.setInput(v.draft)
 			v.pipe = false
 			if text == "" {
 				return nil
@@ -241,18 +242,11 @@ func (m *Model) bodiesKey(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc", "ctrl+t", "q", "ctrl+c":
 		m.bview = nil
-		if m.width != m.lastWidth {
-			seq := m.reflowSeq
-			return func() tea.Msg { return evReflow{seq} }
-		}
-		for _, b := range m.held {
-			m.enqueue(printItem{text: b})
-		}
-		m.held = nil
+		return m.release()
 	case "i":
 		// pipe a line into the selected agent's inbox: it lands at its next turn boundary
 		// (never mid-turn — the FIFO contract), and a done agent refuses at the host
-		v.pipe = true
+		v.pipe, v.draft = true, m.input.Value()
 		m.input.Reset()
 	case "tab", "right", "l":
 		v.sel, v.scroll = (v.sel+1)%n, 0
@@ -371,7 +365,7 @@ func (m *Model) sessionLines(w int) []string {
 	var out []string
 	start := max(0, len(m.blocks)-60)
 	for _, r := range m.blocks[start:] {
-		if b := r(w); b != "" {
+		if b := m.rendered(r, w); b != "" {
 			out = append(out, strings.Split(b, "\n")...)
 			out = append(out, "")
 		}

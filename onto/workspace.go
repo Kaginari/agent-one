@@ -315,7 +315,10 @@ func (w *Workspace) derive() error {
 
 	// skills first, so docs can be matched against their names
 	skills := map[string]string{}
-	for _, base := range skillDirs {
+	// the workspace's own skill dirs first (crafted, then base — the dist names its workspace dir), then
+	// the hosts': a member's Skills field names them, so the graph must know them to bond `holds`
+	bases := append([]string{l.WorkspaceDir + "/crafted-skills", l.WorkspaceDir + "/base-skills"}, skillDirs...)
+	for _, base := range bases {
 		ents, err := os.ReadDir(filepath.Join(w.Root, base))
 		if err != nil {
 			continue

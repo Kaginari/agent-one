@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/Kaginari/agent-one/config"
@@ -14,8 +13,10 @@ import (
 
 // The three ways to found a workspace (`init --level`):
 //   - light (soft): the policy, the log, the instruments and the memory tiers — no member.
-//   - medium: light, and a team sketched from the tree with no model: a coordinator, a domain owner per
-//     source area, a zone per sub-area, a service when there is CI, verify lines for the language.
+//   - medium: light, and a team sketched from the tree with no model, sized to the project:
+//     a zone worker per meaningful package or module dir, domain owners grouping related zone workers by imports,
+//     role and naming, a coordinator per three domain owners (lane coordinators and a design coordinator on a large project),
+//     a service owner when there is CI, release or infra; verify lines only where tests exist.
 //   - complex: light, then a founding session — the model reads all the code and decides the
 //     team: how many coordinators, domain owners, zone workers, service owners, which skills and which agents, the relations,
 //     verify lines that pass; the sketch is its first hint. Like hiring a team of experts.
@@ -36,12 +37,12 @@ func normLevel(s string) string {
 	return ""
 }
 
-// sketch is a team read from the tree alone.
+// sketch is a team read from the tree alone (found_survey.go reads, found_cut.go cuts).
 type sketch struct {
 	Project string
 	Lang    string
-	Coord   plan
-	Domains []plan
+	Coords  []plan // the design coordinator (or the one coordinator) first, then the lane coordinators
+	Domains []plan // each carries its zone workers
 	Service *plan
 }
 
@@ -49,197 +50,27 @@ type plan struct {
 	Rank, Short, Purpose string
 	Ownership            []string
 	Parent               string
+	Skills               []string
+	Invariants           []string // the sketch's reading, each marked "sketch:"
 	Verify               []string
 	Zones                []plan
+	Domains              []string // a coordinator's carried members, by name
 }
 
-var (
-	sourceExt = map[string]string{".go": "go", ".ts": "node", ".tsx": "node", ".js": "node", ".jsx": "node", ".mjs": "node", ".vue": "node", ".svelte": "node",
-		".py": "python", ".rs": "rust", ".java": "jvm", ".kt": "jvm", ".scala": "jvm", ".rb": "ruby", ".php": "php", ".cs": "dotnet", ".swift": "swift",
-		".c": "c", ".cc": "c", ".cpp": "c", ".h": "c", ".hpp": "c", ".ex": "elixir", ".exs": "elixir"}
-	skipDir = map[string]bool{"node_modules": true, "vendor": true, "dist": true, "build": true, "target": true, "out": true, "bin": true,
-		"testdata": true, "coverage": true, "__pycache__": true, ".venv": true, "venv": true}
-	reName = regexp.MustCompile(`[^a-z0-9]+`)
-)
+var reName = regexp.MustCompile(`[^a-z0-9]+`)
 
 func slug(s string) string {
-	return strings.Trim(reName.ReplaceAllString(strings.ToLower(strings.TrimLeft(s, "_.")), "-"), "-")
-}
-
-// sourceFiles counts the source files under dir (recursively), by language.
-func sourceFiles(dir string) (int, map[string]int) {
-	n, langs := 0, map[string]int{}
-	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if p != dir && (strings.HasPrefix(d.Name(), ".") || skipDir[d.Name()]) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if l, ok := sourceExt[filepath.Ext(p)]; ok {
-			n++
-			langs[l]++
-		}
-		return nil
-	})
-	return n, langs
+	return strings.Trim(reName.ReplaceAllString(strings.ToLower(strings.TrimLeft(s, "_.@")), "-"), "-")
 }
 
 // sketchTeam reads the tree into a team, without a model.
 func sketchTeam(root string, d config.Dist) sketch {
-	s := sketch{Project: slug(filepath.Base(root))}
-	if s.Project == "" {
-		s.Project = "core"
+	project := slug(filepath.Base(root))
+	if project == "" {
+		project = "core"
 	}
-	has := func(p string) bool { _, err := os.Stat(filepath.Join(root, p)); return err == nil }
-	_, langs := sourceFiles(root)
-	best := 0
-	for l, n := range langs {
-		if n > best || (n == best && l < s.Lang) {
-			s.Lang, best = l, n
-		}
-	}
-	test := func(dir string) []string {
-		switch {
-		case s.Lang == "go" && has("go.mod"):
-			if dir == "" {
-				return []string{"go build ./...", "go vet ./..."}
-			}
-			if strings.HasPrefix(filepath.Base(dir), "_") {
-				return []string{"go test ./" + dir + "/"} // ./... skips a leading underscore
-			}
-			return []string{"go test ./" + dir + "/..."}
-		case s.Lang == "python" && dir != "":
-			return []string{"python -m pytest -q " + dir}
-		case s.Lang == "rust" && dir == "":
-			return []string{"cargo test"}
-		case s.Lang == "node" && dir == "" && has("package.json"):
-			return []string{"npm test"}
-		}
-		return nil
-	}
-	var manifests []string
-	for _, m := range []string{"README.md", "go.mod", "package.json", "pyproject.toml", "setup.py", "Cargo.toml", "pom.xml", "build.gradle"} {
-		if has(m) {
-			manifests = append(manifests, m)
-		}
-	}
-	s.Coord = plan{Rank: "coord", Short: s.Project, Parent: "orchestrator", Ownership: manifests, Verify: test(""),
-		Purpose: "the shared skill and voice of " + filepath.Base(root) + ": keeps the cross-domain rules, routes work to the domain owners, speaks back up."}
-	// areas: top-level dirs holding source, largest first
-	type area struct {
-		name string
-		n    int
-	}
-	var areas []area
-	ents, _ := os.ReadDir(root)
-	var rootFiles []string
-	for _, e := range ents {
-		name := e.Name()
-		if strings.HasPrefix(name, ".") || skipDir[name] || name == d.WorkspaceDir {
-			continue
-		}
-		if !e.IsDir() {
-			if _, ok := sourceExt[filepath.Ext(name)]; ok {
-				rootFiles = append(rootFiles, name)
-			}
-			continue
-		}
-		if n, _ := sourceFiles(filepath.Join(root, name)); n > 0 {
-			areas = append(areas, area{name, n})
-		}
-	}
-	sort.SliceStable(areas, func(i, j int) bool { return areas[i].n > areas[j].n })
-	var core *plan
-	coreOrc := func() *plan {
-		if core == nil {
-			s.Domains = append(s.Domains, plan{Rank: "domain", Short: "core", Parent: "coord-" + s.Project, Verify: test(""),
-				Purpose: "rules the small areas and the entry point, until one of them grows its own domain."})
-			core = &s.Domains[len(s.Domains)-1]
-		}
-		return core
-	}
-	for i, a := range areas {
-		if a.n < 3 || i >= 6 {
-			c := coreOrc()
-			c.Ownership = append(c.Ownership, a.name+"/")
-			c.Zones = append(c.Zones, plan{Rank: "zone", Short: slug(a.name), Parent: "domain-core", Ownership: []string{a.name + "/"}, Verify: test(a.name),
-				Purpose: "the ground truth of `" + a.name + "/`."})
-			continue
-		}
-		o := plan{Rank: "domain", Short: slug(a.name), Parent: "coord-" + s.Project, Ownership: []string{a.name + "/"}, Verify: test(a.name),
-			Purpose: "rules the `" + a.name + "/` domain and holds its gate."}
-		subs, _ := os.ReadDir(filepath.Join(root, a.name))
-		for _, sub := range subs {
-			if !sub.IsDir() || strings.HasPrefix(sub.Name(), ".") || skipDir[sub.Name()] || len(o.Zones) >= 6 {
-				continue
-			}
-			rel := a.name + "/" + sub.Name()
-			if n, _ := sourceFiles(filepath.Join(root, rel)); n > 0 {
-				o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(sub.Name()), Parent: "domain-" + o.Short, Ownership: []string{rel + "/"}, Verify: test(rel),
-					Purpose: "the ground truth of `" + rel + "/`."})
-			}
-		}
-		if len(o.Zones) == 0 {
-			// zone width at provisioning (the 2026-10-09 policy): a big flat dir chunks into bounded
-			// file sets — one persistent agent holding a whole flat tree puts every new file's
-			// creation on one agent, and a single-prefix zone cannot split but by its tree
-			files := dirFiles(filepath.Join(root, a.name), a.name)
-			if len(files) > 8 {
-				for i, n := 0, 0; i < len(files) && n < 6; i, n = i+8, n+1 {
-					end := i + 8
-					if n >= 5 || end > len(files) {
-						end = len(files) // the sixth chunk (or a short tail) absorbs the rest — never slice past len into cap
-					}
-					chunk := files[i:end]
-					o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(a.name) + "-" + string(rune('a'+n)), Parent: "domain-" + o.Short, Ownership: chunk, Verify: test(a.name),
-						Purpose: fmt.Sprintf("the ground truth of %d files in `%s/`.", len(chunk), a.name)})
-				}
-			} else {
-				o.Zones = append(o.Zones, plan{Rank: "zone", Short: slug(a.name), Parent: "domain-" + o.Short, Ownership: []string{a.name + "/"}, Verify: test(a.name),
-					Purpose: "the ground truth of `" + a.name + "/`."})
-			}
-		}
-		s.Domains = append(s.Domains, o)
-	}
-	if len(rootFiles) > 0 {
-		c := coreOrc()
-		c.Ownership = append(c.Ownership, rootFiles...)
-		c.Zones = append(c.Zones, plan{Rank: "zone", Short: "entry", Parent: "domain-core", Ownership: rootFiles, Purpose: "the ground truth of the entry point (" + strings.Join(rootFiles, ", ") + ")."})
-	}
-	for _, ci := range []string{".github/workflows", ".gitlab-ci.yml", ".circleci", "Jenkinsfile", ".drone.yml"} {
-		if has(ci) {
-			t := ci
-			if st, err := os.Stat(filepath.Join(root, ci)); err == nil && st.IsDir() {
-				t += "/"
-			}
-			k := plan{Rank: "service", Short: "release", Parent: "orchestrator", Ownership: []string{t}, Verify: test(""),
-				Purpose: "owns CI and releases end to end, across sessions; anything that tags, publishes or provisions waits for the operator."}
-			s.Service = &k
-			break
-		}
-	}
-	return s
-}
-
-// dirFiles lists a directory's direct source files as ownership entries, sorted — the
-// flat-dir chunker's input.
-func dirFiles(dir, area string) []string {
-	ents, _ := os.ReadDir(dir)
-	var out []string
-	for _, e := range ents {
-		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		if _, ok := sourceExt[filepath.Ext(e.Name())]; ok {
-			out = append(out, area+"/"+e.Name())
-		}
-	}
-	sort.Strings(out)
-	return out
+	lex := lexiconFor()
+	return readSurvey(root, d.WorkspaceDir).cut(project, lex.Prefixes, readSkills(root, d.WorkspaceDir))
 }
 
 // doc is a member's README in the shape the ontology reads.
@@ -257,12 +88,23 @@ func (p plan) doc(prefix, display map[string]string, level string) string {
 		for i, x := range p.Ownership {
 			t[i] = "`" + x + "`"
 		}
-		fmt.Fprintf(&b, "- **Territory:** %s\n", strings.Join(t, ", "))
+		fmt.Fprintf(&b, "- **Owns:** %s\n", strings.Join(t, ", "))
 	}
 	fmt.Fprintf(&b, "- **Reports to:** %s\n", p.Parent)
+	if len(p.Skills) > 0 {
+		fmt.Fprintf(&b, "- **Skills:** %s\n", strings.Join(p.Skills, ", "))
+	} else {
+		b.WriteString("- **Skills:** none\n")
+	}
 	fmt.Fprintf(&b, "- **Purpose:** %s\n", p.Purpose)
-	fmt.Fprintf(&b, "- **Founded:** `init --level %s`, from the tree alone — refine the traits and the verify lines from the code\n", level)
-	b.WriteString("\n## Traits\n- (none recorded yet: the first session that works here writes what it learns)\n")
+	fmt.Fprintf(&b, "- **Founded:** `init --level %s`, from the tree alone — the invariants marked sketch are the founding sketch's reading; refine them and the verify lines from the code\n", level)
+	b.WriteString("\n## Invariants\n")
+	if len(p.Invariants) == 0 {
+		b.WriteString("- (none recorded yet: the first session that works here writes what it learns)\n")
+	}
+	for _, t := range p.Invariants {
+		fmt.Fprintf(&b, "- %s\n", t)
+	}
 	if len(p.Verify) > 0 {
 		b.WriteString("\n## Verify\n")
 		for _, v := range p.Verify {
@@ -275,10 +117,8 @@ func (p plan) doc(prefix, display map[string]string, level string) string {
 
 // all is every member of the sketch, parents first.
 func (s sketch) all() []plan {
-	out := []plan{s.Coord}
-	for _, o := range s.Domains {
-		out = append(out, o)
-	}
+	out := append([]plan(nil), s.Coords...)
+	out = append(out, s.Domains...)
 	for _, o := range s.Domains {
 		out = append(out, o.Zones...)
 	}
@@ -288,24 +128,165 @@ func (s sketch) all() []plan {
 	return out
 }
 
-// writeSketch writes the sketch's docs under the workspace dir; an existing doc is never touched.
-func writeSketch(root string, d config.Dist, s sketch, dirs, prefix, display map[string]string) ([]string, error) {
-	var made []string
+// count is the sketch's census by rank.
+func (s sketch) count(rank string) int {
+	n := 0
 	for _, p := range s.all() {
-		rel := filepath.Join(d.WorkspaceDir, dirs[p.Rank], p.Short, "README.md")
-		path := filepath.Join(root, rel)
-		if _, err := os.Stat(path); err == nil {
+		if p.Rank == rank {
+			n++
+		}
+	}
+	return n
+}
+
+// lanes names each coordinator with the domain owners it carries — the report's summary.
+func (s sketch) lanes(prefix map[string]string) []string {
+	var out []string
+	for _, e := range s.Coords {
+		var domains []string
+		for _, o := range s.Domains {
+			if o.Parent == prefix["coord"]+e.Short {
+				domains = append(domains, fmt.Sprintf("%s (%d)", prefix["domain"]+o.Short, len(o.Zones)))
+			}
+		}
+		if len(domains) == 0 {
+			domains = append(domains, "the project-wide files")
+		}
+		out = append(out, prefix["coord"]+e.Short+": "+strings.Join(domains, ", "))
+	}
+	return out
+}
+
+// sketchWrite is what writeSketch did: the docs written, the ones kept as they were (a doc of
+// that name exists), the ones left out because a member already in the workspace covers them.
+type sketchWrite struct {
+	wrote, kept, covered []string
+}
+
+// existingClaims reads the ownership claims of the members already in the workspace, by name.
+func existingClaims(root string, d config.Dist, dirs map[string]string) map[string][]string {
+	out := map[string][]string{}
+	seen := map[string]bool{}
+	for rank, dir := range dirs {
+		if dir == "" || seen[dir] || (rank != "zone" && rank != "service") {
 			continue
 		}
+		seen[dir] = true
+		ents, _ := os.ReadDir(filepath.Join(root, d.WorkspaceDir, dir))
+		for _, e := range ents {
+			b, err := os.ReadFile(filepath.Join(root, d.WorkspaceDir, dir, e.Name(), "README.md"))
+			if err != nil {
+				continue
+			}
+			for _, l := range strings.Split(string(b), "\n") {
+				if !strings.Contains(l, "**Owns:**") {
+					continue
+				}
+				for _, m := range reTick.FindAllStringSubmatch(l, -1) {
+					out[dir+"/"+e.Name()] = append(out[dir+"/"+e.Name()], strings.TrimSuffix(strings.TrimPrefix(m[1], "./"), "/"))
+				}
+			}
+		}
+	}
+	return out
+}
+
+var reTick = regexp.MustCompile("`([^`]+)`")
+
+func claimsOverlap(a, b string) bool {
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+}
+
+// writeSketch writes the sketch's docs under the workspace dir. An existing doc is never touched
+// (kept); a zone worker or service owner whose ownership a member already in the workspace claims is left out
+// (covered) — a re-run over a refined team adds only what nobody holds; a domain owner or coordinator is
+// written only when something below it is (or it is the design coordinator of a workspace with no coordinator).
+func writeSketch(root string, d config.Dist, s sketch, dirs, prefix, display map[string]string) (sketchWrite, error) {
+	var res sketchWrite
+	held := existingClaims(root, d, dirs)
+	docPath := func(p plan) string { return filepath.Join(d.WorkspaceDir, dirs[p.Rank], p.Short, "README.md") }
+	have := func(p plan) bool { return exists(filepath.Join(root, docPath(p))) }
+	covered := func(p plan) bool {
+		for owner, cs := range held {
+			if strings.HasSuffix(owner, "/"+p.Short) && strings.HasPrefix(owner, dirs[p.Rank]+"/") {
+				continue
+			}
+			for _, c := range cs {
+				for _, t := range p.Ownership {
+					if claimsOverlap(c, strings.TrimSuffix(t, "/")) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	write := func(p plan) error {
+		rel := docPath(p)
+		path := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return made, err
+			return err
 		}
 		if err := os.WriteFile(path, []byte(p.doc(prefix, display, "medium")), 0o644); err != nil {
-			return made, err
+			return err
 		}
-		made = append(made, filepath.ToSlash(rel))
+		res.wrote = append(res.wrote, filepath.ToSlash(rel))
+		return nil
 	}
-	return made, nil
+	name := func(p plan) string { return prefix[p.Rank] + p.Short }
+	needed := map[string]bool{} // parents something new reports to
+	decide := func(p plan) (bool, error) {
+		switch {
+		case have(p):
+			res.kept = append(res.kept, name(p))
+			return false, nil
+		case covered(p):
+			res.covered = append(res.covered, name(p))
+			return false, nil
+		}
+		needed[p.Parent] = true
+		return true, write(p)
+	}
+	for _, o := range s.Domains {
+		for _, sl := range o.Zones {
+			if _, err := decide(sl); err != nil {
+				return res, err
+			}
+		}
+	}
+	if s.Service != nil {
+		if _, err := decide(*s.Service); err != nil {
+			return res, err
+		}
+	}
+	anyCoord := false
+	if ents, err := os.ReadDir(filepath.Join(root, d.WorkspaceDir, dirs["coord"])); err == nil && len(ents) > 0 {
+		anyCoord = true
+	}
+	for _, o := range s.Domains {
+		if have(o) {
+			res.kept = append(res.kept, name(o))
+			continue
+		}
+		if needed[name(o)] {
+			needed[o.Parent] = true
+			if err := write(o); err != nil {
+				return res, err
+			}
+		}
+	}
+	for i, e := range s.Coords {
+		if have(e) {
+			res.kept = append(res.kept, name(e))
+			continue
+		}
+		if needed[name(e)] || (i == 0 && !anyCoord) {
+			if err := write(e); err != nil {
+				return res, err
+			}
+		}
+	}
+	return res, nil
 }
 
 // table is the sketch as the founding brief shows it.

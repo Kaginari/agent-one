@@ -121,8 +121,8 @@ func TestBoardHoldsBlocksUntilClosed(t *testing.T) {
 		<-m.prints
 	}
 	m.Update(EvNotice{Text: "a subagent finished"})
-	if len(m.prints) != 0 || len(m.held) != 1 {
-		t.Fatalf("a block printed under the board: prints %d held %d", len(m.prints), len(m.held))
+	if held := len(m.blocks) - m.printedIdx; len(m.prints) != 0 || held != 1 {
+		t.Fatalf("a block printed under the board: prints %d held %d", len(m.prints), held)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.board != nil || len(m.prints) != 1 {
@@ -239,7 +239,7 @@ func drainPrints(m *Model) string {
 	if n := len(m.blocks); n > 0 && m.railVisible() > 0 {
 		// under panes the transcript is the block store: read the last landed block — that's
 		// what the human just gained on screen
-		if b := ansi.Strip(m.blocks[n-1](m.width - m.railVisible())); b != "" {
+		if b := ansi.Strip(m.blocks[n-1].render(m.width - m.railVisible())); b != "" {
 			out = append(out, b)
 		}
 	}

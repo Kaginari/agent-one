@@ -1,17 +1,22 @@
-╭───────────────────────────────────────────────────────────────────────╮
-│ ctrl+p        walk plan decks                                         │
-│ c             snap to current plan (pinned stale/archived view)       │
-│ C             snap to current plan (any view)                         │
-│ enter         send                                                    │
-│ shift+enter   newline (also \ enter, alt+enter)                       │
-│ ↑ ↓           history (on the first / last line)                      │
-│ /             commands                                                │
-│ ctrl+k        command palette (fuzzy)                                 │
-│ @path         complete a file in the workspace (tab)                  │
-│ esc           interrupt the turn · clear the input                    │
-│ ctrl+c ×2     exit                                                    │
-│ ctrl+o        expand the last collapsed block                         │
-│ ctrl+l        redraw                                                  │
-│ ?             this list                                               │
-│ alt+p / alt+c / alt+fcollapse the plan / subagents / files rail cards │
-╰───────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────╮
+│ ctrl+p        walk plan decks                                │
+│ alt+n         snap to the current plan (off a stale deck)    │
+│ enter         send                                           │
+│ shift+enter   newline (also \ enter, alt+enter)              │
+│ ↑ ↓           history (on the first / last line)             │
+│ /             commands                                       │
+│ ctrl+k        command palette (fuzzy)                        │
+│ @path         complete a file in the workspace (tab)         │
+│ esc           interrupt · clear the input (↑ brings it back) │
+│ ctrl+c        clear · interrupt · twice when idle: exit      │
+│ pgup / pgdn   scroll the chat (shift+↑ ↓ a line, the wheel)  │
+│ ctrl+t        the agents: every agent's log                  │
+│ drag          select in the chat, copied on release          │
+│ shift+drag    selects with the terminal (/mouse: always)     │
+│ ctrl+y        copy the last answer (/copy)                   │
+│ ctrl+o        expand the last collapsed block                │
+│ ctrl+l        redraw                                         │
+│ ?             this list                                      │
+│ alt+p/c/f     fold the plan / subagents / files sections     │
+│ alt+s         hide or show the sidebar (/sidebar)            │
+╰──────────────────────────────────────────────────────────────╯

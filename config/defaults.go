@@ -41,7 +41,7 @@ const defaultsJSON = `{
     "webfetch":  { "enabled": true, "maxBytes": 5242880, "timeout": "1m" },
     "websearch": { "enabled": true, "timeout": "1m", "backend": "" },
     "ask":       { "enabled": true },
-    "dispatch":  { "enabled": true, "maxDepth": 3, "background": false, "backgroundTimeout": "30m", "strictFlow": true, "sessionBackground": false },
+    "dispatch":  { "enabled": true, "maxDepth": 3, "background": false, "backgroundTimeout": "30m", "strictFlow": true, "lineage": true, "sessionBackground": false },
     "recall":    { "enabled": true },
     "remember":  { "enabled": true },
     "toolbox":   { "enabled": true },

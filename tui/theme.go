@@ -30,10 +30,16 @@ type Theme struct {
 	Forced bool
 
 	dim, text, accent, user, ok, bad, warn, border, tag lipgloss.Style
-	classes                                             map[string]lipgloss.Style
-	ranks                                               map[string]lipgloss.Style
-	lanes                                               map[string]color.Color
-	add, del, ctxLine, lineNo                           lipgloss.Style
+	// the typographic system's two extra roles: label is the secondary heading (a card's
+	// title, a key in a key-value grid) one step brighter than dim; magenta is the HUD's second
+	// accent — the human's own marks (the ask's bar, the waiting chip), never a second accent
+	// in a region that already holds the primary cyan
+	label, magenta            lipgloss.Style
+	classes                   map[string]lipgloss.Style
+	ranks                     map[string]lipgloss.Style
+	lanes                     map[string]color.Color
+	add, del, ctxLine, lineNo lipgloss.Style
+	sel                       lipgloss.Style // a drag selection in the chat pane
 }
 
 // Words are the labels a distribution renames (agent-one says Subagent, Operator, Workspace).
@@ -65,19 +71,27 @@ func NewTheme(dark bool) Theme {
 		}
 		return lipgloss.Color(light)
 	}
+	// the palette, by role (the dashboard's Neon HUD carried to the cell grid): the ground is
+	// the terminal's own; borders sit quieter than any text; text, then label, then dim carry
+	// the hierarchy; cyan is the primary (brand, focus, the live state), magenta the human's
+	// accent; ok/warn/bad say verdicts. Dark holds the neons softened to read as text; light
+	// holds their deep-ink twins (every text role ≥ 4.5:1 on its ground).
 	t.dim = lipgloss.NewStyle().Foreground(c("#7f8a99", "#5c6672"))
+	t.label = lipgloss.NewStyle().Foreground(c("#b4bfcc", "#36404b"))
 	t.text = lipgloss.NewStyle()
-	t.accent = lipgloss.NewStyle().Foreground(c("#d4af37", "#8a6600")) // the global lane
-	t.user = lipgloss.NewStyle().Foreground(c("#9fb0c3", "#4b5568"))
-	t.ok = lipgloss.NewStyle().Foreground(c("#5fbf7a", "#1f7a3a"))
-	t.bad = lipgloss.NewStyle().Foreground(c("#e06c5f", "#b8341f"))
-	t.warn = lipgloss.NewStyle().Foreground(c("#e0b04f", "#8a6600"))
-	t.border = lipgloss.NewStyle().Foreground(c("#4a5566", "#b3bcc8"))
+	t.accent = lipgloss.NewStyle().Foreground(c("#4fe3ee", "#00707c"))  // neon cyan, softened / deep teal
+	t.magenta = lipgloss.NewStyle().Foreground(c("#ef6fe6", "#a0168f")) // neon magenta, softened / deep plum
+	t.user = lipgloss.NewStyle().Foreground(c("#d5dde6", "#1f2730"))
+	t.ok = lipgloss.NewStyle().Foreground(c("#5fcf86", "#1f7a3a"))
+	t.bad = lipgloss.NewStyle().Foreground(c("#f0716a", "#b8341f"))
+	t.warn = lipgloss.NewStyle().Foreground(c("#e8b955", "#8a5a00"))
+	t.border = lipgloss.NewStyle().Foreground(c("#3d4a5a", "#b3bdc8"))
 	t.tag = lipgloss.NewStyle().Bold(true)
-	t.add = lipgloss.NewStyle().Foreground(c("#5fbf7a", "#1f7a3a"))
-	t.del = lipgloss.NewStyle().Foreground(c("#e06c5f", "#b8341f"))
+	t.add = lipgloss.NewStyle().Foreground(c("#5fcf86", "#1f7a3a"))
+	t.del = lipgloss.NewStyle().Foreground(c("#f0716a", "#b8341f"))
 	t.ctxLine = lipgloss.NewStyle().Foreground(c("#8a94a3", "#5c6672"))
 	t.lineNo = lipgloss.NewStyle().Foreground(c("#5b6675", "#8a94a3"))
+	t.sel = lipgloss.NewStyle().Background(c("#1d4a5a", "#bfeef2")).Foreground(c("#eaffff", "#0b1424"))
 	t.classes = map[string]lipgloss.Style{
 		"read":        lipgloss.NewStyle().Foreground(c("#4db8dd", "#1a7fa3")),
 		"write":       lipgloss.NewStyle().Foreground(c("#9a86e8", "#5c3fc9")),
@@ -131,24 +145,9 @@ func (t Theme) Lane(rank string) color.Color { return t.lane(rank) }
 // painted cell by cell, never a transparency story.
 func (t Theme) paneBg() color.Color {
 	if t.Dark {
-		return lipgloss.Color("#14181f")
+		return lipgloss.Color("#12161d")
 	}
-	return lipgloss.Color("#e9edf1")
-}
-
-// paneShadow is the two-column drop shadow the pane casts on the chat: density-gradient runes
-// (▒ then ░) tinted off the pane's background toward a shade anchor, so the raised edge reads
-// in 3D over whatever background the chat's cells carry. ▒ sits against the divider, ░ fades
-// out toward the transcript.
-func (t Theme) paneShadow() string {
-	anchor := lipgloss.Color("#05070a")
-	if !t.Dark {
-		anchor = lipgloss.Color("#98a2ad")
-	}
-	blend := lipgloss.Blend1D(4, t.paneBg(), anchor)
-	near := lipgloss.NewStyle().Foreground(blend[3]).Render("▒")
-	far := lipgloss.NewStyle().Foreground(blend[2]).Render("░")
-	return far + near
+	return lipgloss.Color("#eef1f4")
 }
 
 // paneArt re-holds the pane's background behind the mascot's foreground pixels: lipgloss'
@@ -161,9 +160,38 @@ func (t Theme) paneArt(art string) string {
 	return strings.ReplaceAll(art, "\x1b[m", "\x1b["+sgr+"m")
 }
 
-// laneLegend is the welcome's one-row foreshadow of the pulse lanes: each rank's dot held in
-// its own colour — orchestrator golden, coordinator orange, domain owner green, zone worker blue (agent-one's vocabulary
-// follows its four mapped ranks).
+// onAccent is the face a fill in the primary holds: deep ink on the dark theme's neon, paper
+// on the light theme's deep teal.
+func (t Theme) onAccent() color.Color {
+	if t.Dark {
+		return lipgloss.Color("#06121a")
+	}
+	return lipgloss.Color("#ffffff")
+}
+
+// chip is a small tag held in a hue: the hue as its face over a tint of itself sunk into the
+// panel — lit, never a neon slab. A colourless terminal reads the same word in brackets-free
+// plain text.
+func (t Theme) chip(hue color.Color, text string) string {
+	if hue == nil {
+		hue = t.dim.GetForeground()
+	}
+	if !t.Color {
+		return text
+	}
+	bg := lipgloss.Blend1D(5, t.paneBg(), hue)[1]
+	fg := hue
+	if !t.Dark {
+		// a lane's light-theme hue is a mid tone: its chip face sinks a third toward ink so the
+		// word holds 4.5:1 on its own tint
+		fg = lipgloss.Blend1D(4, hue, lipgloss.Color("#000000"))[1]
+	}
+	return lipgloss.NewStyle().Foreground(fg).Background(bg).Padding(0, 1).Render(text)
+}
+
+// laneLegend is the welcome's foreshadow of the pulse lanes: each rank a chip in its own hue —
+// orchestrator golden, coordinator orange, domain owner green, zone worker blue (agent-one's vocabulary follows its four
+// mapped ranks).
 func (t Theme) laneLegend(dist string) string {
 	order := []string{"orchestrator", "coord", "domain", "zone"}
 	if dist == "agent-one" {
@@ -171,14 +199,26 @@ func (t Theme) laneLegend(dist string) string {
 	}
 	var parts []string
 	for _, r := range order {
-		c := t.lane(r)
-		if c == nil {
-			parts = append(parts, t.dim.Render("● "+r))
-			continue
-		}
-		parts = append(parts, lipgloss.NewStyle().Foreground(c).Render("● "+r))
+		parts = append(parts, t.chip(t.lane(r), r))
 	}
-	return strings.Join(parts, t.dim.Render("  "))
+	return strings.Join(parts, " ")
+}
+
+// Brand is the distribution's name on its gradient, tuned to the background: agent-one holds the
+// HUD's cyan → magenta (deep-ink twins on a light ground); another distribution keeps its
+// sprite's own stops.
+func (t Theme) Brand(dist string) string {
+	if !t.Color {
+		return "✦ " + dist
+	}
+	if dist == "agent-one" {
+		stops := []color.Color{lipgloss.Color("#4fe3ee"), lipgloss.Color("#8fb4ff"), lipgloss.Color("#ef6fe6")}
+		if !t.Dark {
+			stops = []color.Color{lipgloss.Color("#00707c"), lipgloss.Color("#3f4fb0"), lipgloss.Color("#a0168f")}
+		}
+		return Gradient("✦ "+dist, true, stops...)
+	}
+	return Title(dist)
 }
 
 // DetectTheme picks dark unless the environment says the background is light (COLORFGBG's

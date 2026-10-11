@@ -149,7 +149,7 @@ func TestPromotionRegistersAAgent(t *testing.T) {
 	rs := Ranks{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true, Dir: "domain", Prefix: "domain-"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain-owner", Prefix: "principal-domain-owner-",
+		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
 			PromotesWhen: "promote domain when reports >= 3 && passRate >= 100%"},
 	}
 	w := openWorkspaceRanks(t, root, rs)
@@ -175,10 +175,10 @@ func TestPromotionRegistersAAgent(t *testing.T) {
 	if ev.Base != "domain-auth" || ev.Rank != "principal_domain_owner" {
 		t.Fatalf("event: %+v", ev)
 	}
-	if ev.New != "principal-domain-owner-auth" {
+	if ev.New != "principal-domain-auth" {
 		t.Fatalf("the promoted id rides its own prefix: %q", ev.New)
 	}
-	want := ".agent-one/principal-domain-owner/auth/README.md"
+	want := ".agent-one/principal-domain/auth/README.md"
 	if filepath.ToSlash(ev.Doc) != want {
 		t.Fatalf("the registered doc: %q, want %q", ev.Doc, want)
 	}
@@ -187,13 +187,13 @@ func TestPromotionRegistersAAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, frag := range []string{"principal-domain-owner-auth", "**Rank:** principal_domain_owner", "Ascendant of:** `domain-auth`", "promote domain when"} {
+	for _, frag := range []string{"principal-domain-auth", "**Rank:** principal_domain_owner", "Promoted from:** `domain-auth`", "promote domain when"} {
 		if !strings.Contains(string(text), frag) {
 			t.Fatalf("the registered doc must carry %q:\n%s", frag, text)
 		}
 	}
 	// the reloaded roster holds the registered agent, ranked as its promoted rank
-	if c := w.Member("principal-domain-owner-auth"); c == nil || c.Rank != "principal_domain_owner" {
+	if c := w.Member("principal-domain-auth"); c == nil || c.Rank != "principal_domain_owner" {
 		var rank string
 		if c != nil {
 			rank = c.Rank
@@ -224,7 +224,7 @@ func TestPromotionRegisterRefusesCollision(t *testing.T) {
 	rs := Ranks{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true, Dir: "domain", Prefix: "domain-"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain-owner", Prefix: "principal-domain-owner-",
+		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
 			PromotesWhen: "promote domain when reports >= 1"},
 	}
 	w := openWorkspaceRanks(t, root, rs)
@@ -235,7 +235,7 @@ func TestPromotionRegisterRefusesCollision(t *testing.T) {
 	// a fresh workspace over the same disk: the doc stands, so a re-crossing must skip the register
 	// and log a hole rather than overwrite
 	w2 := openWorkspaceRanks(t, root, rs)
-	if w2.Member("principal-domain-owner-auth") == nil {
+	if w2.Member("principal-domain-auth") == nil {
 		t.Fatalf("the on-disk promoted agent must rejoin the roster: %v", namesOf(w2))
 	}
 	w2.FoldMetrics("domain-auth", "PASS", 0)
@@ -252,7 +252,7 @@ func TestPromotionNeverWithoutABaseRecord(t *testing.T) {
 	rs := Ranks{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true, Dir: "domain", Prefix: "domain-"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain-owner", Prefix: "principal-domain-owner-",
+		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
 			PromotesWhen: "promote domain when reports >= 1"},
 	}
 	w := openWorkspaceRanks(t, root, rs)

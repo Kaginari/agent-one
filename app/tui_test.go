@@ -136,7 +136,7 @@ func TestTUIJunctionTurn(t *testing.T) {
 	_, tm, sc := tuiSession(t, w)
 	tm.Type("say hi")
 	enter(tm)
-	sc.wait(t, "> say hi")
+	sc.wait(t, "▌ say hi")
 	sc.wait(t, "● bash  echo hi; echo there  read")
 	sc.wait(t, "⎿ ok · ")
 	sc.wait(t, "there")
@@ -157,7 +157,7 @@ func TestTUIJunctionTurn(t *testing.T) {
 		t.Fatal("the gate verdict did not reach log.md")
 	}
 	// the footer reads the instruments
-	sc.wait(t, "mock/m · ctx ")
+	sc.wait(t, "│ ctx ")
 	// a slash command through the menu
 	tm.Type("/stat")
 	sc.wait(t, "❯ /status")
@@ -233,7 +233,7 @@ func TestTUIApprovalNoWithReason(t *testing.T) {
 	enter(tm)
 	sc.wait(t, "✓ No, and tell the model why: run the tests first")
 	sc.wait(t, "denied at the gate")
-	sc.wait(t, "> run the tests first")
+	sc.wait(t, "▌ run the tests first")
 	sc.wait(t, "I will run the tests before any push")
 	j := w.journalText(".agent-one")
 	if !strings.Contains(j, `"by":"tty"`) || !strings.Contains(j, `"decision":"denied"`) {

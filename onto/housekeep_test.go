@@ -162,3 +162,34 @@ func TestHousekeepLiveBondUntouched(t *testing.T) {
 		t.Fatalf("second pass still no dead-bond findings: %v", rep2.DeadBonds)
 	}
 }
+
+// A bond names the member (domain-bench), not its seat dir (bench): a zone worker that reports to a
+// live domain owner other than its policy parent keeps that bond — the operator's choice — through a heal.
+func TestHousekeepBondByMemberNameIsLive(t *testing.T) {
+	root := minWorkspace(t)
+	write := func(rel, agent string) {
+		p := filepath.Join(root, ".agent-one", rel, "README.md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(agent), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("domain/eng", "# domain-eng\n\n- **Rank:** Domain owner\n- **Owns:** `eng/`\n- **Reports to:** coord-core\n")
+	write("domain/bench", "# domain-bench\n\n- **Rank:** Domain owner\n- **Owns:** `bench/`\n- **Reports to:** coord-core\n")
+	zone := "# zone-loop\n\n- **Rank:** Zone worker\n- **Owns:** `eng/loop/`\n- **Reports to:** domain-bench\n"
+	write("zone/loop", zone)
+	rep, _, err := Housekeep(root, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range rep.DeadBonds {
+		if strings.Contains(d, "loop") {
+			t.Fatalf("a bond to a live domain owner read as dead: %v", rep.DeadBonds)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, ".agent-one", "zone", "loop", "README.md")); string(b) != zone {
+		t.Fatalf("the heal rewired a live bond:\n%s", b)
+	}
+}

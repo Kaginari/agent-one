@@ -394,3 +394,30 @@ func TestSilentReadingNamesTheWorkspaceDir(t *testing.T) {
 		}
 	}
 }
+
+func TestAPITeamCarriesTheNamedOrchestratorAndActivity(t *testing.T) {
+	b := newBoard(t, "workspace", Options{Names: Names{"rank.orchestrator": "Sovereign"}})
+	_, agent := get(t, b, "/api/team")
+	var c struct {
+		Orchestrator string `json:"orchestrator"`
+		Nodes        []Node `json:"nodes"`
+		Edges        []Edge `json:"edges"`
+	}
+	if err := json.Unmarshal([]byte(agent), &c); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, n := range c.Nodes {
+		if n.ID == c.Orchestrator {
+			found = n.Orchestrator && n.Label == "Sovereign"
+		}
+	}
+	if !found {
+		t.Errorf("the orchestrator must ride the payload under the lexicon's word: %s", agent)
+	}
+	code, agent := get(t, b, "/api/activity")
+	var a Activity
+	if code != 200 || json.Unmarshal([]byte(agent), &a) != nil || len(a.Days) != ActivityDays || a.Agents["zone-auth"] == nil || !a.Lit {
+		t.Errorf("activity: %d %s", code, agent)
+	}
+}

@@ -8,6 +8,75 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **The terminal UI is one frame.** A window of 60×26 or more is a single box-drawn grid under the
+  headroom row: a header (the brand on its gradient, the workspace, the model, the session and its
+  state), the conversation titled in its edge, the input inside the main column only (never under
+  the sidebar), a full-height sidebar, and a status bar (the context meter, tokens, cost, live
+  agents, key hints) — shared edges with real junctions, every row the window's width at every
+  size. The sidebar is ruled sections (vitals beside the sprite, subagents with their state as a
+  chip, the plan deck in its role's lane, the files as a tree) that fold on a click or
+  `alt+c`/`alt+p`/`alt+f`; `alt+s` or `/sidebar` hides it. The welcome is a compact card — the
+  sprite beside the name, the lane legend as chips, a label/value grid with the roles folded to
+  one line (`/roles` has them whole) and a row of where to start. The human's ask holds a
+  magenta bar, the answer a `✦` in the gutter. The slash menu, completions and the `?` sheet rise
+  over the conversation instead of reflowing it; `/settings` is a huh form for the theme, the
+  mouse and the sidebar. The palette follows the dashboard's neon HUD — cyan primary, magenta for
+  the human, borders quieter than text, deep-ink twins on light terminals, every text role at
+  4.5:1. Clicks and drags read the frame's own geometry.
+
+- **The dashboard's overview is a cockpit.** The neural net is the hero, the console docks beside
+  it (drag the splitter to resize, fold it to a rail — both remembered), and a timeline of Subagents
+  and verdicts sits under the net (`/api/activity` now carries the newest runs, their wire headers
+  dropped); a row focuses its neuron. The header gains the plan's progress. The folder tree leaves
+  the grid for a drawer over every view — the files button, `t`, or Alt+T from the prompt; Esc or a
+  click away closes it — and hovering a path lights the neuron that owns it. Every action pulses
+  on its own neuron in 2D and 3D: reads ripple softly, writes pulse in the rank's colour, outward or
+  destructive steps and a waiting gate ring amber, verdicts flare green or red; the orchestrator breathes
+  while the session runs.
+
+- **The dashboard holds "realm", a neon HUD.** A near-black ground, neon cyan and magenta,
+  hairline panels with corner brackets, Orbitron display type and tracked capital labels over
+  Rajdhani body text and JetBrains Mono numbers (all SIL OFL, vendored and served by the board), a
+  faint slow scanline and a one-time glitch on the brand — still under reduced motion. Dark is the
+  default; light is a real light mode in the same language; the theme switch cycles dark, light
+  and system. One palette of named roles (ground, panel, border, text, muted, primary, accent,
+  ok/warn/danger, a hue per rank), every text colour at 4.5:1 or better in both themes. Metrics
+  gains a leaderboard of the members by their work. `ui check` lets a page's own `theme.css`
+  hold literal values beside the foundation's token files.
+
+- **The cockpit, reviewed.** The net fills exactly the box its panel gives it with the legend in
+  view; each subtree under the orchestrator reads as a lane band, the service owner and a coordinator with no domain owners sit
+  as satellites just under the orchestrator, every upper layer is centred, rows and tiles tighten before
+  the zone workers wrap, and no label is cut below six ems; the skills become a strip of brains under the
+  layers. A "now" strip over the net carries the session's state, its ask, the live agents with
+  their context use and a wait on you. The timeline keeps its history (a journaled run folds into
+  its live row only when it is the same run) and names the orchestrator by the lexicon. A plain turn's
+  end pings calmly in the rank's colour — green and red are for real verdicts — and a burst of
+  steps is one breathing neuron. The 3D stage stands as layers (spaced planes, rank captions,
+  depth fog, smaller halos on the light theme), fills the panel, walks the tree from the keyboard,
+  has a "reset view" and a first-use hint, and idles at 12 frames a second, its turn stopping
+  after an idle minute. The tree drawer is a modal dialog; the phone header is two rows; sideways
+  rows fade at the edge that has more. `/api/team` answers an empty workspace with lists, never
+  null; `/api/activity`'s recent runs carry their id.
+
+- **The neural net, rebuilt.** The dashboard's net draws the hierarchy as layers — the orchestrator, then
+  each rank in the order work flows down, the skills beside — every neuron a rank-coloured tile
+  whose 28 cells are its last four weeks of work (runs and tokens from the journals; blank where no
+  instrument saw any), every tree bond weighted by the commissions it carried. Hovering or focusing
+  a neuron lights its path to the orchestrator and its subtree; arrow keys walk the tree; the side card
+  reads its doc, ownership, skills, bonds and work. A Subagent's dispatch travels down the tree as a
+  spark, its report comes back up (green when DONE, amber or red otherwise), and a running agent
+  breathes. A **3D** stage (hand-written WebGL2, no library) stands the same tree as glowing planes
+  with particles drifting down the bonds; drag orbits, the wheel or a pinch zooms, a click focuses.
+  It animates only while seen, honours reduced motion, follows the theme's tokens, and falls back
+  to 2D without WebGL2. Narrow screens get the tree as an outline.
+
+- **Select and copy in the TUI's panes.** A drag in the chat pane selects (clamped to the chat,
+  scrolling at its edges; a double click takes a word, a triple a line) and the release copies
+  the plain text — OSC 52, the primary selection, and off SSH the desktop's `wl-copy`/`xclip`/
+  `xsel`/`pbcopy` — with a toast. `ctrl+y` and `/copy` copy the last answer's markdown; `/mouse`
+  hands the mouse to the terminal (a `mouse: terminal` footer badge) and back.
+
 - **The policy inside Claude Code.** `agent-one install --claude` wires `agent-one hook` into Claude Code's
   hooks: the principles and the log's last entries at every session start (and after `/clear` and
   compaction), recall on every prompt, the guard and the human gate before every tool (it only
@@ -121,6 +190,27 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **Promotion happens.** The principal coordinator and the principal domain owner promote by default on a long, clean record —
+  `reports >= 20 && passRate >= 90% && holeRate <= 10%` (`ranks.principal-coordinator.promotesWhen`,
+  `ranks.principal-domain-owner.promotesWhen`; `""` turns it off). A promoted rank lives in its own dir and
+  prefix (`.agent-one/principal-domain/<name>/`, `principal-domain-owner-<name>`; agent-one `principal-domain-`), so the
+  register no longer collides with its base. The agent rises whole: its doc, ownership, invariants and
+  verify are carried into the new seat, the base's seat retires, and the members that reported to
+  it now report to its promoted, which commands them. Each promotion is appended to `log.md` with
+  the metrics that earned it and announced on the dispatcher's report; a failed register is logged and
+  reaches the dispatcher as `@?`. The tally is an append-only ledger
+  (`.agent-one/instruments/promotion.jsonl`) replayed at start, so a record counts across sessions,
+  and an agent's own `@S FAIL` is never counted as a pass.
+- **Dispatch follows the line.** A domain owner orders only its own zone workers, a coordinator only its own domain owners —
+  the members whose `Reports to` chain reaches it; a commission to another line's member is
+  refused naming the parent that commissions it. `tools.dispatch.lineage: false` restores the
+  rank-only policy.
+- **The service owner holds no dispatch.** A rank no other rank reports to (and not sideways) is never
+  handed the dispatch tool, whatever its tools list says.
+- **A rank's job reaches its agent.** The `job` line rides the member card in the system prompt.
+  `ranks.<r>.agent` is gone from the rank table — every agent runs as a Subagent — and a configured
+  value is reported as an ignored key.
+
 - **The policy reads the same on every host.** `AGENT-ONE.md` names instruments (the context reading,
   memory, toolbox, the loop) and maps them once to each host — the binary's commands, or the JS
   tools and `/don`·`/register` of a Claude Code or OpenCode workspace. Three contradictions resolved: the
@@ -132,6 +222,35 @@ All notable changes to Agent-One are recorded here. The format follows
   names the missing key and the rerun, and does not start a founding session it cannot finish.
 
 ### Fixed
+
+- **The domain owner's verify check reads the zone worker's doc fresh.** A verify line the domain owner wrote earlier in
+  the same turn now counts when it dispatches the zone worker.
+
+- **The dashboard's folder tree loads again.** It read the root level's entries under `nodes`
+  while `/api/tree/children` answers `children`, so the tree always said "no tree source".
+
+- **The neural net draws the orchestrator and its tree.** `/api/team` always carries the orchestrator node
+  (the session agent, under the lexicon's word for it) and names every member's `parent`; a
+  member with no bond up to an agent on disk hangs under the orchestrator by an `implied` reports edge
+  and a note, so the tree is connected and the gap is said. The ontology reads the workspace's own
+  `crafted-skills/` and `base-skills/` as skills, so a member's Skills field becomes `holds` bonds.
+  `/api/activity` serves each agent's last 28 days (runs from the loop journals, tokens from the
+  usage journal) — what the net's activity tiles and bond weights read.
+
+- **The TUI's input and keys.** A capital `C` (or `c` on a pinned stale deck) no longer vanishes
+  from a typed word: the plan snap moved to `alt+n`. The input box grows with a long line's wraps,
+  not only its newlines. `ctrl+c` clears a draft first and interrupts a busy turn without arming
+  the exit; `esc` and `ctrl+c` keep a cleared draft one ↑ away. Under the panes `ctrl+u`/`ctrl+d`
+  are the input's again — `pgup`/`pgdn` (now matched), `shift+↑/↓` and the wheel scroll the chat —
+  and the shortcuts list says so. The agents view's pipe gives the draft back.
+- **The TUI stays smooth on a long session.** Each block renders once per width and theme
+  (cached; a new block costs its own render, not the transcript's), the chat viewport is fed only
+  when the transcript or the live rows changed, and the rail's plan decks load in a `tea.Cmd`,
+  read again only when a deck file's size or mtime (or a live agent's role) moved — no disk
+  read on the UI goroutine five times a second.
+- **The TUI's transcript.** Quitting in pane mode prints the conversation to the scrollback, so it
+  stays in the terminal after exit. A block that finished under the board prints once, not twice.
+  `<` and `>` in an answer survive Glamour (`Vec<T>`, `providers.<name>.script`); long errors wrap.
 
 - **`--help`, `-h` and `--version` answer at once**, outside a workspace too, and `<command> --help`
   shows that command; an unknown command is named unknown before any workspace lookup.

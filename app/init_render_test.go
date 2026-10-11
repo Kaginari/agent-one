@@ -16,15 +16,21 @@ func TestRenderInitStyledText(t *testing.T) {
 		medium: &mediumRep{
 			members: []plan{
 				{Rank: "coord", Short: "core", Parent: "orchestrator", Ownership: []string{"go.mod"}},
-				{Rank: "zone", Short: "app", Parent: "domain-app", Ownership: []string{"app/"}},
+				{Rank: "domain", Short: "app", Parent: "coord-core", Ownership: []string{"app/"}},
+				{Rank: "zone", Short: "app", Parent: "domain-app", Ownership: []string{"app/"}, Verify: []string{"go test ./app/..."}},
+				{Rank: "zone", Short: "cli", Parent: "domain-app", Ownership: []string{"cli/"}},
+				{Rank: "service", Short: "ci", Parent: "orchestrator", Ownership: []string{".github/"}},
 			},
-			wrote: []string{".agent-one/coords/core/README.md"},
-			kept:  1,
+			wrote:  []string{".agent-one/coord/core/README.md"},
+			kept:   1,
+			coords: 1, domains: 1, zones: 2, service: 1,
+			prefix: map[string]string{"coord": "coord-", "domain": "domain-", "zone": "zone-", "service": "service-"},
 		},
 	}
 	renderInit(&buf, rep, defaultInitWords())
 	out := buf.String()
-	for _, want := range []string{"agent-one", "scaffold", "AGENT-ONE.md", "team", "1 written", "1 kept", "zone", "next", "run \"<ask>\""} {
+	for _, want := range []string{"agent-one", "scaffold", "AGENT-ONE.md", "team", "1 written", "1 kept", "1 coordinator · 1 domain owner · 2 zone workers · 1 service owner",
+		"    coord-core", "      domain-app", "        zone-app", "zone-cli", "cli/", "(no tests seen)", "    service-ci", "next", "run \"<ask>\""} {
 		if !strings.Contains(out, want) {
 			t.Errorf("styled init output missing %q, got:\n%s", want, out)
 		}

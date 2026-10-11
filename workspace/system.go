@@ -122,7 +122,7 @@ func scalarAt(m *yaml.Node, key string) (string, error) {
 
 // GitSelfInit versions root when nothing has: `git rev-parse --is-inside-work-tree` with
 // cmd.Dir = root (the memory.GitHead precedent, memory/files.go) — an error or "false" means
-// no work-tree, so it runs a bare `git init -b main`. Returns whether the init ran. A git
+// no work-tree, so it runs a bare `git init` on a `main` branch. Returns whether the init ran. A git
 // failure is an error for the caller to note, never a failed open. Bare init only: no
 // `.gitignore` is seeded (a guessed ignore risks committing secrets; the human authors ignores
 // before the first commit), and no commit is made — the first commit is the human's act.
@@ -135,10 +135,13 @@ func GitSelfInit(root string) (bool, error) {
 	if err == nil && strings.TrimSpace(string(out)) == "true" {
 		return false, nil
 	}
-	init := exec.Command("git", "init", "-b", "main")
-	init.Dir = root
-	if out, err := init.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("git init: %v: %s", err, strings.TrimSpace(string(out)))
+	// init then name the branch: `git init -b` needs git 2.28, the symbolic-ref works on every git
+	for _, args := range [][]string{{"init"}, {"symbolic-ref", "HEAD", "refs/heads/main"}} {
+		c := exec.Command("git", args...)
+		c.Dir = root
+		if out, err := c.CombinedOutput(); err != nil {
+			return false, fmt.Errorf("git %s: %v: %s", args[0], err, strings.TrimSpace(string(out)))
+		}
 	}
 	return true, nil
 }

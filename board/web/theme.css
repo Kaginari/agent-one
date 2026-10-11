@@ -1,0 +1,166 @@
+/* theme.css — the dashboard's own theme layer, "realm": a neon HUD over the foundation (tokens.css,
+   palettes.css and layout.css stay byte copies of the ui foundation). Like the token files it holds
+   literal values and nothing else: the faces it serves, the colour ROLES, and the meaning tier
+   (--surface, --ink, --accent, --series-* …) remapped from those roles. Components read only the
+   meaning tier, so a component never knows which theme it is in. Pick it with
+   <html data-palette="realm">.
+
+   Roles — one palette, the same names in the dashboard and the terminal ui:
+     ground        the page                         panel         a raised region
+     sunken        wells, tracks, inputs            border        hairlines between things
+     border-strong an input's edge, a focus-free frame
+     text          body text                        muted         secondary text (≥ 4.5:1 too)
+     primary       neon cyan: actions, links, the live state, the HUD's first bracket
+     primary-ink   text on a primary fill           accent        neon magenta: the second bracket,
+                                                                  emphasis, the #1 rank
+     ok · warn · danger                             the verdict colours, never used for decoration
+     rank-orchestrator · rank-coord · rank-domain · rank-zone · rank-service · rank-auditor   the members' hues
+   Contrast (WCAG, text on ground and on panel): dark — text 18.3/17.4, muted 7.0/6.7, primary
+   14.6/14.0, accent 6.6/6.3, ok 15.2, warn 12.5, danger 6.3/6.0, every rank hue ≥ 6.3; light —
+   text 17.2/19.3, muted 6.7/7.6, primary 5.2/5.8, accent 6.2/6.9, ok 5.1/5.7, warn 5.6/6.3,
+   danger 5.7/6.4, every rank hue ≥ 5.2; primary-ink on primary 13.1 (dark) and 5.8 (light).
+   Glow (--glow-*) is for display type and live marks only, never body text; it is off in light.
+
+   Type: Orbitron for display and tracked capital labels, Rajdhani for reading, JetBrains Mono
+   for numbers and code — all SIL OFL, vendored in fonts/ (see fonts/README.txt), with system
+   fallbacks. Dark is the default; light is chosen (data-theme="light") or follows a light
+   system when the reader picked "system" (no data-theme). */
+
+@font-face { font-family: "Orbitron"; src: url("fonts/orbitron-latin-v35.woff2") format("woff2"); font-weight: 400 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Rajdhani"; src: url("fonts/rajdhani-400-latin-v17.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Rajdhani"; src: url("fonts/rajdhani-500-latin-v17.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Rajdhani"; src: url("fonts/rajdhani-600-latin-v17.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "Rajdhani"; src: url("fonts/rajdhani-700-latin-v17.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/jetbrainsmono-latin-v24.woff2") format("woff2"); font-weight: 100 800; font-style: normal; font-display: swap; }
+
+@layer tokens {
+  /* realm, dark — the default */
+  :root[data-palette="realm"] {
+    --realm-ground: #06070A;
+    --realm-panel: #0C0F14;
+    --realm-sunken: #030405;
+    --realm-border: #243039;
+    --realm-border-strong: #3A4A57;
+    --realm-text: #E6F7FA;
+    --realm-muted: #8C9AA8;
+    --realm-primary: #00F3FF;
+    --realm-primary-ink: #001A1C;
+    --realm-primary-wash: #00F3FF1F;
+    --realm-accent: #FF2BF1;
+    --realm-ok: #2BFF95;
+    --realm-warn: #FFC23D;
+    --realm-danger: #FF4D6A;
+    --realm-rank-orchestrator: #00F3FF;
+    --realm-rank-coord: #FFB627;
+    --realm-rank-domain: #FF2BF1;
+    --realm-rank-zone: #3DA9FF;
+    --realm-rank-service: #B8FF3D;
+    --realm-rank-auditor: #A47BFF;
+    --glow-primary: 0 0 0.6rem #00F3FF8C;
+    --glow-accent: 0 0 0.6rem #FF2BF18C;
+    --glow-soft: 0 0 1.2rem #00F3FF26;
+
+    color-scheme: dark;
+    --surface: var(--realm-ground);
+    --surface-2: var(--realm-panel);
+    --surface-sunken: var(--realm-sunken);
+    --line: var(--realm-border);
+    --line-strong: var(--realm-border-strong);
+    --ink: var(--realm-text);
+    --ink-muted: var(--realm-muted);
+    --accent: var(--realm-primary);
+    --accent-ink: var(--realm-primary-ink);
+    --accent-wash: var(--realm-primary-wash);
+    --accent-hero: var(--realm-primary);
+    --second: var(--realm-accent);
+    --focus: var(--realm-primary);
+    --ok: var(--realm-ok);
+    --warn: var(--realm-warn);
+    --danger: var(--realm-danger);
+    --series-1: var(--realm-rank-zone);
+    --series-2: var(--realm-rank-domain);
+    --series-3: var(--realm-rank-service);
+    --series-4: var(--realm-rank-coord);
+    --series-5: var(--realm-rank-auditor);
+    --series-6: var(--realm-rank-orchestrator);
+    --shadow: 0 0 0 1px #00000099, 0 0.75rem 2rem #00000080;
+
+    /* type: three faces, a deliberate scale, tracking for capital labels */
+    --font-body: "Rajdhani", var(--font-sans);
+    --font-heading: "Orbitron", var(--font-sans);
+    --font-display: "Orbitron", var(--font-sans);
+    --font-code: "JetBrains Mono", var(--font-mono);
+    --type-base: clamp(1.0625rem, 1rem + 0.2vw, 1.1875rem);
+    --type-ratio: 1.2;
+    --weight-medium: 500;
+    --weight-bold: 700;
+    --tracking-caps: 0.12em;
+    --tracking-label: 0.2em;
+    --tracking-display: 0.04em;
+
+    /* shape: a HUD is square-cut; its corners are brackets */
+    --radius-s: 0.125rem;
+    --radius-m: 0.1875rem;
+    --radius-l: 0.25rem;
+    --bracket: 0.75rem;
+    --bracket-width: 2px;
+  }
+
+  /* realm, light — a real light mode in the same language: a cool paper ground, deep inks */
+  :root[data-palette="realm"][data-theme="light"] {
+    --realm-ground: #EEF2F6;
+    --realm-panel: #FFFFFF;
+    --realm-sunken: #E3E8EE;
+    --realm-border: #CBD5DF;
+    --realm-border-strong: #8E9BA8;
+    --realm-text: #0A0E14;
+    --realm-muted: #4B5563;
+    --realm-primary: #00707A;
+    --realm-primary-ink: #FFFFFF;
+    --realm-primary-wash: #00707A1A;
+    --realm-accent: #A3009B;
+    --realm-ok: #00764A;
+    --realm-warn: #8A5300;
+    --realm-danger: #C0002A;
+    --realm-rank-orchestrator: #00707A;
+    --realm-rank-coord: #8A5300;
+    --realm-rank-domain: #A3009B;
+    --realm-rank-zone: #0057C2;
+    --realm-rank-service: #3D6E00;
+    --realm-rank-auditor: #6A2FD6;
+    --glow-primary: 0 0 0 transparent;
+    --glow-accent: 0 0 0 transparent;
+    --glow-soft: 0 0 0 transparent;
+    color-scheme: light;
+    --shadow: 0 0 0 1px #0A0E140D, 0 0.5rem 1.5rem #0A0E1414;
+  }
+  @media (prefers-color-scheme: light) {
+    :root[data-palette="realm"]:not([data-theme]) {
+      --realm-ground: #EEF2F6;
+      --realm-panel: #FFFFFF;
+      --realm-sunken: #E3E8EE;
+      --realm-border: #CBD5DF;
+      --realm-border-strong: #8E9BA8;
+      --realm-text: #0A0E14;
+      --realm-muted: #4B5563;
+      --realm-primary: #00707A;
+      --realm-primary-ink: #FFFFFF;
+      --realm-primary-wash: #00707A1A;
+      --realm-accent: #A3009B;
+      --realm-ok: #00764A;
+      --realm-warn: #8A5300;
+      --realm-danger: #C0002A;
+      --realm-rank-orchestrator: #00707A;
+      --realm-rank-coord: #8A5300;
+      --realm-rank-domain: #A3009B;
+      --realm-rank-zone: #0057C2;
+      --realm-rank-service: #3D6E00;
+      --realm-rank-auditor: #6A2FD6;
+      --glow-primary: 0 0 0 transparent;
+      --glow-accent: 0 0 0 transparent;
+      --glow-soft: 0 0 0 transparent;
+      color-scheme: light;
+      --shadow: 0 0 0 1px #0A0E140D, 0 0.5rem 1.5rem #0A0E1414;
+    }
+  }
+}

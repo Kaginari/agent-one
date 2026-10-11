@@ -147,7 +147,7 @@ func TestTurnStreamsAndLands(t *testing.T) {
 	tm, _, out := start(t, h)
 	tm.Type("explain the gate")
 	tm.Send(key(tea.KeyEnter))
-	out.wait(t, "> explain the gate")
+	out.wait(t, "▌ explain the gate")
 	out.wait(t, "esc to interrupt")
 	tm.Send(EvState{Agent: "orchestrator", State: "thinking"})
 	tm.Send(EvDelta{Text: "The gate has **four** checks.\n\nSecond paragraph "})
@@ -178,7 +178,7 @@ func TestQueuedInterruptAndCtrlC(t *testing.T) {
 	tm, _, out := start(t, h)
 	tm.Type("first")
 	tm.Send(key(tea.KeyEnter))
-	out.wait(t, "> first")
+	out.wait(t, "▌ first")
 	tm.Type("also this")
 	tm.Send(key(tea.KeyEnter))
 	out.wait(t, "⏎ queued: also this")
@@ -235,7 +235,7 @@ func TestSlashMenuAndCompletion(t *testing.T) {
 	out.wait(t, "src/auth/login.go")
 	tm.Send(key(tea.KeyTab))
 	tm.Send(key(tea.KeyEnter))
-	out.wait(t, "> look at @src/auth/login.go")
+	out.wait(t, "▌ look at @src/auth/login.go")
 	tm.Send(EvQuit{})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
@@ -245,7 +245,7 @@ func TestHistoryNewlineAndPaste(t *testing.T) {
 	tm, _, out := start(t, h)
 	tm.Type("one")
 	tm.Send(key(tea.KeyEnter))
-	out.wait(t, "> one")
+	out.wait(t, "▌ one")
 	tm.Send(EvTurnDone{Status: "DONE", Text: "fine"})
 	out.wait(t, "fine")
 	tm.Send(key(tea.KeyUp))
@@ -384,7 +384,7 @@ func TestSubagentZombieCardLandsFrozenAtTurnEnd(t *testing.T) {
 	cards := func() int {
 		n := 0
 		for _, r := range m.blocks {
-			if strings.Contains(ansi.Strip(r(100)), "◆ subagent domain-experience") {
+			if strings.Contains(ansi.Strip(r.render(100)), "◆ subagent domain-experience") {
 				n++
 			}
 		}
@@ -423,7 +423,7 @@ func TestSubagentZombieCardLandsFrozenAtTurnEnd(t *testing.T) {
 		t.Fatalf("tombstones for domain-experience: %d, want exactly 1", tombs)
 	}
 	for _, r := range m.blocks {
-		if s := ansi.Strip(r(100)); strings.Contains(s, "◆ subagent domain-experience") && !strings.Contains(s, "DONE · 3m31s") {
+		if s := ansi.Strip(r.render(100)); strings.Contains(s, "◆ subagent domain-experience") && !strings.Contains(s, "DONE · 3m31s") {
 			t.Fatalf("the tombstone lost the frozen clock: %q", s)
 		}
 	}
@@ -444,7 +444,7 @@ func TestSubagentFlashHoldsThenTickLandsTheTombstone(t *testing.T) {
 	cards := func() int {
 		n := 0
 		for _, r := range m.blocks {
-			if strings.Contains(ansi.Strip(r(100)), "◆ subagent zone-auth") {
+			if strings.Contains(ansi.Strip(r.render(100)), "◆ subagent zone-auth") {
 				n++
 			}
 		}
@@ -612,7 +612,8 @@ func TestChoiceFloatsOverDarkenedBackdrop(t *testing.T) {
 	// sidebar's cards own borders of their own in the frame now)
 	box := m.theme.Choice(m.view, min(m.width*3/5, 100))
 	bw, bh := lipgloss.Width(box), strings.Count(box, "\n")+1
-	ex, ey := centerRect(130, 36, bw, bh)
+	ex, ey := centerRect(130, 36-paneTop, bw, bh) // centred in the panes, under the headroom row
+	ey += paneTop
 	if got := cellAt(strip, ex+2, ey+1); got != 'A' { // border + one padding, then "Approval"
 		runes := []rune(strings.Split(strip, "\n")[ey+1])
 		t.Fatalf("the card must centre: want 'A' at (%d,%d), got %q (row %q)", ex+2, ey+1, got, string(runes))
@@ -690,7 +691,7 @@ func TestVerdictBurstRainsOnce(t *testing.T) {
 	m.begin()
 	m.Update(EvTurnDone{Status: "FAIL", Verdict: "fail: outside ownership"})
 	m.burstAt = time.Now().Add(-time.Second / pulseFPS)
-	if out := m.Render(); !strings.Contains(out, "224;108;95") { // dark theme bad #e06c5f
+	if out := m.Render(); !strings.Contains(out, "240;113;106") { // dark theme bad #f0716a
 		t.Fatalf("a failed verdict must rain bad-coloured: %q", out)
 	}
 }

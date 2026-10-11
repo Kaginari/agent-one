@@ -291,11 +291,15 @@ ranks:
 	if sb.ReportsTo != "reviewer" || !sb.Authors || sb.Role != "analyst" || len(sb.Tools) != 4 || sb.Origins["tools"] != "promotes:builder" {
 		t.Errorf("promoted inherits: %+v", sb)
 	}
-	if names["lead"].Agent != "persistent" || names["builder"].Agent != "ephemeral" || names["builder"].Prefix != "builder-" {
-		t.Errorf("defaults: %+v", names["builder"])
+	if names["builder"].Prefix != "builder-" || names["senior-builder"].Dir != "senior-builder" || names["senior-builder"].Prefix != "senior-builder-" {
+		t.Errorf("defaults: a promoted rank keeps a dir and prefix of its own: %+v", names["senior-builder"])
+	}
+	// agent is read by nothing: a set value is a hole, never obeyed
+	if !strings.Contains(strings.Join(c.Holes, "\n"), "ranks.lead.agent is ignored") {
+		t.Errorf("ranks.lead.agent must be named a hole: %v", c.Holes)
 	}
 	tree := c.RankTree()
-	if !strings.Contains(tree, "orchestrator [rankSet: replace]") || !strings.Contains(tree, "    reviewer (gate, ephemeral)") || !strings.Contains(tree, "      builder (authors, ephemeral, role analyst)") {
+	if !strings.Contains(tree, "orchestrator [rankSet: replace]") || !strings.Contains(tree, "    reviewer (gate)") || !strings.Contains(tree, "      builder (authors, role analyst)") {
 		t.Errorf("tree:\n%s", tree)
 	}
 	if dev := c.Deviations(); len(dev) != 6 {
@@ -317,7 +321,7 @@ ranks:
 	w = newWorkspace(t, map[string]string{".agent-one/config.yaml": "ranks:\n  domain: {layer: 2}\n  principal-domain-owner: {promotesWhen: \"promote domain when reports >= 3\", divineRules: [go around the backlog]}\n"})
 	c = w.load()
 	tree = c.RankTree()
-	if !strings.Contains(tree, "layer 2") || !strings.Contains(tree, "1 divine rule") || !strings.Contains(tree, "when `promote domain when reports >= 3`") {
+	if !strings.Contains(tree, "layer 2") || !strings.Contains(tree, "1 divine rule") || !strings.Contains(tree, "promotes domain") || !strings.Contains(tree, "when `reports >= 3`") {
 		t.Errorf("the tree must show layer, divine rules and the crossing:\n%s", tree)
 	}
 	refusals := []struct{ name, yaml, want string }{
@@ -332,7 +336,6 @@ ranks:
 		{"promotesWhen not ASL", "ranks:\n  principal-domain-owner: {promotesWhen: \"quickly now\"}\n", "opens with"},
 		{"divineRules on a plain rank", "ranks:\n  domain: {divineRules: [never skip the gate]}\n", "promotes from nothing"},
 		{"root configured", "ranks:\n  orchestrator: {job: x}\n", "not configured"},
-		{"bad agent", "ranks:\n  coord: {agent: ghost}\n", "not ephemeral or persistent"},
 		{"bad rankSet", "rankSet: merge\n", "not extend or replace"},
 		{"detach zone", "ranks:\n  zone: {reportsTo: orchestrator}\n", "no rank above it holds a gate"},
 	}

@@ -1,4 +1,4 @@
-/* @component console — tokens: --surface, --surface-2, --surface-sunken, --accent-wash, --line, --ink, --ink-muted, --danger, --warn, --accent, --radius-m, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --step--1, --step-0, --font-code, --leading, --hairline, --measure. The prompt, like the CLI: the transcript reads like a page, one input that never moves; data-state on .console-input is idle|running|waiting. */
+/* @component console — tokens: --surface-2, --surface-sunken, --accent-wash, --line, --ink, --ink-muted, --danger, --warn, --accent, --radius-m, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --step--1, --step-0, --font-code, --leading, --hairline, --measure, --bracket-width, --line-strong, --glow-soft. The prompt, like the CLI: the transcript reads like a page, one input that never moves; data-state on .console-input is idle|running|waiting. */
 @layer components {
   .console { display: flex; flex-direction: column; block-size: 100%; min-block-size: 0; }
   .console-log { flex: 1; min-block-size: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-s); padding: var(--space-s) var(--space-m); scroll-behavior: smooth; }
@@ -7,7 +7,7 @@
   .turn-ask {
     align-self: stretch; padding: var(--space-2xs) var(--space-s);
     font: var(--step-0) / var(--leading) var(--font-code); white-space: pre-wrap; overflow-wrap: anywhere;
-    color: var(--ink); background: var(--accent-wash); border-radius: var(--radius-m);
+    color: var(--ink); background: var(--accent-wash); border-radius: var(--radius-m); border-inline-start: var(--bracket-width) solid var(--accent);
   }
   .turn-ask::before { content: "› "; color: var(--accent); }
   .turn-ask[data-queued]::after { content: "  (queued for the running turn)"; color: var(--ink-muted); font-size: var(--step--1); }
@@ -28,8 +28,10 @@
   .console-field {
     flex: 1; min-inline-size: 0; resize: none; field-sizing: content; min-block-size: 2.5rem; max-block-size: 12rem;
     padding: var(--space-2xs) var(--space-xs); font: var(--step-0) / var(--leading) var(--font-code);
-    color: var(--ink); background: var(--surface); border: var(--hairline) solid var(--line); border-radius: var(--radius-m);
+    color: var(--ink); background: var(--surface-sunken); border: var(--hairline) solid var(--line-strong); border-radius: var(--radius-m);
   }
+  .console-field:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--glow-soft); }
+  .console-field::placeholder { color: var(--ink-muted); }
   .console-field:disabled { color: var(--ink-muted); }
   .console-hint { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2xs); font-size: var(--step--1); color: var(--ink-muted); }
   .console-hint kbd { font-family: var(--font-code); padding-inline: var(--space-3xs); border: var(--hairline) solid var(--line); border-radius: var(--radius-m); }

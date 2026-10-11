@@ -20,12 +20,11 @@ type Rank struct {
 	Authors      bool     // authors changes in its ownership (ownership is enforced on it)
 	HoldsGate    bool     // gates the authoring ranks below it
 	Sideways     bool     // may dispatch its own rank (domain owner → domain owner) and know its layer-mates
-	Agent        string   // subagent | persistent agent
 	Role         string   // default role: analyst | judge | drafter
 	Tools        []string // tool names its shelf is cut to
 	Dir          string   // folder under the workspace dir; "" for a rank with no members on disk
 	Prefix       string   // member-id prefix, Dir + "-"
-	Base         string   // a promoted rank keeps everything its base held
+	Base         string   // a promoted rank keeps everything its base held (its dir and prefix are its own)
 	Layer        int      // config-declared layer (0 when unset); two ranks share a layer iff equal and nonzero
 	DivineRules  []string // a promoted rank's absolute rules; they reach the base rank as coded rules
 	PromotesWhen string   // the metrics condition under which a body of this rank promotes (ASL); "" = never
@@ -81,18 +80,28 @@ var AllTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy
 
 var baseTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy"}
 
+// The default promotion conditions (config/ranks.go carries the same two strings; a workspace test
+// keeps them equal). Conservative on purpose: an agent promotes only on a long record — twenty
+// reports — nearly all of them landed (a pass rate of 90% or more) and nearly none leaving a
+// hole behind (at most one hole per ten reports). `ranks.principal-coordinator.promotesWhen` and
+// `ranks.principal-domain-owner.promotesWhen` override them; an empty string turns promotion off.
+const (
+	DefaultPromoteCoord  = "promote coord when reports >= 20 && passRate >= 90% && holeRate <= 10%"
+	DefaultPromoteDomain = "promote domain when reports >= 20 && passRate >= 90% && holeRate <= 10%"
+)
+
 // DefaultRanks is the policy's table (AGENT-ONE.md §The workspace), dirs and prefixes from the lexicon.
 func DefaultRanks(lex Lexicon) []Rank {
 	d := func(r string) string { return lex.Ranks[r] }
 	p := func(r string) string { return lex.Prefixes[r] }
 	return []Rank{
-		{Name: "coord", ReportsTo: Orchestrator, Job: "the shared skill and voice: thinks across domains, routes work to domain owners, speaks back up — on an order from above it first writes its plan deck (`plan` tool: one line per slice, each named to the domain owner whose domain owns it), then dispatches — domain owners in parallel (background: true) when the slices are independent", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: d("coord"), Prefix: p("coord")},
-		{Name: "domain", ReportsTo: "coord", Job: "rules its domain, commands its zone workers, holds the gate — the slice's verify is written before its zone worker is ordered (the gate proves the landing, never after)", HoldsGate: true, Sideways: true, Agent: "ephemeral", Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain")},
-		{Name: "zone", ReportsTo: "domain", Job: "the ground truth of its zone: authors changes there", Authors: true, Agent: "ephemeral", Role: "analyst", Tools: baseTools, Dir: d("zone"), Prefix: p("zone")},
-		{Name: "service", ReportsTo: Orchestrator, Job: "standing domain lead: owns one subsystem end-to-end across sessions", Authors: true, HoldsGate: true, Agent: "persistent", Role: "judge", Tools: AllTools, Dir: d("service"), Prefix: p("service")},
-		{Name: "principal_coordinator", ReportsTo: Orchestrator, Job: "promoted coordinator: the cross-domain invariants a coordinator consolidated", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: d("coord"), Prefix: p("coord"), Base: "coord", PromotesWhen: "promote coord when intelligence >= 70 && reports >= 5"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Job: "promoted domain owner: the domain invariants a domain owner consolidated", HoldsGate: true, Sideways: true, Agent: "ephemeral", Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain"), Base: "domain", PromotesWhen: "promote domain when intelligence >= 70 && reports >= 5"},
-		{Name: "auditor", ReportsTo: Orchestrator, Job: "the auditor: reviews verdicts and the log, never authors", Agent: "persistent", Role: "judge", Tools: []string{"read", "bash", "glob", "grep", "policy"}, Dir: d("auditor"), Prefix: p("auditor")},
+		{Name: "coord", ReportsTo: Orchestrator, Job: "the shared skill and voice: thinks across domains, routes work to domain owners, speaks back up — on an order from above it first writes its plan deck (`plan` tool: one line per slice, each named to the domain owner whose domain owns it), then dispatches — domain owners in parallel (background: true) when the slices are independent", Role: "drafter", Tools: AllTools, Dir: d("coord"), Prefix: p("coord")},
+		{Name: "domain", ReportsTo: "coord", Job: "rules its domain, commands its zone workers, holds the gate — the slice's verify is written before its zone worker is ordered (the gate proves the landing, never after)", HoldsGate: true, Sideways: true, Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain")},
+		{Name: "zone", ReportsTo: "domain", Job: "the ground truth of its zone: authors changes there", Authors: true, Role: "analyst", Tools: baseTools, Dir: d("zone"), Prefix: p("zone")},
+		{Name: "service", ReportsTo: Orchestrator, Job: "standing domain lead: owns one subsystem end-to-end across sessions", Authors: true, HoldsGate: true, Role: "judge", Tools: AllTools, Dir: d("service"), Prefix: p("service")},
+		{Name: "principal_coordinator", ReportsTo: Orchestrator, Job: "promoted coordinator: the cross-domain invariants a coordinator consolidated", Role: "drafter", Tools: AllTools, Dir: d("principal_coordinator"), Prefix: p("principal_coordinator"), Base: "coord", PromotesWhen: DefaultPromoteCoord},
+		{Name: "principal_domain_owner", ReportsTo: "coord", Job: "promoted domain owner: the domain invariants a domain owner consolidated", HoldsGate: true, Sideways: true, Role: "judge", Tools: AllTools, Dir: d("principal_domain_owner"), Prefix: p("principal_domain_owner"), Base: "domain", PromotesWhen: DefaultPromoteDomain},
+		{Name: "auditor", ReportsTo: Orchestrator, Job: "the auditor: reviews verdicts and the log, never authors", Role: "judge", Tools: []string{"read", "bash", "glob", "grep", "policy"}, Dir: d("auditor"), Prefix: p("auditor")},
 	}
 }
 
@@ -116,7 +125,7 @@ func (rs Ranks) Get(name string) (Rank, bool) {
 }
 
 // Of reads a member's rank off its id prefix ("" for orchestrator or an unknown name). The first
-// rank on a prefix wins (an promoted rank shares its base's).
+// rank on a prefix wins.
 func (rs Ranks) Of(member string) string {
 	member = strings.ToLower(member)
 	for _, r := range rs {
@@ -423,6 +432,55 @@ func (rs Ranks) DirectChild(from, to string) bool {
 		return true // a sideways intead of down, within one layer
 	}
 	return rs.nextHop(from, to) == to
+}
+
+// BelowAs is Below for a dispatcher of rank `upper`: a promoted rank commands what its base
+// commanded (a principal domain owner keeps its zone workers), so a rank under the base counts as under it.
+func (rs Ranks) BelowAs(lower, upper string) bool {
+	if rs.Below(lower, upper) {
+		return true
+	}
+	if r, ok := rs.Get(upper); ok && r.Base != "" && lower != upper {
+		return rs.Below(lower, r.Base)
+	}
+	return false
+}
+
+// DirectChildAs is DirectChild for a dispatcher of rank `from`, its base's children included
+// when it is a promoted rank.
+func (rs Ranks) DirectChildAs(from, to string) bool {
+	if rs.DirectChild(from, to) {
+		return true
+	}
+	if r, ok := rs.Get(from); ok && r.Base != "" && to != from {
+		if t, ok := rs.Get(to); ok && t.ReportsTo == r.Base {
+			return true
+		}
+	}
+	return false
+}
+
+// Commands reports whether a body of this rank has anyone to dispatch: orchestrator, a sideways rank,
+// or a rank some other rank reports to (its base's children count for a promoted rank). A rank
+// that commands no one is never handed the dispatch tool, whatever its tools list says — the
+// service owner reports to orchestrator and no rank reports to it.
+func (rs Ranks) Commands(name string) bool {
+	r, ok := rs.Get(name)
+	if !ok {
+		return false
+	}
+	if r.Name == Orchestrator || r.Sideways {
+		return true
+	}
+	for _, o := range rs {
+		if o.Name == name {
+			continue
+		}
+		if o.ReportsTo == name || (r.Base != "" && o.ReportsTo == r.Base) {
+			return true
+		}
+	}
+	return false
 }
 
 // In reports whether the rank name is on the table (orchestrator counts).

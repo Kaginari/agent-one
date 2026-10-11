@@ -489,7 +489,9 @@ func (w *Workspace) subagentPairedDoc(s *loop.Session, owner *Member) bool {
 // docDriftedFromBaseline reads whether the doc differs from its clean git baseline:
 // (drifted, true) when the reading is conclusive, (false, false) when git cannot speak.
 func (w *Workspace) docDriftedFromBaseline(rel string) (drifted bool, ok bool) {
-	rel = normRel(rel)
+	// the path as written: normRel folds case for comparing keys, and a case-sensitive
+	// filesystem (Linux) would read the folded name as a missing file
+	rel = strings.TrimPrefix(filepath.ToSlash(filepath.Clean(rel)), "./")
 	// refs/heads-style refnames tell a clean work tree; a detached HEAD or an in-flux rebase
 	// is not a baseline to judge drift against — refuse rather than guess.
 	if out, err := w.gitOut("symbolic-ref -q --short HEAD"); err != nil || strings.TrimSpace(out) == "" {

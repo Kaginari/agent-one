@@ -1,64 +1,149 @@
-/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-6, --accent-hero, --warn, --danger, --weight-bold, --font-code, --step--2, --step--1, --font-body, --time, --time-slow, --ease, --space-3xs, --space-s. The workspace as a neural net: layers from input (bottom) to crown (top), bonds as synapses, live bodies glow and their synapses carry a pulse; data-focus lights one node's neighbourhood and makes its bonds blink. */
+/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --ok, --warn, --danger, --focus, --focus-width, --weight-medium, --weight-bold, --font-code, --font-body, --step--2, --step--1, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --radius-m, --radius-l, --radius-pill, --hairline, --time, --time-slow, --ease, --font-heading, --tracking-label, --radius-s. The workspace as a neural net: the hierarchy as layers (the orchestrator, then each rank, skills beside), every neuron a rank-coloured tile whose cells are its last four weeks of work, tree bonds weighted by the commissions they carried; hover or focus lights a neuron's path to the orchestrator and its subtree; a Subagent's dispatch travels down as a pulse and its report returns up. A 3D stage (WebGL2) draws the same tree as glowing planes. */
 @layer components {
-  .net { position: relative; inline-size: 100%; }
-  .net svg { display: block; inline-size: 100%; block-size: auto; overflow: visible; font-family: var(--font-body); }
-  .net-row { fill: color-mix(in oklch, var(--node, var(--accent)) 7%, transparent); stroke: color-mix(in oklch, var(--node, var(--accent)) 16%, transparent); stroke-width: 1; }
-  .net-row-label { fill: color-mix(in oklch, var(--node, var(--ink-muted)) 55%, var(--ink-muted)); font-size: var(--step--2); letter-spacing: 0.06em; text-transform: uppercase; }
-  .net-node { --node: var(--ink-muted); cursor: pointer; transition: opacity var(--time) var(--ease); }
-  .net [data-rank="orchestrator"] { --node: var(--series-6); }
-  .net [data-rank="zone"] { --node: var(--series-1); }
-  .net [data-rank="domain"] { --node: var(--series-2); }
-  .net [data-rank="coord"] { --node: var(--series-4); }
-  .net [data-rank="service"] { --node: var(--series-3); }
-  /* a mind is coloured by whose work it does: zone gathers facts, verdict weighs, global arms the voice */
-  .net [data-rank="skill:zone"] { --node: var(--series-1); }
-  .net [data-rank="skill:review"] { --node: var(--series-4); }
-  .net [data-rank="skill:global"] { --node: var(--series-2); }
-  .net [data-rank="skill:shared"] { --node: var(--ink-muted); }
-  .net-brain { fill: var(--node); }
+  .net { position: relative; inline-size: 100%; --net-node: var(--ink-muted); }
+  .net-frame { container-type: inline-size; min-inline-size: 0; }
+  .net-layout { display: grid; gap: var(--space-m); grid-template-columns: minmax(0, 1fr); align-items: start; }
+  @container (min-width: 60rem) {
+    .net-layout[data-side] { grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); }
+  }
+  .net-side { display: grid; gap: var(--space-s); align-content: start; min-inline-size: 0; }
+  .net-hint { margin: 0; padding: var(--space-s); border: var(--hairline) dashed var(--line); border-radius: var(--radius-m); color: var(--ink-muted); font-size: var(--step--1); }
+
+  /* the 2D stage: an svg sized by its column, the 3D stage a canvas pair of the same box */
+  .net-stage { position: relative; inline-size: 100%; min-block-size: 12rem; }
+  /* fitted (the cockpit): the stage is exactly the box the panel gives; a workspace too big for it scrolls inside */
+  .net-stage[data-fit] { block-size: var(--net-h); overflow: auto; overscroll-behavior: contain; }
+  .net-stage svg { display: block; inline-size: 100%; block-size: auto; overflow: visible; font-family: var(--font-body); }
+  .net-stage[data-mode="3d"] { block-size: var(--net-h, clamp(24rem, 72vh, 52rem)); border-radius: var(--radius-l); overflow: hidden;
+    background: radial-gradient(ellipse at 50% 35%, color-mix(in oklch, var(--accent) 10%, transparent), transparent 70%); }
+  .net-canvas, .net-overlay { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; display: block; touch-action: none; }
+  .net-canvas { cursor: grab; }
+  .net-canvas[data-drag] { cursor: grabbing; }
+  .net-canvas[data-hot] { cursor: pointer; }
+  .net-overlay { pointer-events: none; }
+  .net-3d-tools { position: absolute; z-index: 1; inset-block-start: var(--space-xs); inset-inline-end: var(--space-xs); display: flex; gap: var(--space-2xs); }
+  .net-3d-hint { position: absolute; z-index: 1; inset-block-end: var(--space-xs); inset-inline-start: 50%; transform: translateX(-50%); margin: 0; max-inline-size: calc(100% - 2 * var(--space-s));
+    padding: var(--space-3xs) var(--space-s); border: var(--hairline) solid var(--line); border-radius: var(--radius-s); background: color-mix(in oklch, var(--surface) 82%, transparent);
+    color: var(--ink-muted); font-size: var(--step--1); text-align: center; pointer-events: none; }
+  .net-3d-hint[hidden] { display: none; }
+
+  /* the 2D / 3D switch */
+  .net-mode { display: inline-flex; border: var(--hairline) solid var(--line); border-radius: var(--radius-pill); overflow: hidden; }
+  .net-mode button { appearance: none; border: 0; background: transparent; color: var(--ink-muted); font: var(--weight-medium) var(--step--1) var(--font-body); padding: var(--space-3xs) var(--space-xs); cursor: pointer; }
+  .net-mode button[aria-pressed="true"] { background: color-mix(in oklch, var(--accent) 16%, transparent); color: var(--ink); }
+  .net-mode button:disabled { cursor: not-allowed; opacity: 0.45; }
+  .net-mode button:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+
+  /* rank and lane colours: one input, --net-node, set by data-rank */
+  .net [data-rank="orchestrator"] { --net-node: var(--series-6); }
+  .net [data-rank="zone"] { --net-node: var(--series-1); }
+  .net [data-rank="domain"], .net [data-rank="principal-domain-owner"] { --net-node: var(--series-2); }
+  .net [data-rank="coord"], .net [data-rank="principal-coordinator"] { --net-node: var(--series-4); }
+  .net [data-rank="service"] { --net-node: var(--series-3); }
+  .net [data-rank="auditor"] { --net-node: var(--series-5); }
+  .net [data-rank="skill:zone"] { --net-node: var(--series-1); }
+  .net [data-rank="skill:verdict"] { --net-node: var(--series-4); }
+  .net [data-rank="skill:global"] { --net-node: var(--series-2); }
+  .net [data-rank="skill:shared"] { --net-node: var(--ink-muted); }
+  .net-probe { position: absolute; inline-size: 0; block-size: 0; overflow: hidden; color: var(--net-node); }
+  .net-probe[data-tone="ink"] { color: var(--ink); }
+  .net-probe[data-tone="muted"] { color: var(--ink-muted); }
+  .net-probe[data-tone="line"] { color: var(--line); }
+  .net-probe[data-tone="surface"] { color: var(--surface); }
+  .net-probe[data-tone="ok"] { color: var(--ok); }
+  .net-probe[data-tone="warn"] { color: var(--warn); }
+  .net-probe[data-tone="danger"] { color: var(--danger); }
+  .net-probe[data-tone="accent"] { color: var(--accent); }
+
+  /* layers: a faint column band per layer, its name and count on top */
+  .net-col { fill: color-mix(in oklch, var(--net-node) 5%, transparent); stroke: color-mix(in oklch, var(--net-node) 14%, transparent); stroke-width: 1; }
+  .net-col-label { font-family: var(--font-heading); letter-spacing: var(--tracking-label); fill: color-mix(in oklch, var(--net-node) 60%, var(--ink-muted)); font-size: var(--step--2); font-weight: var(--weight-bold); text-transform: uppercase; }
+  /* lanes: each subtree under the orchestrator as one band, alternating two quiet hues */
+  .net-lane { fill: color-mix(in oklch, var(--accent) 5%, transparent); stroke: color-mix(in oklch, var(--accent) 22%, transparent); stroke-width: 1; pointer-events: none; }
+  .net-lane[data-lane="b"] { fill: color-mix(in oklch, var(--series-5) 5%, transparent); stroke: color-mix(in oklch, var(--series-5) 22%, transparent); }
+  .net-col-count { fill: var(--ink-muted); font-weight: var(--weight-medium); }
+
+  /* bonds: tree bonds carry the weight; a held skill is a hairline until a focus lights it */
+  .net-edge { --net-edge: var(--line); fill: none; stroke: var(--net-edge); stroke-linecap: round; opacity: var(--net-edge-o, 0.6); transition: opacity var(--time) var(--ease); }
+  .net-edge[data-bond="truth"] { --net-edge: var(--series-1); }
+  .net-edge[data-bond="verdict"] { --net-edge: var(--series-4); }
+  .net-edge[data-bond="reports"] { --net-edge: var(--series-6); }
+  .net-edge[data-bond="above"] { --net-edge: var(--ink-muted); }
+  .net-edge[data-implied] { stroke-dasharray: 3 5; }
+  .net-edge[data-bond="holds"] { --net-edge: var(--accent); stroke-dasharray: 1 4; opacity: 0.1; }
+  .net-edge[data-live] { stroke-dasharray: 6 9; opacity: 1; animation: net-flow calc(var(--time-slow) * 3) linear infinite; }
+
+  /* a neuron: halo, tile, its activity cells, the rank badge, the name */
+  .net-node { cursor: pointer; transition: opacity var(--time) var(--ease); outline: none; }
+  .net-halo { fill: var(--net-node); opacity: 0; transition: opacity var(--time) var(--ease); }
+  .net-tile { fill: var(--surface); stroke: var(--net-node); stroke-width: 1.5; }
+  .net-node[data-orchestrator] .net-tile { stroke-width: 2.5; }
+  .net-node[data-kind="skill"] .net-tile { stroke-dasharray: 3 2; }
+  .net-cell { fill: var(--net-node); }
+  .net-ring { fill: var(--surface); stroke: var(--net-node); stroke-width: 1.5; }
+  .net-portrait { opacity: 0.96; }
+  .net-brain { fill: var(--net-node); }
   .net-brain-fold { fill: none; stroke: var(--surface); stroke-width: 1.1; }
-  .net-portrait { opacity: 0.95; }
-  .net-badge circle { fill: var(--surface); stroke: var(--node); stroke-width: 1.2; }
-  .net-badge text { fill: var(--ink); font: var(--weight-bold) var(--step--2) var(--font-body); text-anchor: middle; }
-  .net-desk { fill: var(--ink-muted); font: var(--step--2) var(--font-code); }
-  .net-node[data-stress] .net-node-core { stroke: var(--warn); stroke-width: 3; }
-  .net-node[data-stress="STRESSED"] .net-node-core { stroke: var(--danger); }
-  .net-node[data-stress] .net-node-halo { fill: var(--warn); opacity: 0.3; }
-  .net-node[data-stress="STRESSED"] .net-node-halo { fill: var(--danger); animation: net-glow calc(var(--time-slow) * 3) var(--ease) infinite; }
-  .net-node[data-stress] .net-desk { fill: var(--warn); }
-  .net-key { font-weight: normal; }
-  .net-key[data-kind="skill"] { color: var(--accent); }
+  .net-label { fill: var(--ink); font-size: var(--step--1); dominant-baseline: central; paint-order: stroke; stroke: var(--surface); stroke-width: 3; stroke-linejoin: round; }
+  .net-node[data-orchestrator] .net-label { font-weight: var(--weight-bold); }
+  .net-node[data-kind="skill"] .net-label { fill: var(--ink-muted); font-size: var(--step--2); }
+  /* a strip skill keeps its name for hover and focus */
+  .net-node[data-compact] .net-label { opacity: 0; transition: opacity var(--time) var(--ease); }
+  .net-node[data-compact]:hover .net-label, .net-node[data-compact]:focus-visible .net-label, .net-node[data-compact][data-self] .net-label { opacity: 1; fill: var(--ink); }
+  .net-sub { fill: var(--ink-muted); font: var(--step--2) var(--font-code); dominant-baseline: central; }
+  .net-node[data-stress] .net-tile { stroke: var(--warn); stroke-width: 2.5; }
+  .net-node[data-stress="STRESSED"] .net-tile { stroke: var(--danger); }
+  .net-node[data-stress] .net-sub { fill: var(--warn); }
+  .net-node:hover .net-halo, .net-node:focus-visible .net-halo { opacity: 0.22; }
+  .net-node:focus-visible .net-tile { stroke: var(--focus); stroke-width: 2.5; }
+  .net-node[data-live] .net-halo { opacity: 0.4; animation: net-breathe calc(var(--time-slow) * 5) var(--ease) infinite; }
+  .net-node[data-busy] .net-halo { opacity: 0.32; animation: net-breathe calc(var(--time-slow) * 2.5) var(--ease) infinite; }
+  .net-node[data-ping] .net-halo { opacity: 0.55; fill: var(--ok); }
+  .net-node[data-ping="warn"] .net-halo { fill: var(--warn); }
+  .net-node[data-ping="danger"] .net-halo { fill: var(--danger); }
+  .net-node[data-ping="down"] .net-halo, .net-node[data-ping="rank"] .net-halo { fill: var(--net-node); }
+  .net-node[data-ping="info"] .net-halo { fill: var(--accent); opacity: 0.3; }
+
+  /* focus: the path to the orchestrator and the subtree stay lit, the rest steps back */
+  .net[data-focus] .net-node:not([data-near]) { opacity: 0.16; }
+  .net[data-focus] .net-edge { opacity: 0.05; }
+  .net[data-focus] .net-edge[data-lit] { opacity: 1; }
+  .net[data-focus] .net-edge[data-lit][data-bond="holds"] { opacity: 0.75; }
+  .net[data-focus] .net-node[data-self] .net-halo { opacity: 0.3; }
+
+  /* a live signal: a spark that travels the bonds, a ripple where it lands */
+  .net-spark { fill: var(--net-spark, var(--accent)); }
+  .net-spark[data-tone="ok"] { --net-spark: var(--ok); }
+  .net-spark[data-tone="warn"] { --net-spark: var(--warn); }
+  .net-spark[data-tone="danger"] { --net-spark: var(--danger); }
+  .net-spark[data-glow] { opacity: 0.28; }
+  .net-ripple { fill: none; stroke: var(--net-spark, var(--accent)); stroke-width: 2; animation: net-ripple calc(var(--time-slow) * 2.6) var(--ease) forwards; transform-box: fill-box; transform-origin: center; }
+  .net-ripple[data-tone="rank"] { --net-spark: var(--net-node); }
+  .net-ripple[data-tone="info"] { --net-spark: var(--accent); stroke-width: 1; animation-duration: calc(var(--time-slow) * 2); }
+  .net-ripple[data-kind="read"] { opacity: 0.6; }
+  .net-ripple[data-tone="ok"] { --net-spark: var(--ok); }
+  .net-ripple[data-tone="warn"] { --net-spark: var(--warn); }
+  .net-ripple[data-tone="danger"] { --net-spark: var(--danger); }
+  .net[data-asleep] * { animation-play-state: paused; }
+
+  /* the legend, findings */
+  .net-legend { display: flex; flex-wrap: wrap; gap: var(--space-3xs) var(--space-s); font-size: var(--step--1); color: var(--ink-muted); }
+  .net-legend i { display: inline-block; inline-size: 1.4em; block-size: 0; border-block-start: 2px solid var(--net-edge, var(--line)); vertical-align: middle; margin-inline-end: 0.35em; }
+  .net-legend i[data-bond="truth"] { --net-edge: var(--series-1); }
+  .net-legend i[data-bond="verdict"] { --net-edge: var(--series-4); }
+  .net-legend i[data-bond="reports"] { --net-edge: var(--series-6); }
+  .net-legend i[data-bond="holds"] { --net-edge: var(--accent); border-block-start-style: dotted; }
+  .net-legend i[data-bond="implied"] { --net-edge: var(--ink-muted); border-block-start-style: dashed; }
+  .net-key { display: inline-block; inline-size: 0.9em; block-size: 0.9em; vertical-align: -0.1em; margin-inline-end: 0.35em; border: var(--hairline) solid var(--ink-muted); border-radius: 0.15em;
+    background: linear-gradient(90deg, transparent 50%, color-mix(in oklch, var(--accent) 70%, transparent) 50%); }
   .findings { display: grid; gap: var(--space-3xs); margin: 0; padding-inline-start: var(--space-s); font: var(--step--1) / 1.45 var(--font-code); color: var(--ink-muted); }
   .findings li[data-tone="warn"] { color: var(--warn); }
-  .net-node-halo { fill: var(--node); opacity: 0; transition: opacity var(--time) var(--ease); }
-  .net-node-core { fill: var(--surface); stroke: var(--node); stroke-width: 2; }
-  .net-node[data-kind="skill"] .net-node-core { stroke-dasharray: 3 2; }
-  .net-node-dot { fill: var(--node); }
-  .net-node-label { fill: var(--ink); font-size: var(--step--2); text-anchor: middle; paint-order: stroke; stroke: var(--surface); stroke-width: 3; }
-  .net-node:hover .net-node-halo { opacity: 0.25; }
-  .net-node[data-live] .net-node-halo { opacity: 0.35; animation: net-glow calc(var(--time-slow) * 4) var(--ease) infinite; }
-  .net-edge { --edge: var(--line); fill: none; stroke: var(--edge); stroke-width: 1.5; opacity: 0.7; transition: opacity var(--time) var(--ease); }
-  .net-edge[data-bond="truth"] { --edge: var(--series-1); }
-  .net-edge[data-bond="verdict"] { --edge: var(--series-4); }
-  .net-edge[data-bond="reports"], .net-edge[data-bond="above"] { --edge: var(--ink-muted); opacity: 0.45; }
-  .net-edge[data-bond="holds"] { --edge: var(--accent); stroke-dasharray: 2 4; }
-  .net-edge[data-live] { stroke-dasharray: 5 10; opacity: 1; animation: net-flow calc(var(--time-slow) * 3) linear infinite; }
-  .net[data-focus] .net-node:not([data-near]) { opacity: 0.18; }
-  .net[data-focus] .net-edge { opacity: 0.08; }
-  .net[data-focus] .net-edge[data-lit] { opacity: 1; stroke-width: 2.2; animation: net-blink calc(var(--time-slow) * 2.4) var(--ease) infinite; }
-  .net-legend { display: flex; flex-wrap: wrap; gap: var(--space-3xs) var(--space-s); font-size: var(--step--1); color: var(--ink-muted); }
-  .net-legend i { display: inline-block; inline-size: 1.4em; block-size: 0; border-block-start: 2px solid var(--edge, var(--line)); vertical-align: middle; margin-inline-end: 0.35em; }
-  .net-legend i[data-bond="truth"] { --edge: var(--series-1); }
-  .net-legend i[data-bond="verdict"] { --edge: var(--series-4); }
-  .net-legend i[data-bond="reports"] { --edge: var(--ink-muted); }
-  .net-legend i[data-bond="holds"] { --edge: var(--accent); border-block-start-style: dashed; }
+
   @keyframes net-flow { to { stroke-dashoffset: -30; } }
-  @keyframes net-blink { 50% { opacity: 0.25; } }
-  @keyframes net-glow { 50% { opacity: 0.12; } }
+  @keyframes net-breathe { 50% { opacity: 0.14; } }
+  @keyframes net-ripple { from { opacity: 0.9; transform: scale(0.6); } to { opacity: 0; transform: scale(2.4); } }
   @media (prefers-reduced-motion: reduce) {
-    .net-edge[data-live], .net-node[data-live] .net-node-halo, .net[data-focus] .net-edge[data-lit] { animation: none; }
+    .net-edge[data-live], .net-node[data-live] .net-halo, .net-node[data-busy] .net-halo, .net-ripple { animation: none; }
+    .net-ripple { opacity: 0; }
   }
-}
-@layer components {
-  .net-pulse { fill: var(--accent-hero); }
 }

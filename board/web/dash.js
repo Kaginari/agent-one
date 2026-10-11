@@ -10,7 +10,6 @@
   let WORDS = {};
   try { WORDS = JSON.parse(document.body.dataset.words || '{}'); } catch (_) { /* default words */ }
   const word = (k, d) => WORDS[k] || d || k;
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function el(tag, attrs, ...kids) {
     const n = document.createElement(tag);
@@ -47,17 +46,18 @@
   for (const n of document.querySelectorAll('[data-word]')) n.textContent = word(n.dataset.word, n.textContent);
 
   // ---------- the theme: one design, light and dark; the system decides unless the reader does ----------
-  const THEMES = [['', 'theme · system', 'follows the system'], ['light', 'theme · light', 'light'], ['dark', 'theme · dark', 'dark']];
+  // dark is the default (nothing chosen yet); "system" follows the reader's system
+  const THEMES = [['dark', 'theme · dark', 'dark'], ['light', 'theme · light', 'light'], ['system', 'theme · system', 'follows the system']];
   const themeBtn = $('#theme');
   function theme(v) {
     const t = THEMES.find(x => x[0] === v) || THEMES[0];
-    if (t[0]) document.documentElement.setAttribute('data-theme', t[0]); else document.documentElement.removeAttribute('data-theme');
+    if (t[0] !== 'system') document.documentElement.setAttribute('data-theme', t[0]); else document.documentElement.removeAttribute('data-theme');
     themeBtn.textContent = t[1];
     themeBtn.setAttribute('aria-label', 'theme: ' + t[2] + ' — change');
     store.set('theme', t[0]);
   }
   themeBtn.addEventListener('click', () => {
-    const i = THEMES.findIndex(x => x[0] === (document.documentElement.getAttribute('data-theme') || ''));
+    const i = THEMES.findIndex(x => x[0] === (document.documentElement.getAttribute('data-theme') || 'system'));
     theme(THEMES[(i + 1) % THEMES.length][0]);
   });
   theme(store.get('theme'));
@@ -68,10 +68,42 @@
     main.dataset.view = v;
     for (const t of document.querySelectorAll('.tab')) t.setAttribute('aria-selected', String(t.dataset.view === v));
     store.set('view', v);
-    requestAnimationFrame(netDraw);
+    // in the cockpit the focused neuron's card sits in the band under the net, compact; on the
+    // net's own page it takes the side column
+    const kc = document.getElementById('kcard'), slot = document.getElementById('timeline-slot'), side = document.querySelector('.net-side');
+    const nl = document.getElementById('net-layout');
+    if (nl) nl.toggleAttribute('data-side', v !== 'overview');
+    // the cockpit keeps the net's findings on the net's own page (the note counts them) and
+    // shows the now strip
+    const nf = document.getElementById('net-findings'), nw = document.getElementById('now');
+    if (nf) nf.hidden = v === 'overview';
+    if (nw) nw.hidden = v !== 'overview';
+    const nn = document.getElementById('net-note');
+    if (nn) nn.hidden = v === 'overview';
+    if (kc && slot && side) { (v === 'overview' ? slot : side).append(kc); try { if (team) knowledge(focus); } catch (_) { /* booting: the net's state is not declared yet */ } }
+    if (v === 'tree' && document.querySelector('.shell[data-drawer]')) document.querySelector('.shell').removeAttribute('data-drawer');
+    requestAnimationFrame(() => netDraw());
+    try { leaderboard(); } catch (_) { /* booting: the board's state is not declared yet */ }
   }
   for (const t of document.querySelectorAll('.tab')) t.addEventListener('click', () => view(t.dataset.view));
-  view(new URLSearchParams(location.hash.slice(1)).get('view') || store.get('view') || 'overview');
+  // the cockpit fills the window under the header and the tabs, whatever height they wrap to
+  const chrome = () => { const h = ($('.topbar').offsetHeight || 0) + ($('.tabs').offsetHeight || 0); document.querySelector('.shell').style.setProperty('--shell-chrome', h + 'px'); };
+  new ResizeObserver(chrome).observe($('.topbar'));
+  chrome();
+  // a row that scrolls sideways says so: the edge with more past it fades
+  function edgeFade(row) {
+    if (!row) return;
+    const f = () => { row.toggleAttribute('data-more-start', row.scrollLeft > 2); row.toggleAttribute('data-more-end', row.scrollLeft + row.clientWidth < row.scrollWidth - 2); };
+    row.addEventListener('scroll', f, { passive: true });
+    new ResizeObserver(f).observe(row);
+    f();
+    return f;
+  }
+  edgeFade($('.tabs'));
+  const metaFade = edgeFade($('.topbar-meta'));
+  const HASH = new URLSearchParams(location.hash.slice(1));
+  if (HASH.get('theme')) theme(HASH.get('theme'));
+  view(HASH.get('view') || store.get('view') || 'overview');
 
   // ---------- markdown, safely: escape first, then a small grammar ----------
   function inline(s) {
@@ -212,6 +244,7 @@
     body.append(c.log);
     c.card.append(body);
     c.card.open = open;
+    netSignal(e);
     liveNames.add(e.name);
     if (e.state === 'done' || e.failed) liveNames.delete(e.name);
     netLive();
@@ -253,8 +286,43 @@
     setAsk('waiting');
   }
 
+  // every action pulses on its own neuron: a session step on the orchestrator, a Subagent's on its member
+  const CLASSES = ['read', 'write', 'gate', 'outward', 'destructive'];
+  function netEvent(e) {
+    const bad = st => /^(failed|fail|denied|refused)$/.test(String(st || ''));
+    switch (e.type) {
+      case 'tool': {
+        const t = e.tool || {};
+        if (e.phase === 'start') net.act(t.agent || '', CLASSES.includes(t.class) ? t.class : 'read');
+        else if (bad(t.status)) net.act(t.agent || '', 'fail');
+        break;
+      }
+      case 'bodystep': {
+        const t = e.tool || {};
+        if (!e.end) net.act(e.agent, CLASSES.includes(t.class) ? t.class : 'read');
+        else if (bad(t.status)) net.act(e.agent, 'fail');
+        break;
+      }
+      case 'state': if (e.state === 'waiting on gate' || e.state === 'gating') net.act(e.agent === orchestratorName() ? '' : e.agent, 'gate'); break;
+      case 'turndone': {
+        // green and red are for real verdicts; a plain turn's end is a calm ping in the rank's colour
+        const failed = /fail|denied/i.test(e.verdict || '') || /FAIL|DENIED/.test(e.status || '');
+        if (e.verdict || e.status) timelineAdd({ as: orchestratorName() || 'session', ask: (lastAsk || 'turn') + (e.verdict ? ' — verdict: ' + e.verdict : ''), at: new Date().toISOString(), started: turnAt, status: failed && e.verdict ? 'FAIL' : (e.status || 'DONE') });
+        if (failed) net.act('', 'fail');
+        else if (e.verdict) net.act('', /pass/i.test(e.verdict) ? 'pass' : 'gate');
+        else net.act('', 'done');
+        break;
+      }
+    }
+  }
+  let lastAsk = '', turnAt = '';
+  const orchestratorName = () => { const m = net.model(); return m && m.orchestrator ? m.orchestrator.name : ''; };
+  // an agent as the reader knows it: the orchestrator by the lexicon's word, never its internal name
+  const labelOf = name => { const n = team && team.nodes.find(x => x.name === name && x.kind !== 'skill'); return n && n.orchestrator ? (n.label || n.name) : name; };
   function onEvent(e) {
+    if ((e.type === 'ask' && !e.queued) || e.type === 'turnstart') { lastAsk = String(e.text || '').slice(0, 160); turnAt = new Date().toISOString(); now(); }
     treeEvent(e);
+    netEvent(e);
     switch (e.type) {
       case 'ask': newTurn(e.text, { 'data-queued': e.queued || false }); if (!e.queued) setAsk('running'); break;
       case 'turnstart': newTurn(e.auto ? '(a report came in) ' + String(e.text || '').slice(0, 200) : e.text); setAsk('running'); break;
@@ -334,7 +402,7 @@
     const es = new EventSource('dash/stream');
     es.addEventListener('reset', () => {
       log.replaceChildren(el('p', { class: 'console-empty', id: 'log-empty', text: 'Ask anything. The transcript reads like a page; tools, subagents and verdicts fold into cards.' }));
-      turn = answer = thinking = null; tools.clear(); courts.clear(); choices.clear();
+      turn = answer = thinking = null; tools.clear(); subagents.clear(); choices.clear(); subagentPhase.clear();
     });
     es.addEventListener('nosession', () => {
       $('#log-empty').textContent = 'No session here — this board was started without one. Run `' + word('bin', 'agent-one') + ' dash` (or `' + word('bin', 'agent-one') + '`) to talk to it.';
@@ -348,14 +416,14 @@
     const text = field.value.trim();
     if (!text) return;
     history.unshift(text); hIdx = -1;
-    field.value = ''; grow();
+    field.value = '';
     post('api/ask', { text }).catch(err => note('not sent: ' + err.message, 'danger'));
   });
-  function grow() { /* the field grows by itself (field-sizing: content in console.css) */ }
+  // (the field grows by itself: field-sizing: content in console.css)
   field.addEventListener('keydown', ev => {
     if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); form.requestSubmit(); }
-    else if (ev.key === 'ArrowUp' && field.selectionStart === 0 && history.length) { ev.preventDefault(); hIdx = Math.min(hIdx + 1, history.length - 1); field.value = history[hIdx]; grow(); }
-    else if (ev.key === 'ArrowDown' && hIdx >= 0 && field.selectionStart === field.value.length) { ev.preventDefault(); hIdx--; field.value = hIdx >= 0 ? history[hIdx] : ''; grow(); }
+    else if (ev.key === 'ArrowUp' && field.selectionStart === 0 && history.length) { ev.preventDefault(); hIdx = Math.min(hIdx + 1, history.length - 1); field.value = history[hIdx]; }
+    else if (ev.key === 'ArrowDown' && hIdx >= 0 && field.selectionStart === field.value.length) { ev.preventDefault(); hIdx--; field.value = hIdx >= 0 ? history[hIdx] : ''; }
     else if (ev.key === 'Escape') { ev.preventDefault(); interrupt(); }
   });
   function interrupt() { if (!stopBtn.disabled) post('api/interrupt').catch(err => note('interrupt: ' + err.message, 'danger')); }
@@ -399,200 +467,158 @@
       } else {
         gw.hidden = true;
       }
+      // the orchestrator breathes while the session runs
+      const tn = orchestratorName();
+      if (tn && liveNames.has(tn) !== !!s.running) { if (s.running) liveNames.add(tn); else liveNames.delete(tn); netLive(); }
       if (s.session && form.dataset.state !== 'waiting') setAsk(s.running ? 'running' : 'idle');
       if (!s.session) { field.disabled = sendBtn.disabled = true; }
+      now();
+      if (metaFade) metaFade();
     }).catch(() => { const p = pill('board offline'); p.id = 'state'; $('#state').replaceWith(p); });
   }
 
-  // ---------- the neural net: bodies and minds, two planes on one grid ----------
-  // A member is a BODY in its rank's layer (portrait, halo, K/C badge for a keeper or court
-  // vessel); a MIND is a dashed ring with a brain tinted by the lane it serves, carrying its desk
-  // (thoughts / limit — stress glows). Bonds are synapses; a live body's synapses carry a pulse.
-  const netBox = $('#net');
-  let team = null, focus = '';
-  const liveNames = new Set();
-  const PORTRAITS = new Set(['orchestrator', 'coord', 'domain', 'zone', 'service']);
-  const BRAIN = 'M0 -6 C-3.2 -6 -5.6 -4.4 -5.6 -1.6 C-7.2 -0.6 -7.2 1.8 -5.4 2.8 C-6 4.6 -4.2 6.2 -2.2 6.2 C-1.1 6.2 -0.4 5.4 0 4.4 C0.4 5.4 1.1 6.2 2.2 6.2 C4.2 6.2 6 4.6 5.4 2.8 C7.2 1.8 7.2 -0.6 5.6 -1.6 C5.6 -4.4 3.2 -6 0 -6 Z';
-  const MIND = 'skill';
-  const isMind = n => n.kind === MIND;
-  const tone = n => isMind(n) ? n.lane : (n.rank || 'plain'); // what data-rank colours
-  const keeper = b => b && (b.mode === 'all' || b.mode === 'primary');
-  function netDraw() {
-    if (!team || !netBox.isConnected || netBox.offsetParent === null) return;
-    const W = Math.max(320, netBox.clientWidth);
-    const nodes = team.nodes, edges = team.edges, lanes = team.lanes;
-    const label = id => (team.labels.find(l => l.id === id) || {}).label || id.replace(/^[a-z]+:/, '') ;
-    const byLane = new Map(lanes.map(l => [l, []]));
-    for (const n of nodes) { if (!byLane.has(n.lane)) byLane.set(n.lane, []); byLane.get(n.lane).push(n); }
-    const deg = new Map();
-    for (const e of edges) { deg.set(e.from, (deg.get(e.from) || 0) + 1); deg.set(e.to, (deg.get(e.to) || 0) + 1); }
-    const pad = 28, gap = W < 560 ? 84 : 112, perRow = Math.max(1, Math.floor((W - 2 * pad) / gap));
-    const rows = [];
-    for (const [lane, list] of byLane) {
-      if (!list.length) continue;
-      for (let i = 0; i < list.length; i += perRow) rows.push({ lane, nodes: list.slice(i, i + perRow), first: i === 0 });
-    }
-    rows.reverse(); // the input layer at the bottom, the crown on top
-    const RH = 112, top = 8, H = top + rows.length * RH + 8;
-    const pos = new Map();
-    const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'the ' + word('world', 'workspace') + ' as a neural net' });
-    const defs = svg('defs');
-    g.append(defs);
-    rows.forEach((row, i) => {
-      const y = top + i * RH;
-      // a layer wears its rank's colour (net.css maps data-rank → --node); a mind layer its lane's
-      g.append(svg('g', { 'data-rank': row.lane, 'data-plane': row.lane.includes(':') ? 'minds' : 'bodies' },
-        svg('rect', { class: 'net-row', x: 4, y, width: W - 8, height: RH - 10, rx: 12 }),
-        row.first ? svg('text', { class: 'net-row-label', x: 16, y: y + 16 }, document.createTextNode(label(row.lane) + ' · ' + byLane.get(row.lane).length)) : null));
-      row.nodes.forEach((n, j) => pos.set(n.id, { x: pad + (W - 2 * pad) * (j + 0.5) / row.nodes.length, y: y + RH / 2 + 4, n }));
-    });
-    const edgeLayer = svg('g', { 'data-layer': 'edges' }), pulseLayer = svg('g', { 'data-layer': 'pulses' }), nodeLayer = svg('g', { 'data-layer': 'nodes' });
-    g.append(edgeLayer, pulseLayer, nodeLayer);
-    for (const e of edges) {
-      const A = pos.get(e.from), B = pos.get(e.to);
-      if (!A || !B) continue;
-      const d = A.y === B.y
-        ? `M${A.x} ${A.y} Q ${(A.x + B.x) / 2} ${A.y - 34} ${B.x} ${B.y}`
-        : `M${A.x.toFixed(1)} ${A.y} C ${A.x.toFixed(1)} ${(A.y + B.y) / 2} ${B.x.toFixed(1)} ${(A.y + B.y) / 2} ${B.x.toFixed(1)} ${B.y}`;
-      edgeLayer.append(svg('path', { class: 'net-edge', 'data-bond': e.bond, 'data-from': e.from, 'data-to': e.to, d }));
-    }
-    let k = 0;
-    for (const [id, p] of pos) {
-      const n = p.n, r = (isMind(n) ? 12 : 17) + Math.min(7, 2.5 * Math.sqrt(deg.get(id) || 0));
-      const desk = n.desk;
-      const node = svg('g', { class: 'net-node', 'data-id': id, 'data-rank': tone(n), 'data-kind': isMind(n) ? 'skill' : 'body',
-        'data-stress': desk && desk.stress && desk.stress !== 'ok' ? desk.stress : false, tabindex: 0, role: 'button',
-        'aria-label': n.name + ' (' + (isMind(n) ? word('skill', 'skill') : (n.rank || 'body')) + ')' });
-      node.append(svg('circle', { class: 'net-node-halo', cx: p.x, cy: p.y, r: r * 1.7 }), svg('circle', { class: 'net-node-core', cx: p.x, cy: p.y, r }));
-      if (isMind(n)) {
-        const s = (r * 0.13).toFixed(2);
-        node.append(svg('g', { transform: `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) scale(${s})` },
-          svg('path', { class: 'net-brain', d: BRAIN }), svg('path', { class: 'net-brain-fold', d: 'M0 -6 L0 4.4' })));
-      } else if (PORTRAITS.has(n.rank)) {
-        const cid = 'np-' + (k++);
-        defs.append(svg('clipPath', { id: cid }, svg('circle', { cx: p.x, cy: p.y, r: r * 0.86 })));
-        const img = svg('image', { class: 'net-portrait', href: 'web/portraits/' + n.rank + '.png', x: p.x - r * 0.86, y: p.y - r * 0.86, width: r * 1.72, height: r * 1.72,
-          preserveAspectRatio: 'xMidYMid slice', 'clip-path': `url(#${cid})` });
-        img.addEventListener('error', () => img.remove());
-        node.append(img);
-      } else {
-        node.append(svg('circle', { class: 'net-node-dot', cx: p.x, cy: p.y, r: r * 0.38 }));
-      }
-      if (n.body) node.append(svg('g', { class: 'net-badge' },
-        svg('circle', { cx: p.x + r * 0.8, cy: p.y - r * 0.8, r: 6.5 }),
-        svg('text', { x: p.x + r * 0.8, y: p.y - r * 0.8 + 3 }, document.createTextNode(keeper(n.body) ? 'K' : 'C'))));
-      if (desk) node.append(svg('text', { class: 'net-desk', x: p.x + r + 6, y: p.y + 4 }, document.createTextNode(desk.notes + '/' + desk.limit)));
-      node.append(svg('text', { class: 'net-node-label', x: p.x, y: p.y + r * 1.7 + 10 }, document.createTextNode(n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name)));
-      node.addEventListener('click', () => setFocus(focus === id ? '' : id));
-      node.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setFocus(focus === id ? '' : id); } });
-      nodeLayer.append(node);
-    }
-    netBox.replaceChildren(g);
-    const bodies = nodes.filter(n => !isMind(n)).length, minds = nodes.length - bodies;
-    $('#net-note').textContent = bodies + ' ' + word('bodies', 'agents') + ' · ' + minds + ' ' + word('minds', 'skills') + ' · ' + edges.length + ' bonds · ' + rows.length + ' layers';
-    findingsList();
-    netLive(); applyFocus();
+  // ---------- the cockpit's now strip: state, the current ask, live agents, a wait on you ----------
+  function now() {
+    const box = $('#now');
+    if (!box || box.hidden) return;
+    const st = form.dataset.state || 'idle';
+    const running = live.session && (live.running || st === 'running');
+    const kids = [pill(st === 'waiting' ? 'waiting on you' : running ? 'running' : live.session ? 'idle' : 'no session')];
+    kids.push(el('span', Object.assign({ class: 'now-ask', 'data-idle': !running }, lastAsk ? { text: (running ? '' : 'last: ') + lastAsk, title: lastAsk } : { text: running ? '…' : 'nothing asked yet' })));
+    const agents = subagent.filter(b => b.state && !/^(done|idle)$/.test(b.state) && b.name !== orchestratorName());
+    if (agents.length) kids.push(el('span', { class: 'now-agents' }, agents.map(b => {
+      const pct = b.contextLimit ? Math.round(100 * (b.contextTokens || 0) / b.contextLimit) : -1;
+      return el('button', { class: 'now-chip', type: 'button', 'data-rank': rankOfName(b.name) || false, title: b.name + ' · ' + b.state + (pct >= 0 ? ' · context ' + pct + '%' : ''),
+        onclick: () => { const n = team && team.nodes.find(x => x.name === b.name && x.kind !== 'skill'); if (n) setFocus(n.id); } },
+        labelOf(b.name), pct >= 0 ? el('span', { class: 'now-ctx', 'data-level': pct >= 85 ? 'danger' : pct >= 65 ? 'warn' : false, text: pct + '%' }) : null);
+    })));
+    const gw = $('#gatewait');
+    if (!gw.hidden) kids.push(el('button', { class: 'now-wait', type: 'button', 'data-tone': gw.dataset.tone || 'warn', text: gw.textContent, title: gw.title,
+      onclick: () => { const c = log.querySelector('.choice:not([data-answered]) button, .choice:not([data-answered]) input'); if (c) { c.scrollIntoView({ block: 'center' }); c.focus(); } else field.focus(); } }));
+    box.replaceChildren(...kids);
   }
+
+  // ---------- the neural net: the hierarchy as layers, skills beside (components/net/net.js) ----------
+  // The module draws; this file feeds it (the team joined with the registered agents and every
+  // wearable skill, the activity journals, the live subagent) and opens the knowledge card.
+  const netBox = $('#net');
+  let team = null, activity = null, focus = '';
+  const liveNames = new Set();
+  const SKILL = 'skill';
+  const isSkill = n => n.kind === SKILL;
+  const persistent = b => b && (b.mode === 'all' || b.mode === 'primary');
+  // in the cockpit the net is the hero: it fits the panel it is given instead of the window
+  const netAgent = netBox.closest('.panel-body');
+  // the box is measured, not guessed: the panel agent's content height less everything else in the
+  // net's stack (the legend, and the gaps between); 0 when the cockpit is not laid out (narrow,
+  // or another view), and the net then takes the height it wants
+  const netFit = () => {
+    if (main.dataset.view !== 'overview' || getComputedStyle($('#dock-split')).display === 'none') return 0;
+    const cs = getComputedStyle(netAgent);
+    const stack = netBox.parentElement;
+    const others = stack.getBoundingClientRect().height - netBox.getBoundingClientRect().height;
+    return Math.floor(netAgent.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - others);
+  };
+  const net = window.agentOneNet.create(netBox, { word, onFocus: id => setFocus(id, true), fit: netFit });
+  let fitT = 0, fitH = 0;
+  new ResizeObserver(() => { const h = netAgent.clientHeight; if (Math.abs(h - fitH) < 8) return; fitH = h; clearTimeout(fitT); fitT = setTimeout(netDraw, 120); }).observe(netAgent);
+  function netDraw() { if (team) net.redraw(); }
+  function netLive() { net.live(liveNames); }
+  // the 2D · 3D switch: remembered per reader; a page without WebGL2 stays 2D and says why
+  const modeBtns = [...document.querySelectorAll('#net-mode button')];
+  function netMode(v) {
+    const got = net.mode(v);
+    // in 3D the cockpit gives the stage the timeline's room: the band folds to two rows
+    main.dataset.net = got;
+    for (const b of modeBtns) b.setAttribute('aria-pressed', String(b.dataset.mode === got));
+    if (v) store.set('netmode', got);
+  }
+  for (const b of modeBtns) b.addEventListener('click', () => netMode(b.dataset.mode));
+  if (!net.can3d()) { const b = modeBtns.find(x => x.dataset.mode === '3d'); if (b) { b.disabled = true; b.title = 'WebGL2 is not available here — the net stays 2D'; } }
   function findingsList() {
     const box = $('#net-findings');
     const items = [...team.findings.map(t => ({ t, tone: 'warn' })), ...team.notes.map(t => ({ t, tone: '' }))];
     box.replaceChildren(...(items.length ? [el('h3', { class: 'panel-note', text: team.findings.length + ' findings · ' + team.notes.length + ' notes — what the ontology says is missing' }),
       el('ul', { class: 'findings' }, items.map(i => el('li', { 'data-tone': i.tone || false, text: i.t })))] : []));
   }
-  function netLive() {
-    const g = netBox.querySelector('svg');
-    if (!g) return;
-    for (const n of g.querySelectorAll('.net-node')) n.toggleAttribute('data-live', liveNames.has(n.dataset.id));
-    const pulses = g.querySelector('[data-layer="pulses"]');
-    pulses.replaceChildren();
-    let k = 0;
-    for (const p of g.querySelectorAll('.net-edge')) {
-      const on = liveNames.has(p.dataset.from) || liveNames.has(p.dataset.to);
-      p.toggleAttribute('data-live', on);
-      if (on && !reduced && k++ < 40) {
-        const dot = svg('circle', { class: 'net-pulse', r: 3 });
-        dot.append(svg('animateMotion', { dur: '1.8s', repeatCount: 'indefinite', path: p.getAttribute('d'), keyPoints: liveNames.has(p.dataset.from) ? '0;1' : '1;0', keyTimes: '0;1', calcMode: 'linear' }));
-        pulses.append(dot);
-      }
-    }
-  }
-  function setFocus(id) { focus = id; applyFocus(); knowledge(id); }
-  function applyFocus() {
-    const g = netBox;
-    g.toggleAttribute('data-focus', !!focus);
-    const near = new Set([focus]);
-    for (const p of g.querySelectorAll('.net-edge')) {
-      const lit = !!focus && (p.dataset.from === focus || p.dataset.to === focus);
-      p.toggleAttribute('data-lit', lit);
-      if (lit) { near.add(p.dataset.from); near.add(p.dataset.to); }
-    }
-    for (const n of g.querySelectorAll('.net-node')) n.toggleAttribute('data-near', !!focus && near.has(n.dataset.id));
+  function setFocus(id, fromNet) {
+    focus = id;
+    if (!fromNet) net.focus(id);
     for (const th of document.querySelectorAll('#matrix th[data-id]')) th.toggleAttribute('data-hot', !!focus && th.dataset.id === focus);
+    knowledge(id);
   }
   $('#net-clear').addEventListener('click', () => setFocus(''));
   function knowledge(id) {
     const box = $('#kcard');
     box.replaceChildren();
-    if (!id || !team) return;
+    const slot = box.parentElement && box.parentElement.id === 'timeline-slot' ? box.parentElement : null;
+    if (slot) slot.hidden = !id;
+    if (!id || !team) { if (main.dataset.view === 'overview') return; box.append(el('p', { class: 'net-hint', text: 'Hover a neuron to light its path to the ' + word('rank.orchestrator', 'orchestrator') + ' and everything below it; click (or Enter) pins it here. Each tile is four weeks of that ' + word('agent', 'agent') + "'s work, a cell a day — blank where no instrument saw any." })); return; }
     const n = team.nodes.find(x => x.id === id);
     if (!n) return;
-    const bonds = team.edges.filter(e => e.from === id || e.to === id).map(e => (e.from === id ? e.bond + ' → ' + nameOf(e.to) : nameOf(e.from) + ' → ' + e.bond));
+    const m = net.model();
     const rows = [];
-    const row = (k, v) => { if (v) rows.push(el('dt', { text: k }), el('dd', { text: v })); };
-    if (isMind(n)) {
+    const row = (k, v) => { if (v) rows.push(el('div', { class: 'kcard-row' }, el('dt', { text: k }), el('dd', { text: v }))); };
+    const a = activity && activity.agents && activity.agents[n.name];
+    if (isSkill(n)) {
       row('serves', label2(n.lane));
       row('source', n.source);
-      row('notes', n.desk ? n.desk.notes + ' / ' + n.desk.limit + ' notes' + (n.desk.stress && n.desk.stress !== 'ok' ? ' — ' + n.desk.stress : '') + (n.desk.heldBy ? ' · held by ' + n.desk.heldBy : '') : 'no notes yet');
+      row('workingNotes', n.workingNotes ? n.workingNotes.notes + ' / ' + n.workingNotes.limit + ' notes' + (n.workingNotes.stress && n.workingNotes.stress !== 'ok' ? ' — ' + n.workingNotes.stress : '') + (n.workingNotes.heldBy ? ' · held by ' + n.workingNotes.heldBy : '') : 'no working notes yet');
+      row('held by', team.edges.filter(e => e.bond === 'holds' && e.to === id).map(e => nameOf(e.from)).join(', ') || '—');
       row('what', n.description);
     } else {
-      row(word('territory', 'territory'), (n.owns || []).join(', ') || '—');
-      row('agent', n.body ? (keeper(n.body) ? 'keeper' : 'court') + ' · ' + (n.body.model || 'the session model') + ' · ' + n.body.source : 'not defined — runs in the session');
+      const p = m && m.parent.get(id);
+      const path = [];
+      for (let x = p, g = 0; x && g < 32; x = m.parent.get(x), g++) path.push(nameOf(x));
+      if (path.length) row('answers to', path.join(' → '));
+      const kids = (m && m.kids.get(id)) || [];
+      if (kids.length) row('below', kids.length + ' — ' + kids.map(nameOf).join(', '));
+      row(word('ownership', 'ownership'), (n.owns || []).join(', ') || '—');
+      row(word('skills', 'skills'), team.edges.filter(e => e.bond === 'holds' && e.from === id).map(e => nameOf(e.to)).join(', ') || '—');
+      row('agent', n.agent ? (persistent(n.agent) ? 'persistent' : 'subagent') + ' · ' + (n.agent.model || 'the session model') + ' · ' + n.agent.source : 'not registered — runs in the session');
+      row('work', a ? a.total + ' run' + (a.total === 1 ? '' : 's') + (a.failed ? ' (' + a.failed + ' not done)' : '') + ' · ' + num(a.tokens.reduce((x, y) => x + y, 0)) + ' tokens in 4 weeks' + (a.last ? ' · last ' + a.last.slice(0, 16).replace('T', ' ') : '') : 'no journaled work in 4 weeks');
     }
+    const bonds = team.edges.filter(e => (e.from === id || e.to === id) && e.bond !== 'holds').map(e => (e.from === id ? word('bond.' + e.bond, e.bond) + ' → ' + nameOf(e.to) : nameOf(e.from) + ' → ' + word('bond.' + e.bond, e.bond)) + (e.implied ? ' (implied)' : ''));
     row('bonds', bonds.join(' · ') || '—');
     const docPath = n.doc || (n.desk && n.desk.src) || '';
     const doc = el('pre', { class: 'kcard-doc', text: docPath ? 'reading ' + docPath + '…' : 'no doc — the ontology notes it' });
-    const plan = el('pre', { class: 'kcard-plan', text: isSkill(n) ? '' : 'plan …' });
-    box.append(el('article', { class: 'kcard' },
-      el('div', { class: 'kcard-title' }, n.name, el('span', { class: 'pill', 'data-tone': 'info', text: isSkill(n) ? word('skill', 'skill') : (n.rank || 'agent') }), liveNames.has(id) ? pill('running') : null),
-      el('dl', {}, rows), doc, plan));
+    const plan = el('pre', { class: 'kcard-doc', text: '' });
+    box.append(el('article', { class: 'kcard', 'data-compact': main.dataset.view === 'overview' },
+      el('div', { class: 'kcard-title' }, n.orchestrator ? (n.label || n.name) : n.name, el('span', { class: 'pill', 'data-tone': 'info', text: isSkill(n) ? word('skill', 'skill') : word('rank.' + n.rank, n.rank || 'agent') }), liveNames.has(n.name) ? pill('running') : null,
+        el('button', { class: 'button kcard-close', 'data-size': 's', 'data-variant': 'quiet', type: 'button', text: 'close', 'aria-label': 'clear the focus', onclick: () => setFocus('') })),
+      el('dl', {}, rows), doc, isSkill(n) ? null : plan));
     if (docPath) fetch('api/doc?path=' + encodeURIComponent(docPath)).then(r => r.ok ? r.text() : Promise.reject(new Error(r.status)))
-      .then(t => { doc.textContent = t.split('\n').slice(0, 60).join('\n'); }).catch(() => { doc.textContent = docPath + ' — not readable here'; });
+      .then(t => { doc.textContent = t.split('\n').slice(0, 40).join('\n'); }).catch(() => { doc.textContent = docPath + ' — not readable here'; });
     if (!isSkill(n)) fetch('/api/plan?agent=' + encodeURIComponent(id)).then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
       .then(p => {
-        if (!p || p.empty || !(p.items || p.deck || []).length) { plan.textContent = p && p.agent && !n.name ? 'no deck for ' + p.agent : 'no deck'; return; }
+        if (!p || p.empty || !(p.items || p.deck || []).length) { plan.remove(); return; }
         const head = 'plan ' + (p.agent || id) + (p.updated ? ' · ' + p.updated : '');
         plan.textContent = head + '\n' + (p.items || p.deck).map(it => `[${it.status || '·'}] ${it.text || ''}`).join('\n');
-      }).catch(() => { plan.textContent = ''; });
+      }).catch(() => { plan.remove(); });
   }
   const label2 = id => ((team && team.labels.find(l => l.id === id)) || {}).label || id;
-  const nameOf = id => ((team && team.nodes.find(n => n.id === id)) || {}).name || id;
-  // the ontology's graph, joined with the two planes it does not draw: minted bodies ride their
-  // members (or stand in their rank's layer), every wearable skill joins (the binary's own
-  // included), and each mind carries its desk
+  const nameOf = id => { const n = team && team.nodes.find(x => x.id === id); return n ? (n.orchestrator ? n.label || n.name : n.name) : id; };
+  // the ontology's graph, joined with the two planes it does not draw: registered agents ride their
+  // members (the orchestrator's own agent rides the orchestrator, wherever it was registered), every wearable
+  // skill joins (the binary's own included), and each skill carries its working notes
   function loadTeam() {
-    return Promise.all([getJSON('api/team'), getJSON('api/workspace').catch(() => ({ agents: [], skills: [], workingNotes: [] }))]).then(([c, w]) => {
+    return Promise.all([getJSON('api/team'), getJSON('api/workspace').catch(() => ({ agents: [], skills: [], workingNotes: [] })), getJSON('api/activity').catch(() => null)]).then(([c, w, act]) => {
       c.nodes = c.nodes || []; c.edges = c.edges || []; c.lanes = c.lanes || []; c.labels = c.labels || []; c.findings = c.findings || []; c.notes = c.notes || [];
       // a skill's lane is drawn as skill:<lane> (the lane order and labels speak that way)
-      for (const n of c.nodes) if (n.kind === 'skill' && c.lanes.includes('skill:' + n.lane)) n.lane = 'skill:' + n.lane; // a lane may share a rank's name
+      for (const n of c.nodes) if (n.kind === 'skill' && c.lanes.includes('skill:' + n.lane)) n.lane = 'skill:' + n.lane;
       const byName = new Map(c.nodes.map(n => [n.name, n]));
+      const orchestrator = c.nodes.find(n => n.id === c.orchestrator || n.orchestrator);
       const ranks = c.lanes.filter(l => !l.includes(':'));
       for (const b of w.agents || []) {
         const n = byName.get(b.name);
         if (n) { n.body = b; continue; }
         let rank = ranks.find(r => b.name === r || b.name.startsWith(r + '-'));
-        // a machine-wide agent (~/.config/…) is another world's unless it rides a member here or
-        // carries one of this world's rank prefixes — the net draws this team, not the machine
-        if (/-global$/.test(b.source || '') && !rank && !WORDS['rank.' + b.name.split('-')[0].replace(/_/g, '')]) continue;
+        // a machine-wide agent (~/.config/…) is another workspace's unless it rides a member here or
+        // carries one of this workspace's rank prefixes — the net draws this team, not the machine
         const prefix = b.name.split('-')[0].replace(/_/g, '');
-        if (!rank && WORDS['rank.' + prefix]) {
-          // a rank born in time (service, dark coord …): its first body opens its layer, above the crown
-          rank = prefix;
-          c.lanes.splice(Math.max(0, c.lanes.findIndex(l => l.endsWith(':shared'))), 0, rank);
-          c.labels.push({ id: rank, label: WORDS['rank.' + prefix], kind: 'rank' }); ranks.push(rank);
-        }
-        const lane = rank || 'bodies:other';
-        if (!rank && !c.lanes.includes(lane)) { c.lanes.push(lane); c.labels.push({ id: lane, label: 'other agents', kind: 'rank' }); }
-        const node = { id: 'body-' + b.name, name: b.name, kind: 'member', rank: rank || '', lane, owns: [], body: b, description: b.description };
+        if (/-global$/.test(b.source || '') && !rank && !WORDS['rank.' + prefix]) continue;
+        if (!rank && WORDS['rank.' + prefix]) rank = prefix;
+        const node = { id: 'agent-' + b.name, name: b.name, kind: 'member', rank: rank || '', lane: rank || 'agents:other', owns: [], body: b, description: b.description, parent: orchestrator ? orchestrator.id : '' };
         c.nodes.push(node); byName.set(b.name, node);
       }
       const shared = c.lanes.find(l => l.endsWith(':shared')) || 'skill:shared';
@@ -603,12 +629,212 @@
         const node = { id: 'skill-' + s.name, name: s.name, kind: 'skill', lane: shared, shared: true, source: s.source, description: s.description, owns: [] };
         c.nodes.push(node); byName.set(s.name, node);
       }
-      // a desk sits in a mind, or in a member's own hat (<name>@hat, worn by that member)
-      for (const d of w.workingNotes || []) { const n = byName.get(String(d.skill).replace(/@skill$/, '')); if (n && (d.notes || !n.desk)) n.desk = d; }
-      team = c; netDraw(); relations();
-    }).catch(() => { $('#net-note').textContent = 'the ontology is silent'; });
+      // a working notes sits in a skill, or in a member's own hat (<name>@hat, held by that member)
+      for (const d of w.workingNotes || []) { const n = byName.get(String(d.skill).replace(/@hat$/, '')); if (n && (d.notes || !n.workingNotes)) n.workingNotes = d; }
+      team = c; activity = act;
+      const m = net.set(c, act);
+      netLive();
+      const agents = m.members.length, skills = m.skills.length;
+      const lit = act && act.lit ? Object.keys(act.agents || {}).length + ' with journaled work' : 'no activity journal yet';
+      const nn = $('#net-note');
+      nn.textContent = agents + ' ' + word('members', 'members') + ' · ' + skills + ' ' + word('skills', 'skills') + ' · ' + m.tree.length + ' tree bonds · ' + (m.maxDepth + 1) + ' layers · ' + lit + (c.findings.length ? ' · ' + c.findings.length + ' findings' : '');
+      nn.title = nn.textContent;
+      findingsList();
+      if (focus) knowledge(focus); else knowledge('');
+      timeline();
+      relations();
+      leaderboard();
+    }).catch(err => { console.error(err); $('#net-note').textContent = 'the ontology is silent'; });
   }
-  new ResizeObserver(() => { clearTimeout(netDraw.t); netDraw.t = setTimeout(netDraw, 120); }).observe(netBox);
+  // a Subagent on the stream: a pulse down when it is commissioned, back up when it reports
+  const subagentPhase = new Map();
+  function netSignal(e) {
+    const was = subagentPhase.get(e.name);
+    const done = e.state === 'done' || !!e.report || e.failed;
+    if (!done && !was) { subagentPhase.set(e.name, 'down'); net.signal('down', e.name); const at = new Date().toISOString(); timelineAdd({ as: e.name, ask: e.ask, at, started: at, live: true }); }
+    if (done && was !== 'up') {
+      subagentPhase.set(e.name, 'up');
+      const st = String((e.report && e.report.Status) || e.exit || '').toUpperCase();
+      net.signal('up', e.name, e.failed || /FAIL|DENIED/.test(st) ? 'danger' : /ESCALATE|INTERRUPT/.test(st) || (st && !/DONE|PASS/.test(st)) ? 'warn' : 'ok');
+      setTimeout(() => { if (subagentPhase.get(e.name) === 'up') subagentPhase.delete(e.name); }, 1500);
+      timelineAdd({ as: e.name, ask: e.ask, at: new Date().toISOString(), status: st || (e.failed ? 'FAIL' : 'DONE') });
+    }
+  }
+
+  // ---------- the timeline: subagents and verdicts, newest first ----------
+  // journaled runs (/api/activity's recent) beside what this page saw live (subagent starts and
+  // reports, the session's turns), merged by time; a journal row is dropped only when it is the
+  // same run as a live one (same agent, started within a few seconds of it). A row focuses its
+  // neuron. Rows are keyed: a refresh rebuilds only the rows that changed, and a polite announcer
+  // says only what is new — the list itself is not a live region.
+  const liveRows = [];
+  const SAME_RUN_MS = 8000;
+  const tone = st => { const x = String(st || '').toUpperCase(); return !x ? 'info' : /^(DONE|PASS)/.test(x) ? 'ok' : /FAIL|DENIED/.test(x) ? 'danger' : /RUNNING/.test(x) ? 'info' : 'warn'; };
+  const rankOfName = name => { const n = team && team.nodes.find(x => x.name === name && x.kind !== 'skill'); return n ? n.rank : ''; };
+  function timelineAdd(row) {
+    row.ask = String(row.ask || '').split('\n').filter(l => l.trim() && !/^\s*@/.test(l)).join(' ');
+    const i = liveRows.findIndex(r => r.as === row.as && r.live);
+    if (i >= 0) { row.started = row.started || liveRows[i].started; liveRows.splice(i, 1); }
+    row.key = 'L' + row.as + '|' + (row.started || row.at);
+    liveRows.unshift(row);
+    if (liveRows.length > 40) liveRows.length = 40;
+    timeline();
+  }
+  const tlEls = new Map();
+  let tlSaid = new Set();
+  const announcer = el('p', { class: 'visually-hidden', 'aria-live': 'polite' });
+  document.body.append(announcer);
+  function timeline() {
+    const box = $('#timeline');
+    if (!box) return;
+    const t = x => { const v = Date.parse(x || ''); return isNaN(v) ? 0 : v; };
+    const journal = ((activity && activity.recent) || []).filter(j => !liveRows.some(r => r.as === j.as && Math.abs(t(r.started || r.at) - t(j.at)) < SAME_RUN_MS))
+      .map(j => Object.assign({ key: 'J' + (j.id || j.as + '|' + j.at) }, j));
+    const rows = [...liveRows, ...journal].sort((a, b) => t(b.at) - t(a.at)).slice(0, 40);
+    if (!rows.length) { tlEls.clear(); box.replaceChildren(el('li', {}, el('p', { class: 'timeline-empty', text: 'no journaled run in four weeks — a Subagent or a turn lands here as it happens' }))); return; }
+    const hm = at => { const d = new Date(at); return isNaN(d) ? '' : (Date.now() - d < 864e5 ? d.toTimeString().slice(0, 5) : d.toISOString().slice(5, 10)); };
+    const fresh = [];
+    const items = rows.map(r => {
+      const who = labelOf(r.as), end = r.live ? 'running' : (r.status || '—').split(/\s/)[0];
+      const sig = [who, r.ask, end, hm(r.at), rankOfName(r.as)].join('|');
+      let it = tlEls.get(r.key);
+      if (it && it.sig === sig) return it.li;
+      const nodeOf = () => team && team.nodes.find(x => x.name === r.as && x.kind !== 'skill');
+      const li = el('li', {}, el('button', { class: 'timeline-item', type: 'button', 'data-rank': rankOfName(r.as) || false, 'data-live': !!r.live,
+        'aria-label': who + ' — ' + (r.ask || '') + ' — ' + end,
+        onclick: () => { const n = nodeOf(); if (n) setFocus(n.id); },
+        onpointerenter: () => { const n = nodeOf(); net.hover(n ? n.id : ''); },
+        onpointerleave: () => net.hover('') },
+        el('span', { class: 'timeline-time', text: hm(r.at) }), el('span', { class: 'timeline-dot' }), el('span', { class: 'timeline-who', text: who }),
+        el('span', { class: 'timeline-what', text: r.ask || '' }), el('span', { class: 'timeline-end', 'data-tone': r.live ? 'info' : tone(r.status), text: end })));
+      tlEls.set(r.key, { li, sig });
+      if (r.key[0] === 'L' && !tlSaid.has(r.key + end)) fresh.push(who + ' ' + end + (r.ask ? ': ' + r.ask : ''));
+      return li;
+    });
+    const keep = new Set(rows.map(r => r.key));
+    for (const k of [...tlEls.keys()]) if (!keep.has(k)) tlEls.delete(k);
+    // move only what moved: walk the wanted order, inserting where the dom differs
+    let at = box.firstChild;
+    if (at && !items.includes(at)) { box.replaceChildren(); at = null; }
+    for (const li of items) { if (li !== at) box.insertBefore(li, at); else at = at.nextSibling; }
+    while (at) { const nx = at.nextSibling; at.remove(); at = nx; }
+    for (const r of rows) if (r.key[0] === 'L') tlSaid.add(r.key + (r.live ? 'running' : (r.status || '—').split(/\s/)[0]));
+    if (tlSaid.size > 400) tlSaid = new Set([...tlSaid].slice(-200));
+    if (fresh.length) announcer.textContent = fresh.slice(0, 2).join(' · ');
+    $('#timeline-note').textContent = rows.length + ' · subagents and verdicts, newest first';
+  }
+  // the instruments moved: tiles, bond weights and the timeline follow (at most every few seconds)
+  let actT = 0;
+  function refreshActivity() {
+    clearTimeout(actT);
+    actT = setTimeout(() => getJSON('api/activity').then(a => { activity = a; if (team) net.set(team, a); timeline(); leaderboard(); }).catch(() => {}), 2500);
+  }
+
+  // ---------- the cockpit: the console docks, folds and resizes ----------
+  const shellMain = $('#main'), split = $('#dock-split'), dockBtn = $('#dock-toggle');
+  function dock(open, save) {
+    shellMain.dataset.dock = open ? 'open' : 'closed';
+    dockBtn.setAttribute('aria-expanded', String(open));
+    dockBtn.textContent = open ? '⇥' : '⇤';
+    dockBtn.title = open ? 'fold the console to a rail' : 'open the console';
+    if (save) store.set('dock', open ? 'open' : 'closed');
+    requestAnimationFrame(() => {
+      netDraw();
+      // the separator's value is the console's real width, in rem
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16, w = $('#console-panel').getBoundingClientRect().width / rem;
+      if (w > 0) split.setAttribute('aria-valuenow', String(Math.round(w)));
+    });
+  }
+  function dockWidth(rem, save) {
+    rem = Math.max(20, Math.min(60, rem));
+    shellMain.style.setProperty('--shell-dock', rem.toFixed(1) + 'rem');
+    split.setAttribute('aria-valuenow', String(Math.round(rem)));
+    if (save) store.set('dockw', rem.toFixed(1));
+  }
+  dockBtn.addEventListener('click', () => dock(shellMain.dataset.dock === 'closed', true));
+  if (store.get('dockw')) dockWidth(+store.get('dockw'));
+  dock(store.get('dock') !== 'closed');
+  split.addEventListener('pointerdown', ev => {
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const right = shellMain.getBoundingClientRect().right - parseFloat(getComputedStyle(shellMain).paddingRight);
+    split.setPointerCapture(ev.pointerId); split.setAttribute('data-drag', '');
+    const move = e => dockWidth((right - e.clientX) / rem);
+    const up = e => { split.releasePointerCapture(e.pointerId); split.removeAttribute('data-drag'); split.removeEventListener('pointermove', move); split.removeEventListener('pointerup', up); dockWidth((right - e.clientX) / rem, true); netDraw(); };
+    split.addEventListener('pointermove', move); split.addEventListener('pointerup', up);
+  });
+  split.addEventListener('keydown', ev => {
+    const cur = parseFloat(shellMain.style.getPropertyValue('--shell-dock')) || 30;
+    if (ev.key === 'ArrowLeft') dockWidth(cur + 2, true); else if (ev.key === 'ArrowRight') dockWidth(cur - 2, true); else return;
+    ev.preventDefault();
+  });
+
+  // ---------- the folder tree as a drawer: the files button or `t`, Esc or a click away closes ----------
+  const shellEl = $('.shell'), drawerBtn = $('#drawer-open');
+  let drawerFrom = null;
+  function drawer(open) {
+    if (main.dataset.view === 'tree') open = false;
+    shellEl.toggleAttribute('data-drawer', open);
+    drawerBtn.setAttribute('aria-expanded', String(open));
+    // open, the drawer is a modal dialog: the rest of the page is out of reach until it closes
+    const panel = $('#tree-panel');
+    if (open) { panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); } else { panel.removeAttribute('role'); panel.removeAttribute('aria-modal'); }
+    if (open) { drawerFrom = document.activeElement; setTimeout(() => ($('#tree').querySelector('.tree-node') || $('#drawer-close')).focus(), 50); }
+    else { net.hover(''); if (drawerFrom && drawerFrom.focus) drawerFrom.focus(); drawerFrom = null; }
+  }
+  drawerBtn.addEventListener('click', () => drawer(!shellEl.hasAttribute('data-drawer')));
+  $('#drawer-close').addEventListener('click', () => drawer(false));
+  $('#scrim').addEventListener('click', () => drawer(false));
+  document.addEventListener('keydown', ev => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || (document.activeElement && document.activeElement.isContentEditable);
+    if (ev.key === 'Escape' && shellEl.hasAttribute('data-drawer')) { ev.preventDefault(); ev.stopImmediatePropagation(); drawer(false); return; }
+    // the focus stays inside the open drawer: Tab and Shift+Tab wrap around it
+    if (ev.key === 'Tab' && shellEl.hasAttribute('data-drawer')) {
+      const panel = $('#tree-panel');
+      const f = [...panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1], at = document.activeElement;
+      if (!panel.contains(at)) { ev.preventDefault(); first.focus(); }
+      else if (ev.shiftKey && at === first) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && at === last) { ev.preventDefault(); first.focus(); }
+      return;
+    }
+    // `t` anywhere but a field; Alt+T even from the prompt
+    const key = ev.code === 'KeyT' || ev.key === 't' || ev.key === 'T';
+    if (key && ((!typing && !ev.ctrlKey && !ev.metaKey && !ev.altKey) || (ev.altKey && !ev.ctrlKey && !ev.metaKey))) { ev.preventDefault(); drawer(!shellEl.hasAttribute('data-drawer')); }
+  }, true);
+  // a path in the tree lights the neuron that owns it (its ownership, longest claim wins)
+  function ownerOf(path) {
+    if (!team || !path) return '';
+    const p = String(path).toLowerCase().replace(/\/+$/, '');
+    let best = '', len = -1, deep = -1;
+    const m = net.model();
+    for (const n of team.nodes) for (const o of n.owns || []) {
+      const t = String(o).toLowerCase().replace(/\/(\*\*?)?$/, '').replace(/^\.\//, '');
+      const d = (m && m.depth.get(n.id)) || 0;
+      // the longest claim wins; on a tie the deeper member (the one that does the work) does
+      if (t && (p === t || p.startsWith(t + '/')) && (t.length > len || (t.length === len && d > deep))) { best = n.id; len = t.length; deep = d; }
+    }
+    return best;
+  }
+  const treeEl = $('#tree');
+  treeEl.addEventListener('pointerover', ev => { const row = ev.target.closest('.tree-node'); if (row) net.hover(ownerOf(row.dataset.path)); });
+  treeEl.addEventListener('pointerleave', () => net.hover(''));
+  treeEl.addEventListener('focusin', ev => { const row = ev.target.closest('.tree-node'); if (row) net.hover(ownerOf(row.dataset.path)); });
+
+  // ---------- the plan's progress in the header ----------
+  function planMeter() {
+    getJSON('/api/plan').then(p => {
+      const m = $('#plan'), items = (p && (p.items || p.deck)) || [];
+      if (!items.length) { m.hidden = true; return; }
+      const done = items.filter(i => i.status === 'done').length;
+      const pct = Math.round(100 * done / items.length);
+      m.hidden = false;
+      m.style.setProperty('--meter-value', pct + '%');
+      m.setAttribute('aria-valuenow', String(pct));
+      m.querySelector('.meter-label').textContent = 'plan ' + done + '/' + items.length;
+      m.dataset.level = items.some(i => i.status === 'blocked') ? 'warn' : '';
+    }).catch(() => { $('#plan').hidden = true; });
+  }
 
   // ---------- relations: the matrix and its dimensions ----------
   function relations() {
@@ -644,6 +870,38 @@
       facet('by lane', count(team.nodes, n => ((team.labels || []).find(l => l.id === n.lane) || {}).label || n.lane)),
       facet('by bond', count(team.edges, e => word('bond.' + e.bond, e.bond))));
     $('#rel-note').textContent = nodes.length + ' × ' + nodes.length + ' · ' + team.edges.length + ' bonds' + ((team.findings || []).length ? ' · ' + team.findings.length + ' findings' : '');
+  }
+
+  // ---------- the leaderboard: the members ranked by their work (runs in four weeks) ----------
+  function leaderboard() {
+    const box = $('#leaderboard');
+    if (!box || !team || main.dataset.view !== 'metrics') return;
+    const m = net.model();
+    const agents = (activity && activity.agents) || {};
+    const rows = team.nodes.filter(n => n.kind !== 'skill' && agents[n.name] && agents[n.name].total)
+      .map(n => { const a = agents[n.name]; return { n, a, tokens: (a.tokens || []).reduce((x, y) => x + y, 0) }; })
+      .sort((x, y) => y.a.total - x.a.total || y.tokens - x.tokens || x.n.name.localeCompare(y.n.name));
+    const quiet = team.nodes.filter(n => n.kind !== 'skill').length - rows.length;
+    $('#leaderboard-note').textContent = 'the members, by work — ' + rows.length + ' with journaled runs in four weeks' + (quiet > 0 ? ', ' + quiet + ' quiet' : '');
+    if (!rows.length) { box.replaceChildren(el('p', { class: 'leaderboard-empty', text: 'no journaled work in four weeks — a Subagent lands here once it reports' })); return; }
+    const lead = rows[0].a.total;
+    const th = (t, num, cls) => el('th', { scope: 'col', 'data-num': !!num, class: cls || false, text: t });
+    box.replaceChildren(el('div', { class: 'leaderboard-wrap' }, el('table', { class: 'leaderboard' },
+      el('thead', {}, el('tr', {}, th('Rank'), th('Member'), th('Work', true), th('Pass', true), th('Tokens', true, 'leaderboard-col-tokens'), th('Status'))),
+      el('tbody', {}, rows.map((r, i) => {
+        const pass = Math.round(100 * (r.a.total - (r.a.failed || 0)) / r.a.total);
+        const p = m && m.parent.get(r.n.id);
+        const liveNow = liveNames.has(r.n.name);
+        const focusIt = () => setFocus(r.n.id);
+        return el('tr', { 'data-rank': r.n.rank || false, tabindex: 0, onclick: focusIt, onkeydown: ev => { if (ev.key === 'Enter') focusIt(); },
+          'aria-label': labelOf(r.n.name) + ', ' + r.a.total + ' runs, ' + pass + '% passed, ' + (liveNow ? 'live' : 'idle') },
+          el('td', { class: 'leaderboard-rank', text: String(i + 1).padStart(2, '0') }),
+          el('td', {}, el('span', { class: 'leaderboard-name', text: labelOf(r.n.name) }), el('span', { class: 'leaderboard-sub', text: word('rank.' + r.n.rank, r.n.rank || 'agent') + (p ? ' · under ' + nameOf(p) : '') })),
+          el('td', { class: 'leaderboard-num', 'data-lead': r.a.total === lead, text: num(r.a.total) }),
+          el('td', { class: 'leaderboard-num', 'data-tone': pass < 50 ? 'danger' : pass < 90 ? 'warn' : false, text: pass + '%' }),
+          el('td', { class: 'leaderboard-num leaderboard-col-tokens', text: r.tokens ? num(r.tokens) : '—' }),
+          el('td', { class: 'leaderboard-status', 'data-live': liveNow, text: liveNow ? 'live' : 'idle' }));
+      })))));
   }
 
   // ---------- metrics ----------
@@ -706,10 +964,12 @@
   }
   function courtPoll() {
     return getJSON('api/subagent').then(c => {
-      court = c.agents || [];
-      for (const b of court) { if (b.state && b.state !== 'done') liveNames.add(b.name); else liveNames.delete(b.name); }
+      subagent = c.agents || [];
+      for (const b of subagent) { if (b.state && !/^(done|idle)$/.test(b.state)) liveNames.add(b.name); else liveNames.delete(b.name); }
       netLive();
-      bars($('#live-bodies'), court.map(b => ({ k: b.name, v: (b.input || 0) + (b.output || 0) + (b.cacheRead || 0) + (b.cacheWrite || 0), b })),
+      now();
+      leaderboard();
+      bars($('#live-agents'), subagent.map(b => ({ k: b.name, v: (b.input || 0) + (b.output || 0) + (b.cacheRead || 0) + (b.cacheWrite || 0), b })),
         r => (r.b.state || '—') + (r.b.contextLimit ? ' · ctx ' + Math.round(100 * r.b.contextTokens / r.b.contextLimit) + '%' : ''));
     }).catch(() => { /* no live court */ });
   }
@@ -719,8 +979,8 @@
   function boardEvents() {
     const es = new EventSource('events');
     const on = (name, f) => es.addEventListener(name, f);
-    on('usage', metrics);
-    on('subagent', courtPoll);
+    on('usage', () => { metrics(); refreshActivity(); });
+    on('subagent', () => { subagentPoll(); refreshActivity(); });
     on('team', loadTeam);
     on('onto', loadTeam);
   }
@@ -794,6 +1054,8 @@
     if (!treeBox) return;
     treeIdx = new Map();
     treeFetch('').then(d => {
+      // the endpoint's face is {path, children, truncated} (api_face_test pins it)
+      if (d && !d.nodes && Array.isArray(d.children)) d.nodes = d.children;
       if (!d || !Array.isArray(d.nodes)) { treeBox.replaceChildren(el('p', { class: 'tree-empty', text: 'no tree source' })); return; }
       const ul = el('ul', { class: 'tree-list', role: false });
       let dirs = 0;
@@ -868,9 +1130,13 @@
     }
   }
 
+  netMode(HASH.get('net') || store.get('netmode') || '2d');
+  // the vendored faces arrive after the first layout: the net measures its labels again
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => netDraw());
   header(); setInterval(header, 1500);
   loadTeam(); metrics(); subagentPoll(); treeLoad();
   setInterval(subagentPoll, 2000); setInterval(metrics, 15000);
+  planMeter(); setInterval(planMeter, 15000);
   stream(); boardEvents();
-  field.focus();
+  if (innerWidth >= 1024) field.focus({ preventScroll: true });
 })();

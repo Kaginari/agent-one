@@ -199,3 +199,125 @@ func TestDocIsFenced(t *testing.T) {
 		}
 	}
 }
+
+func TestTeamIsOneTreeUnderTheOrchestrator(t *testing.T) {
+	c := fixtureSources(t, "workspace").Team()
+	byID := map[string]Node{}
+	for _, n := range c.Nodes {
+		byID[n.ID] = n
+	}
+	orchestrator, ok := byID[c.Orchestrator]
+	if c.Orchestrator == "" || !ok || !orchestrator.Orchestrator || orchestrator.Kind != "member" {
+		t.Fatalf("the orchestrator must be a node: %q %+v", c.Orchestrator, orchestrator)
+	}
+	for _, n := range c.Nodes {
+		if n.Kind != "member" || n.Orchestrator {
+			if n.Parent != "" {
+				t.Errorf("%s (a %s) has a parent %q", n.ID, n.Kind, n.Parent)
+			}
+			continue
+		}
+		seen := map[string]bool{}
+		at := n.ID
+		for at != c.Orchestrator {
+			if seen[at] {
+				t.Fatalf("%s loops at %s", n.ID, at)
+			}
+			seen[at] = true
+			p, ok := byID[byID[at].Parent]
+			if !ok {
+				t.Fatalf("%s: %s's parent %q is not a node", n.ID, at, byID[at].Parent)
+			}
+			at = p.ID
+		}
+	}
+	if byID["zone-auth"].Parent != "domain-core" || byID["domain-core"].Parent != "coord-voice" || byID["coord-voice"].Parent != c.Orchestrator {
+		t.Errorf("the asserted bonds make the tree: %q %q %q", byID["zone-auth"].Parent, byID["domain-core"].Parent, byID["coord-voice"].Parent)
+	}
+	// an orphan hangs under the orchestrator by an implied edge, and a note says so
+	implied := 0
+	for _, e := range c.Edges {
+		if e.Implied {
+			implied++
+			if e.Bond != "reports" || e.To != c.Orchestrator || byID[e.From].Parent != c.Orchestrator {
+				t.Errorf("implied edge: %+v", e)
+			}
+		}
+	}
+	if implied == 0 || !strings.Contains(strings.Join(c.Notes, "\n"), "drawn under "+c.Orchestrator) {
+		t.Errorf("the fixture's orphans must hang under the orchestrator, said: %d %v", implied, c.Notes)
+	}
+	// a skill in the workspace's own base-skills is a node, and its holder is bonded to it
+	if byID["skill-zone-auth-craft"].Kind != "skill" {
+		t.Fatalf("base-skills skill missing: %+v", byID["skill-zone-auth-craft"])
+	}
+	holds := false
+	for _, e := range c.Edges {
+		holds = holds || (e.From == "zone-auth" && e.Bond == "holds" && e.To == "skill-zone-auth-craft")
+	}
+	if !holds {
+		t.Error("zone-auth holds zone-auth-craft (its Skills field) — no holds edge")
+	}
+}
+
+func TestTreeUpAddsAMissingOrchestrator(t *testing.T) {
+	c := &Team{Nodes: []Node{{ID: "coord-a", Kind: "member", Rank: "coord"}, {ID: "domain-b", Kind: "member", Rank: "domain"}, {ID: "domain-c", Kind: "member", Rank: "domain"}, {ID: "m", Kind: "skill"}},
+		Edges: []Edge{{From: "domain-b", To: "coord-a", Bond: "verdict"}, {From: "coord-a", To: "orchestrator", Bond: "reports"}, {From: "domain-c", To: "domain-c", Bond: "above"}, {From: "domain-b", To: "m", Bond: "holds"}}}
+	treeUp(c)
+	var orchestrator *Node
+	for i := range c.Nodes {
+		if c.Nodes[i].ID == c.Orchestrator {
+			orchestrator = &c.Nodes[i]
+		}
+	}
+	if orchestrator == nil || !orchestrator.Orchestrator || c.Orchestrator != "orchestrator" {
+		t.Fatalf("no orchestrator node added: %+v", c.Nodes)
+	}
+	parents := map[string]string{}
+	for _, n := range c.Nodes {
+		parents[n.ID] = n.Parent
+	}
+	if parents["domain-b"] != "coord-a" || parents["coord-a"] != "orchestrator" || parents["domain-c"] != "orchestrator" || parents["m"] != "" {
+		t.Errorf("parents: %v", parents)
+	}
+}
+
+func TestActivityRecentDropsTheWireHeader(t *testing.T) {
+	runs := []Run{{As: "zone-loop", Ask: "@ROOT /w\n@ASK findings +unsaid\n@CAP 2048\nread the loop README\n", Status: "DONE", At: "2026-09-26T10:00:00Z"}}
+	a := BuildActivity(runs, nil, fixedNow, ActivityDays)
+	if len(a.Recent) != 1 || a.Recent[0].Ask != "read the loop README" {
+		t.Errorf("recent: %+v", a.Recent)
+	}
+}
+
+func TestActivityByDay(t *testing.T) {
+	s := fixtureSources(t, "workspace")
+	runs, _ := s.Loop()
+	recs, _ := s.Usage()
+	a := BuildActivity(runs, recs, fixedNow, ActivityDays)
+	if len(a.Days) != ActivityDays || a.Days[ActivityDays-1] != fixedNow.UTC().Format("2006-01-02") {
+		t.Fatalf("days: %v", a.Days)
+	}
+	sa := a.Agents["zone-auth"]
+	if sa == nil || sa.Total != 1 || sa.Last == "" {
+		t.Fatalf("zone-auth's run: %+v", sa)
+	}
+	i := -1
+	for k, d := range a.Days {
+		if d == "2026-09-25" {
+			i = k
+		}
+	}
+	if i < 0 || sa.Runs[i] != 1 || sa.Tokens[i] != 800+900+500+100 {
+		t.Errorf("zone-auth on 2026-09-25: runs %v tokens %v", sa.Runs, sa.Tokens)
+	}
+	if r := a.Agents["orchestrator"]; r == nil || r.Total != 0 || r.Tokens[i] == 0 {
+		t.Errorf("orchestrator spends tokens without a journaled run here: %+v", r)
+	}
+	if len(a.Recent) != 1 || a.Recent[0].As != "zone-auth" || a.Recent[0].Status != "PASS" || a.Recent[0].Ask != "smoke" {
+		t.Errorf("recent: %+v", a.Recent)
+	}
+	if _, ok := a.Agents["domain-core"]; ok {
+		t.Error("an agent the instruments never saw must be absent, not zero")
+	}
+}

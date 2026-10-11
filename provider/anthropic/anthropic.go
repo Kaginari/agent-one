@@ -188,7 +188,7 @@ func (c *Client) encode(req provider.Request, stream bool) request {
 			continue
 		}
 		s := t.Schema
-		if len(s) == 0 {
+		if len(s) == 0 || !json.Valid(s) { // a broken schema must not break the whole request
 			s = json.RawMessage(`{"type":"object","properties":{}}`)
 		}
 		r.Tools = append(r.Tools, raw(toolDef{Name: t.Name, Description: t.Description, InputSchema: s, EagerInputStreaming: stream}))

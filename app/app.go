@@ -334,7 +334,7 @@ func (a *App) Build() workspace.Build {
 		Ownership: workspace.OwnershipOptions{Enabled: cfg.Policy.Ownership.Enabled, OrchestratorNeverAuthors: cfg.Policy.Ownership.OrchestratorNeverAuthors},
 		Guts:      policyGuts(cfg),
 		Doom:      policyDoom(cfg),
-		Subagent: workspace.SubagentOptions{Enabled: a.on("dispatch"), MaxDepth: cfg.Tools.Dispatch.MaxDepth, Cap: cfg.Policy.Wire.Cap, Unsaid: cfg.Policy.Wire.RequireUnsaid, StrictFlow: cfg.Tools.Dispatch.StrictFlow, SalvageTokens: cfg.Policy.Budget.SalvageTokens, StressEscalateAt: cfg.Policy.Stress.EscalateAt, StressMaxConsults: cfg.Policy.Stress.MaxConsults, StressRelieveAt: cfg.Policy.Stress.RelieveAt, SessionBackground: cfg.Tools.Dispatch.SessionBackground,
+		Subagent: workspace.SubagentOptions{Enabled: a.on("dispatch"), MaxDepth: cfg.Tools.Dispatch.MaxDepth, Cap: cfg.Policy.Wire.Cap, Unsaid: cfg.Policy.Wire.RequireUnsaid, StrictFlow: cfg.Tools.Dispatch.StrictFlow, OpenLineage: !cfg.Tools.Dispatch.Lineage, SalvageTokens: cfg.Policy.Budget.SalvageTokens, StressEscalateAt: cfg.Policy.Stress.EscalateAt, StressMaxConsults: cfg.Policy.Stress.MaxConsults, StressRelieveAt: cfg.Policy.Stress.RelieveAt, SessionBackground: cfg.Tools.Dispatch.SessionBackground,
 			Background: cfg.Tools.Dispatch.Background, BackgroundTimeout: time.Duration(cfg.Tools.Dispatch.BackgroundTimeout),
 			Noted: noted,
 			// Deliver rides a running agent's own inbox (the /send channel) so a deeper agent's

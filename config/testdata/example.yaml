@@ -124,7 +124,6 @@ ranks:
     reportsTo: domain                                # an authoring rank needs a gate above it
     job: keeps the workspace's changelog
     authors: true
-    agent: ephemeral
     role: drafter
     tools: [read, write, edit, git]
 

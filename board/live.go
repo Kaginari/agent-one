@@ -74,6 +74,10 @@ func (b *Board) liveRoutes() {
 	files := http.StripPrefix("/web/", http.FileServer(http.FS(web)))
 	b.mux.Handle("/web/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
+		// the vendored faces: the system's mime table may not know woff2
+		if strings.HasSuffix(r.URL.Path, ".woff2") {
+			w.Header().Set("Content-Type", "font/woff2")
+		}
 		files.ServeHTTP(w, r)
 	}))
 	b.mux.HandleFunc("/dash", b.dash)

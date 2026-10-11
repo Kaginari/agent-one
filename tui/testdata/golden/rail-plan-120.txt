@@ -1,26 +1,14 @@
-╭──────────────────────────────────╮
-│ ᴠɪᴛᴀʟꜱ                           │
-│ agent-one                        │
-│ kimi-3-conduit                   │
-│ ctx ▌▌▌░░░░░ 42%                 │
-│ 15k tokens  $0.0123              │
-╰──────────────────────────────────╯
-                                    
-╭──────────────────────────────────╮
-│ ꜱᴜʙᴀɢᴇɴᴛꜱ                        │
-│ ● coord-agent-o THINKING · 1m12s │
-╰──────────────────────────────────╯
-                                    
-╭──────────────────────────────────╮
-│ ᴘʟᴀɴ ▸ ᴄᴏᴏʀᴅ-ᴀɢᴇɴᴛ-ᴏɴᴇ           │
-│ ▸ Coordinate the files-panel sl… │
-│ ✓ Land the token file            │
-│ · Ask domain-db for the store s… │
-│ ✗ Key ttl audit                  │
-╰──────────────────────────────────╯
-                                    
-╭──────────────────────────────────╮
-│ ꜰɪʟᴇꜱ                            │
-│ ╰── tui/                         │
-│     ╰── blocks.go                │
-╰──────────────────────────────────╯
+ agent-one                          
+ kimi-3-conduit                     
+ ▌▌▌░░░░░ 42%                       
+ 15k tok · $0.0123                  
+─ ▾ subagents · 1 ──────────────────
+ ● coord-agent-one   THINKING 1m12s 
+─ ▾ plan ▸ coord-agent-one · 4 ─────
+ ▸ Coordinate the files-panel slic… 
+ ✓ Land the token file              
+ · Ask domain-db for the store sli… 
+ ✗ Key ttl audit                    
+─ ▾ files · 1 ──────────────────────
+ ╰── tui/                           
+     ╰── blocks.go                  

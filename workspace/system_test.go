@@ -66,6 +66,11 @@ func openBare(t *testing.T, root string) *Workspace {
 
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	if len(args) == 3 && args[0] == "init" && args[1] == "-b" {
+		// `git init -b` needs git 2.28: init, then name the branch
+		git(t, dir, "init")
+		return git(t, dir, "symbolic-ref", "HEAD", "refs/heads/"+args[2])
+	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()

@@ -1,17 +1,34 @@
 <div class="net" data-focus>
-  <svg viewBox="0 0 600 300" role="img" aria-label="sample neural net">
-    <rect class="net-row" x="8" y="8" width="584" height="84" rx="12"/><text class="net-row-label" x="20" y="26">crown — coord</text>
-    <rect class="net-row" x="8" y="108" width="584" height="84" rx="12"/><text class="net-row-label" x="20" y="126">gate — domains</text>
-    <rect class="net-row" x="8" y="208" width="584" height="84" rx="12"/><text class="net-row-label" x="20" y="226">input — zones</text>
-    <path class="net-edge" data-bond="truth" data-lit d="M200 250 C200 200 300 200 300 150"/>
-    <path class="net-edge" data-bond="truth" data-live d="M400 250 C400 200 300 200 300 150"/>
-    <path class="net-edge" data-bond="verdict" data-lit d="M300 150 C300 100 300 100 300 50"/>
-    <g class="net-node" data-rank="coord" data-near><circle class="net-node-halo" cx="300" cy="50" r="22"/><circle class="net-node-core" cx="300" cy="50" r="14"/><circle class="net-node-dot" cx="300" cy="50" r="5"/><text class="net-node-label" x="300" y="84">coord-keeper</text></g>
-    <g class="net-node" data-rank="domain" data-near><circle class="net-node-halo" cx="300" cy="150" r="22"/><circle class="net-node-core" cx="300" cy="150" r="14"/><circle class="net-node-dot" cx="300" cy="150" r="5"/><text class="net-node-label" x="300" y="184">domain-security</text></g>
-    <g class="net-node" data-rank="zone" data-near><circle class="net-node-halo" cx="200" cy="250" r="22"/><circle class="net-node-core" cx="200" cy="250" r="14"/><circle class="net-node-dot" cx="200" cy="250" r="5"/><text class="net-node-label" x="200" y="284">zone-auth</text></g>
-    <g class="net-node" data-rank="skill:zone" data-kind="skill" data-stress="at limit"><circle class="net-node-halo" cx="520" cy="250" r="20"/><circle class="net-node-core" cx="520" cy="250" r="12"/><g transform="translate(520 250) scale(1.4)"><path class="net-brain" d="M0 -6 C-3.2 -6 -5.6 -4.4 -5.6 -1.6 C-7.2 -0.6 -7.2 1.8 -5.4 2.8 C-6 4.6 -4.2 6.2 -2.2 6.2 C-1.1 6.2 -0.4 5.4 0 4.4 C0.4 5.4 1.1 6.2 2.2 6.2 C4.2 6.2 6 4.6 5.4 2.8 C7.2 1.8 7.2 -0.6 5.6 -1.6 C5.6 -4.4 3.2 -6 0 -6 Z"/><path class="net-brain-fold" d="M0 -6 L0 4.4"/></g><text class="net-desk" x="538" y="254">5/5</text><text class="net-node-label" x="520" y="284">auth-mind</text></g>
-    <g class="net-node" data-rank="zone" data-live><circle class="net-node-halo" cx="400" cy="250" r="22"/><circle class="net-node-core" cx="400" cy="250" r="14"/><circle class="net-node-dot" cx="400" cy="250" r="5"/><g class="net-badge"><circle cx="411" cy="239" r="6.5"/><text x="411" y="242">C</text></g><text class="net-node-label" x="400" y="284">zone-api</text></g>
-  </svg>
+  <div class="net-layout" data-side>
+    <div class="net-stage" data-mode="2d">
+      <svg viewBox="0 0 560 240" role="group" aria-label="sample neural net">
+        <g data-rank="orchestrator"><rect class="net-col" x="8" y="8" width="120" height="224" rx="12"/><text class="net-col-label" x="20" y="26">orchestrator <tspan class="net-col-count">1</tspan></text></g>
+        <g data-rank="coordinator"><rect class="net-col" x="146" y="8" width="120" height="224" rx="12"/><text class="net-col-label" x="158" y="26">coordinator <tspan class="net-col-count">1</tspan></text></g>
+        <g data-rank="domain owner"><rect class="net-col" x="284" y="8" width="120" height="224" rx="12"/><text class="net-col-label" x="296" y="26">domain owner <tspan class="net-col-count">2</tspan></text></g>
+        <g data-rank="zone worker"><rect class="net-col" x="422" y="8" width="130" height="224" rx="12"/><text class="net-col-label" x="434" y="26">zone worker <tspan class="net-col-count">2</tspan></text></g>
+        <path class="net-edge" data-bond="reports" data-lit d="M80 130 C 120 130 120 130 160 130" style="stroke-width: 2.4"/>
+        <path class="net-edge" data-bond="verdict" data-lit d="M210 130 C 250 130 250 90 300 90"/>
+        <path class="net-edge" data-bond="verdict" d="M210 130 C 250 130 250 170 300 170"/>
+        <path class="net-edge" data-bond="truth" data-lit data-live d="M350 90 C 390 90 390 90 438 90"/>
+        <path class="net-edge" data-bond="truth" data-implied d="M350 170 C 390 170 390 170 438 170"/>
+        <g class="net-node" data-rank="orchestrator" data-orchestrator data-near><rect class="net-halo" x="20" y="108" width="44" height="44" rx="10"/><rect class="net-tile" x="24" y="112" width="36" height="36" rx="7"/><rect class="net-cell" x="40" y="126" width="5" height="7" opacity="0.8"/><text class="net-label" x="66" y="130">Orchestrator</text></g>
+        <g class="net-node" data-rank="coordinator" data-near><rect class="net-tile" x="160" y="118" width="24" height="24" rx="5"/><rect class="net-cell" x="164" y="122" width="4" height="4" opacity="0.6"/><circle class="net-ring" cx="160" cy="118" r="7"/><text class="net-label" x="190" y="130">agent-one</text></g>
+        <g class="net-node" data-rank="domain owner" data-near data-self><rect class="net-halo" x="296" y="74" width="32" height="32" rx="7"/><rect class="net-tile" x="300" y="78" width="24" height="24" rx="5"/><text class="net-label" x="330" y="90">engine</text></g>
+        <g class="net-node" data-rank="domain owner"><rect class="net-tile" x="300" y="158" width="24" height="24" rx="5"/><text class="net-label" x="330" y="170">safety</text></g>
+        <g class="net-node" data-rank="zone worker" data-near data-live><rect class="net-halo" x="434" y="74" width="32" height="32" rx="7"/><rect class="net-tile" x="438" y="78" width="24" height="24" rx="5"/><text class="net-label" x="468" y="90">loop</text><text class="net-sub" x="468" y="104">3 runs</text></g>
+        <g class="net-node" data-rank="zone worker" data-ping="warn"><rect class="net-halo" x="434" y="154" width="32" height="32" rx="7"/><rect class="net-tile" x="438" y="158" width="24" height="24" rx="5"/><text class="net-label" x="468" y="170">guard</text></g>
+        <g class="net-node" data-rank="skill:zone" data-kind="skill" data-stress="at limit"><rect class="net-tile" x="500" y="214" width="16" height="16" rx="4"/><path class="net-brain" d="M508 216 l4 6 -8 0z"/><path class="net-brain-fold" d="M508 216 L508 228"/><text class="net-sub" x="520" y="222">5/5</text></g>
+        <circle class="net-spark" data-glow data-tone="ok" cx="400" cy="90" r="8"/><circle class="net-spark" data-tone="ok" cx="400" cy="90" r="3"/>
+        <circle class="net-ripple" data-tone="ok" cx="450" cy="90" r="16"/>
+      </svg>
+      <span class="net-probe" data-tone="ink"></span>
+    </div>
+    <div class="net-side">
+      <p class="net-hint">Hover or focus a neuron to light its path to the orchestrator and its subtree.</p>
+      <span class="net-mode"><button type="button" aria-pressed="true">2D</button><button type="button" aria-pressed="false">3D</button></span>
+    </div>
+  </div>
+  <div class="net-stage" data-mode="3d"><canvas class="net-canvas"></canvas><canvas class="net-overlay"></canvas></div>
   <ul class="findings"><li data-tone="warn">zone-auth has 0 truth edges, wants exactly 1</li><li>domain-core has no doc</li></ul>
-  <div class="net-legend"><span><i data-bond="truth"></i>truth-current</span><span><i data-bond="verdict"></i>verdict-current</span><span><i data-bond="reports"></i>reports to</span><span><i data-bond="holds"></i>wears</span></div>
+  <div class="net-legend"><span><i data-bond="truth"></i>truth-current</span><span><i data-bond="verdict"></i>verdict-current</span><span><i data-bond="reports"></i>reports to</span><span><i data-bond="implied"></i>implied</span><span><i data-bond="holds"></i>holds</span><span><b class="net-key"></b>4 weeks of work</span></div>
 </div>

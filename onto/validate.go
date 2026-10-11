@@ -2,6 +2,8 @@ package onto
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -71,7 +73,7 @@ func (w *Workspace) Validate() []Finding {
 		if disjoint {
 			for i := range paths {
 				for j := i + 1; j < len(paths); j++ {
-					if owners[i] == owners[j] || !overlap(paths[i], paths[j]) {
+					if owners[i] == owners[j] || !w.overlap(paths[i], paths[j]) {
 						continue
 					}
 					out = append(out, w.finding(name, owners[i], "ownership", fmt.Sprintf("%s owns %s, overlapping %s of %s", owners[i].Local(), paths[i], paths[j], owners[j].Local())))
@@ -106,15 +108,16 @@ func (w *Workspace) finding(shape string, x Term, field, msg string) Finding {
 	return f
 }
 
-// overlap reports a real ownership collision. Two members asserting the SAME path literal
+// overlap reports a real ownership collision. Two members asserting the SAME file literal
 // (a == b) is NOT a collision: it is a lawful sub-file split — e.g. zone-db-schema owns the
 // tables/migrate() of store.go while zone-db-queries owns its query/scan functions, one file,
-// disjoint responsibility (Principle 2). The workspace-reading keeps the asserted literal, so check
-// respects it. A true collision is namespace nesting: one path a strict ancestor directory of
-// the other (src/auth vs src/auth/login).
-func overlap(a, b string) bool {
+// disjoint responsibility (Principle 2). The same DIRECTORY claimed twice ao: two seats over one
+// whole tree is one zone with two persistent agents. A true collision is also namespace nesting: one path
+// a strict ancestor directory of the other (src/auth vs src/auth/login).
+func (w *Workspace) overlap(a, b string) bool {
 	if a == b {
-		return false
+		fi, err := os.Stat(filepath.Join(w.Root, filepath.FromSlash(a)))
+		return err == nil && fi.IsDir()
 	}
 	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }

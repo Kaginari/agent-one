@@ -13,7 +13,7 @@ type RankDef struct {
 	Job          string   `json:"job"`
 	Authors      *bool    `json:"authors"`
 	HoldsGate    *bool    `json:"holdsGate"`
-	Agent        string   `json:"agent"` // ephemeral | persistent
+	Agent        string   `json:"agent"` // read by nothing: every dispatched agent is a Subagent (a set value is a hole)
 	Role         string   `json:"role"`
 	Tools        []string `json:"tools"` // globs over tool names
 	Model        ModelRef `json:"model"`
@@ -33,7 +33,6 @@ type Rank struct {
 	Job          string
 	Authors      bool
 	HoldsGate    bool
-	Agent        string
 	Role         string
 	Tools        []string
 	Model        ModelRef
@@ -51,15 +50,24 @@ type Rank struct {
 // RootRank is the session's rank: the tree's root, never configured.
 const RootRank = "orchestrator"
 
+// The default promotion conditions: a long record (twenty reports), nearly all landed (a pass rate
+// of 90% or more), nearly none leaving a hole (at most one per ten reports). workspace.DefaultRanks
+// carries the same strings; `ranks.principal-coordinator.promotesWhen` / `ranks.principal-domain-owner.promotesWhen` override
+// them, and an empty string turns promotion off.
+const (
+	DefaultPromoteCoord  = "promote coord when reports >= 20 && passRate >= 90% && holeRate <= 10%"
+	DefaultPromoteDomain = "promote domain when reports >= 20 && passRate >= 90% && holeRate <= 10%"
+)
+
 // builtinRanks is AGENT-ONE.md §The workspace as data.
 var builtinRanks = []Rank{
-	{Name: "coord", ReportsTo: "orchestrator", Job: "the shared skill and voice: thinks across domains, routes work to domain owners, speaks back up", Agent: "ephemeral", Role: "drafter", Tools: []string{"*"}, Dir: "coord", Prefix: "coord-"},
-	{Name: "domain", ReportsTo: "coord", Job: "rules its domain, holds the gate, commands and validates its zone workers", HoldsGate: true, Sideways: true, Agent: "ephemeral", Role: "judge", Tools: []string{"*"}, Dir: "domain", Prefix: "domain-"},
-	{Name: "zone", ReportsTo: "domain", Job: "the ground truth of its zone; authors changes there", Authors: true, Agent: "ephemeral", Role: "analyst", Tools: []string{"*"}, Dir: "zone", Prefix: "zone-"},
-	{Name: "service", ReportsTo: "orchestrator", Job: "a standing domain lead owning one subsystem end-to-end across sessions", Authors: true, HoldsGate: true, Agent: "persistent", Role: "judge", Tools: []string{"*"}, Dir: "service", Prefix: "service-"},
-	{Name: "principal-coordinator", PromotesFrom: "coord", Job: "promoted coord: holds the accumulated cross-domain invariants"},
-	{Name: "principal-domain-owner", PromotesFrom: "domain", Job: "promoted domain: holds the accumulated domain invariants"},
-	{Name: "auditor", ReportsTo: "orchestrator", Job: "the auditor: reviews gate verdicts and log.md for policy violations; never authors", Agent: "ephemeral", Role: "judge", Tools: []string{"read", "glob", "grep", "ls", "recall", "onto", "toolbox", "git", "ask"}, Dir: "auditor", Prefix: "auditor-"},
+	{Name: "coord", ReportsTo: "orchestrator", Job: "the shared skill and voice: thinks across domains, routes work to domain owners, speaks back up", Role: "drafter", Tools: []string{"*"}, Dir: "coord", Prefix: "coord-"},
+	{Name: "domain", ReportsTo: "coord", Job: "rules its domain, holds the gate, commands and validates its zone workers", HoldsGate: true, Sideways: true, Role: "judge", Tools: []string{"*"}, Dir: "domain", Prefix: "domain-"},
+	{Name: "zone", ReportsTo: "domain", Job: "the ground truth of its zone; authors changes there", Authors: true, Role: "analyst", Tools: []string{"*"}, Dir: "zone", Prefix: "zone-"},
+	{Name: "service", ReportsTo: "orchestrator", Job: "a standing domain lead owning one subsystem end-to-end across sessions", Authors: true, HoldsGate: true, Role: "judge", Tools: []string{"*"}, Dir: "service", Prefix: "service-"},
+	{Name: "principal-coordinator", PromotesFrom: "coord", Job: "promoted coordinator: holds the accumulated cross-domain invariants", Dir: "principal-coordinator", Prefix: "principal-coord-", PromotesWhen: DefaultPromoteCoord},
+	{Name: "principal-domain-owner", PromotesFrom: "domain", Job: "promoted domain owner: holds the accumulated domain invariants", Dir: "principal-domain-owner", Prefix: "principal-domain-", PromotesWhen: DefaultPromoteDomain},
+	{Name: "auditor", ReportsTo: "orchestrator", Job: "the auditor: reviews gate verdicts and log.md for policy violations; never authors", Role: "judge", Tools: []string{"read", "glob", "grep", "ls", "recall", "onto", "toolbox", "git", "ask"}, Dir: "auditor", Prefix: "auditor-"},
 }
 
 // RankNames lists the built-in ranks in policy order.
@@ -114,7 +122,11 @@ func (c *Config) buildRanks() error {
 		set("job", func() { r.Job = def.Job })
 		set("authors", func() { r.Authors = *def.Authors })
 		set("holdsGate", func() { r.HoldsGate = *def.HoldsGate })
-		set("agent", func() { r.Agent = def.Agent })
+		if _, ok := c.Origins["ranks."+name+".agent"]; ok {
+			// a persistent agent does not exist: every dispatched agent is a Subagent with a fresh
+			// context, a service owner's included — the field is accepted and named a hole, never obeyed
+			c.Holes = append(c.Holes, fmt.Sprintf("ranks.%s.agent is ignored — every dispatched agent runs as a Subagent with a fresh context (%s)", name, c.Where("ranks."+name+".agent")))
+		}
 		set("role", func() { r.Role = def.Role })
 		set("tools", func() { r.Tools = def.Tools })
 		set("model", func() { r.Model = def.Model })
@@ -125,9 +137,6 @@ func (c *Config) buildRanks() error {
 		set("layer", func() { r.Layer = def.Layer })
 		set("divineRules", func() { r.DivineRules = def.DivineRules })
 		set("promotesWhen", func() { r.PromotesWhen = def.PromotesWhen })
-		if def.Agent != "" && def.Agent != "ephemeral" && def.Agent != "persistent" {
-			return fmt.Errorf("%s: ranks.%s.agent: %q is not ephemeral or persistent", c.Where("ranks."+name+".agent"), name, def.Agent)
-		}
 		// models.ranks.<r> and ranks.<r>.model are one slot.
 		if mr, ok := c.Models.Ranks[name]; ok && def.Model.Model != "" && mr.Model != def.Model.Model {
 			return fmt.Errorf("%s: ranks.%s.model %q conflicts with models.ranks.%s %q (%s) — one slot, one value",
@@ -158,11 +167,8 @@ func (c *Config) buildRanks() error {
 		inherit("authors", func() { r.Authors = base.Authors })
 		inherit("holdsGate", func() { r.HoldsGate = base.HoldsGate })
 		inherit("sideways", func() { r.Sideways = base.Sideways })
-		inherit("agent", func() { r.Agent = base.Agent })
 		inherit("role", func() { r.Role = base.Role })
 		inherit("tools", func() { r.Tools = base.Tools })
-		inherit("dir", func() { r.Dir = base.Dir })
-		inherit("prefix", func() { r.Prefix = base.Prefix })
 		inherit("model", func() { r.Model = base.Model })
 		inherit("layer", func() { r.Layer = base.Layer })
 		for f, dropped := range map[string]bool{"authors": base.Authors && !r.Authors, "holdsGate": base.HoldsGate && !r.HoldsGate, "sideways": base.Sideways && !r.Sideways} {
@@ -171,7 +177,9 @@ func (c *Config) buildRanks() error {
 			}
 		}
 		// divineRules and promotesWhen are the promoted rank's own — never inherited from a base
-		// (a base does not carry its overload's rules or its evolution condition).
+		// (a base does not carry its overload's rules or its evolution condition). So are dir and
+		// prefix: the promoted agent lives in its own dir (default: the rank's name), or its registered
+		// name would be its base's.
 	}
 	// Validations that need every name resolved (promotesWhen parses and must name its base).
 	for _, name := range order {
@@ -199,9 +207,6 @@ func (c *Config) buildRanks() error {
 	// Defaults for new ranks.
 	for _, name := range order {
 		r := byName[name]
-		if r.Agent == "" {
-			r.Agent = "ephemeral"
-		}
 		if len(r.Tools) == 0 {
 			r.Tools = []string{"*"}
 		}
@@ -250,7 +255,7 @@ func (c *Config) buildRanks() error {
 	return nil
 }
 
-var rankFields = []string{"reportsTo", "job", "authors", "holdsGate", "agent", "role", "tools", "model", "dir", "prefix", "promotesFrom", "sideways", "layer", "divineRules", "promotesWhen"}
+var rankFields = []string{"reportsTo", "job", "authors", "holdsGate", "role", "tools", "model", "dir", "prefix", "promotesFrom", "sideways", "layer", "divineRules", "promotesWhen"}
 
 func (c *Config) rankWhere(name, field string) string { return c.Where("ranks." + name + "." + field) }
 
@@ -324,13 +329,21 @@ func (c *Config) RankTree() string {
 				marks = append(marks, fmt.Sprintf("%d divine rules", len(r.DivineRules)))
 			}
 			if r.PromotesWhen != "" {
-				marks = append(marks, "when `"+r.PromotesWhen+"`")
+				// the condition only: "promote <base>" is canonical words, and the base is named above
+				cond := r.PromotesWhen
+				if _, after, ok := strings.Cut(cond, " when "); ok {
+					cond = after
+				}
+				marks = append(marks, "when `"+strings.TrimSpace(cond)+"`")
 			}
-			marks = append(marks, r.Agent)
 			if r.Role != "" {
 				marks = append(marks, "role "+r.Role)
 			}
-			fmt.Fprintf(&b, "%s%s (%s)\n", pad, ch, strings.Join(marks, ", "))
+			if len(marks) == 0 {
+				fmt.Fprintf(&b, "%s%s\n", pad, ch)
+			} else {
+				fmt.Fprintf(&b, "%s%s (%s)\n", pad, ch, strings.Join(marks, ", "))
+			}
 			walk(ch, pad+"  ")
 		}
 	}

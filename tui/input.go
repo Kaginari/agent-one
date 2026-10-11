@@ -37,6 +37,9 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.railCollapsed[key] = !m.railCollapsed[key]
 		return m, nil
 	}
+	if k.String() == "alt+s" {
+		return m, m.toggleSidebar()
+	}
 	if k.String() == "ctrl+k" {
 		m.openPalette()
 		return m, nil
@@ -47,17 +50,10 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.say(fmt.Sprintf("plan · %s (%d/%d)", m.plans[m.planIdx].Agent, m.planIdx+1, len(m.plans)))
 		return m, nil
 	}
-	// c — current (LEC-2026-10-04-STALE-PLANS Order 2): only when the viewed deck is stale or
-	// archived AND the viewer deliberately pinned it (planSticky — coord-agent-one relay 2026-10-13)
-	// do we snap back to this session's own live deck; a boot-default stale view never eats the
-	// rune. Placed before the paging branch so a long stale deck cannot swallow it.
-	if k.String() == "c" && m.planSticky && len(m.plans) > 0 && (m.plans[m.planIdx].Stale || m.plans[m.planIdx].Archived) {
-		m.snapPlanToCurrent()
-		return m, nil
-	}
-	// C — shift+c escape hatch (2026-10-13): snaps to the current deck from ANY view, sticky or
-	// boot-default, whenever a live deck exists — banner distinct from the lowercase chord's.
-	if k.String() == "C" && len(m.plans) > 0 {
+	// alt+n — now (LEC-2026-10-04-STALE-PLANS Order 2): snaps the plan card back to this
+	// session's own live deck from any view. A chord, never a plain rune: a letter here would
+	// eat the first one of a typed word.
+	if k.String() == "alt+n" && len(m.plans) > 0 {
 		m.snapPlanToCurrent()
 		return m, nil
 	}
@@ -73,33 +69,43 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch ks {
 	case "ctrl+c":
-		now := time.Now()
-		if now.Sub(m.lastCtrlC) < 2*time.Second {
-			m.quit = true
-			return m, tea.Quit
-		}
-		m.lastCtrlC = now
-		if m.busy {
+		// a draft clears first, a turn interrupts second; only an idle, empty input arms the
+		// exit — a mashed ctrl+c stops the turn, never the session
+		switch {
+		case m.input.Value() != "":
+			m.clearDraft()
+			m.lastCtrlC = time.Time{}
+			return m, nil
+		case m.busy:
 			m.host.Interrupt()
-			m.say("interrupting · ctrl+c again to exit")
+			m.lastCtrlC = time.Time{}
+			m.say("interrupting…")
 			return m, nil
 		}
+		now := time.Now()
+		if now.Sub(m.lastCtrlC) < 2*time.Second {
+			return m, m.leave()
+		}
+		m.lastCtrlC = now
 		m.say("ctrl+c again to exit")
 		return m, nil
 	case "ctrl+l":
 		return m, m.reflow()
+	case "ctrl+y":
+		return m, m.copyAnswer()
 	case "ctrl+o":
 		return m, m.expandLast()
 	case "esc":
 		switch {
+		case m.sel != nil:
+			m.sel = nil
 		case m.menu != nil || m.comp != nil:
 			m.menu, m.comp = nil, nil
 		case m.busy:
 			m.host.Interrupt()
 			m.say("interrupting…")
 		default:
-			m.input.Reset()
-			m.input.SetHeight(1)
+			m.clearDraft()
 		}
 		return m, nil
 	case "up", "down":
@@ -111,9 +117,10 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case m.comp != nil:
 			m.comp.cursor = step(m.comp.cursor, len(m.comp.items), up)
 			return m, nil
-		case up && m.input.Line() == 0:
+		// history only from the first / last visual row: ↑ ↓ walk a wrapped line's rows first
+		case up && m.input.Line() == 0 && m.input.LineInfo().RowOffset == 0:
 			return m, m.historyMove(-1)
-		case !up && m.input.Line() == m.input.LineCount()-1:
+		case !up && m.input.Line() == m.input.LineCount()-1 && m.input.LineInfo().RowOffset >= m.input.LineInfo().Height-1:
 			return m, m.historyMove(1)
 		}
 	case "tab":
@@ -134,7 +141,6 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "shift+enter", "alt+enter", "ctrl+j":
 		// a newline in the ask; shift+enter reaches us on terminals with key disambiguation
 		m.input.InsertString("\n")
-		m.grow()
 		return m, nil
 	case "enter":
 		switch {
@@ -151,7 +157,6 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if v := m.input.Value(); strings.HasSuffix(v, "\\") {
 			m.setInput(strings.TrimSuffix(v, "\\") + "\n")
-			m.grow()
 			return m, nil
 		}
 		return m, m.submit()
@@ -163,17 +168,15 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
-	m.grow()
 	m.refreshMenus()
 	return m, cmd
 }
 
-// snapPlanToCurrent — 'c' "current" switch (LEC-2026-10-04-STALE-PLANS Order 2). Snaps planIdx
+// snapPlanToCurrent — the alt+n "current" switch (LEC-2026-10-04-STALE-PLANS Order 2). Snaps planIdx
 // back to the running session's OWN live deck: the orchestrator-card (orchestrator/orchestrator) deck that
 // is neither Archived nor Stale — without leaving the plan view. planSticky resets so the coordinator
 // default resumes; stale and archived decks stay browsable (ctrl+p and the subagent-row click
-// still reach them). Stale decks are rejected as snap targets (2026-10-13 relay): re-snapping
-// onto another stale deck kept the chord's gate condition true and looped the swallow forever.
+// still reach them). Stale decks are never snap targets: the current deck is a live one.
 func (m *Model) snapPlanToCurrent() {
 	m.planSticky = false
 	for i := range m.plans {
@@ -212,22 +215,9 @@ func step(cur, n int, up bool) int {
 	return (cur + 1) % n
 }
 
-// grow sizes the textarea to its content, up to its maximum.
-func (m *Model) grow() {
-	h := m.input.LineCount()
-	if h < 1 {
-		h = 1
-	}
-	if h > m.input.MaxHeight {
-		h = m.input.MaxHeight
-	}
-	m.input.SetHeight(h)
-}
-
 func (m *Model) setInput(s string) {
 	m.input.SetValue(s)
 	m.input.CursorEnd()
-	m.grow()
 }
 
 // refreshMenus opens, filters or closes the slash menu and the @completion after a keystroke.
@@ -324,14 +314,12 @@ func (m *Model) paste(text string) tea.Cmd {
 	n := strings.Count(strings.TrimRight(text, "\n"), "\n") + 1
 	if n < pasteCollaps {
 		m.input.InsertString(text)
-		m.grow()
 		m.refreshMenus()
 		return nil
 	}
 	ph := fmt.Sprintf("[pasted %d lines #%d]", n, len(m.pasted)+1)
 	m.pasted[ph] = text
 	m.input.InsertString(ph)
-	m.grow()
 	return nil
 }
 
@@ -351,7 +339,6 @@ func (m *Model) submit() tea.Cmd {
 		return nil
 	}
 	m.input.Reset()
-	m.input.SetHeight(1)
 	m.menu, m.comp = nil, nil
 	m.pasted = map[string]string{}
 	m.remember(text)
@@ -381,12 +368,26 @@ func (m *Model) slash(line string) tea.Cmd {
 			return m.theme.Menu(items, -1, w) + "\n" + m.theme.Shortcuts(DefaultShortcuts(), w)
 		})
 	case "quit", "exit", "q":
-		m.quit = true
-		return tea.Quit
+		return m.leave()
 	case "board":
 		return m.openBoard()
+	case "copy":
+		return m.copyAnswer()
+	case "mouse":
+		return m.toggleMouse()
+	case "sidebar":
+		return m.toggleSidebar()
+	case "settings":
+		return m.openSettings()
+	case "theme":
+		t := NewTheme(!m.theme.Dark)
+		t.Forced = true
+		m.setTheme(t)
+		return m.reflow()
+	case "roles":
+		return m.print(func(w int) string { return m.theme.Roles(m.wel.Roles, w) })
 	case "clear":
-		m.blocks = nil
+		m.blocks, m.printedIdx = nil, 0
 		return m.reflow()
 	}
 	_ = rest
@@ -398,7 +399,32 @@ func (m *Model) slash(line string) tea.Cmd {
 	})
 }
 
+// toggleSidebar hides the sidebar (the conversation takes the whole frame) or brings it back.
+// The transcript rewraps at the new width.
+func (m *Model) toggleSidebar() tea.Cmd {
+	m.railOff = !m.railOff
+	if m.railOff {
+		m.say("sidebar hidden · alt+s brings it back")
+	} else {
+		m.say("sidebar shown")
+	}
+	return m.reflow()
+}
+
 // history
+
+// clearDraft empties the input; the draft stays one ↑ away, as the newest history item.
+func (m *Model) clearDraft() {
+	v := m.input.Value()
+	m.input.Reset()
+	m.menu, m.comp = nil, nil
+	if strings.TrimSpace(v) == "" {
+		return
+	}
+	m.remember(m.expandPastes(v))
+	m.pasted = map[string]string{}
+	m.say("input cleared · ↑ brings it back")
+}
 
 func (m *Model) remember(text string) {
 	if n := len(m.history); n > 0 && m.history[n-1] == text {

@@ -115,7 +115,6 @@
       "reportsTo": "domain",
       "job": "keeps the workspace's changelog",
       "authors": true,
-      "agent": "ephemeral",
       "role": "drafter",
       "tools": ["read", "write", "edit", "git"]
     }

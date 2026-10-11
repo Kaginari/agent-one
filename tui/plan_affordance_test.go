@@ -54,10 +54,9 @@ func TestFooterHintNamesThePlanKey(t *testing.T) {
 }
 
 // TestDefaultShortcutsListThePlanKeys pins the '?' overlay rows for the plan
-// affordance: ctrl+p walks decks, plain 'c' snaps to the current deck but
-// only out of a stale/archived view (the input.go gate — on a live deck
-// 'c' stays a typed rune). The wording must not overclaim: no walk-back key
-// exists (ctrl+n is overlay scroll), and 'c' never jumps between live decks.
+// affordance: ctrl+p walks decks, alt+n snaps to the current deck off a
+// stale one. The wording must not overclaim: no walk-back key exists
+// (ctrl+n is overlay scroll), and no plain letter is a chord.
 func TestDefaultShortcutsListThePlanKeys(t *testing.T) {
 	list := DefaultShortcuts()
 	var ctrlP, snapC *Shortcut
@@ -65,7 +64,7 @@ func TestDefaultShortcutsListThePlanKeys(t *testing.T) {
 		switch list[i].Key {
 		case "ctrl+p":
 			ctrlP = &list[i]
-		case "c":
+		case "alt+n":
 			snapC = &list[i]
 		}
 	}
@@ -75,13 +74,13 @@ func TestDefaultShortcutsListThePlanKeys(t *testing.T) {
 		t.Fatalf("ctrl+p row names the plan decks, got %q", ctrlP.Does)
 	}
 	if snapC == nil {
-		t.Fatal("DefaultShortcuts lists c")
+		t.Fatal("DefaultShortcuts lists alt+n")
 	} else {
 		if !strings.Contains(snapC.Does, "current") {
-			t.Fatalf("c row names the current deck, got %q", snapC.Does)
+			t.Fatalf("alt+n row names the current deck, got %q", snapC.Does)
 		}
 		if !strings.Contains(snapC.Does, "stale") {
-			t.Fatalf("c row names the stale/archived gate, got %q", snapC.Does)
+			t.Fatalf("alt+n row names the stale deck, got %q", snapC.Does)
 		}
 	}
 	// the honest-keys policy: no row may promise a deck walk-back that doesn't exist

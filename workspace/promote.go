@@ -1,9 +1,12 @@
 package workspace
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -13,82 +16,158 @@ import (
 // Promotion is the coded answer to "a domain owner with experience evolves": a rank declares
 // promotesWhen (ASL), the workspace keeps a MetricsStore that every Subagent report folds into, and
 // after each fold the workspace evaluates the divine bonds. A base agent whose snapshot crosses the
-// condition is promoted: the harness registers the promoted agent — its doc lands on disk under the
-// base's dir, the roster gains it — without a prompt, without the agent asking. rankSet: replace
-// still governs which ranks exist; promotesWhen is what config adds to a promoted rank so the
-// workspace knows the bond is lived, not just declared.
+// condition promotes: the harness registers the promoted agent in the promoted rank's own dir under
+// the base's short name (domain-engine → principal-domain-engine), carrying the base's doc whole — every
+// invariant, ownership, verify line and Skill (AGENT-ONE.md Principle 5: "a promoted member keeps every
+// invariant and ownership it held before") — and retires the base's seat, so one agent holds the
+// soil and ownerships stay disjoint. The retired seat keeps its graph memory; members that
+// reported to it now report to its promoted (the roster resolves the succession).
+//
+// Each report folds into an append-only tally (`<workspaceDir>/instruments/promotion.jsonl`)
+// replayed at Open, so a record earned over many sessions counts. Each promotion is appended
+// to log.md with the reading that earned it; each failure is a hole, logged and surfaced to
+// the dispatcher as `@?`.
 //
 // Nothing here reads a prompt. Evaluation is the ASL condition over the tally, deterministic;
 // the register and the doc write are the workspace's own.
 
+// promotionShelf is the tally's ledger under the workspace dir.
+const promotionShelf = "instruments/promotion.jsonl"
+
 // ascender is one resolved divine bond the workspace watches.
 type ascender struct {
-	To   Rank            // the promoted rank (holds PromotesWhen)
-	ASL  ASL             // its parsed condition
-	Done map[string]bool // agents already promoted this session — register once
+	To  Rank // the promoted rank (holds PromotesWhen)
+	ASL ASL  // its parsed condition
 }
 
-// promoteState is Workspace's promotion machinery, guarded by the workspace lock.
+// promoteState is Workspace's promotion machinery, guarded by its own lock.
 type promoteState struct {
 	mu      sync.Mutex
 	metrics *MetricsStore
 	watch   map[string]ascender // base rank → what promotes from it
-	Events  []PromoteEvent      // the ledger of promotions this session
-	holes   []string            // register failures, surfaced at Close as an error
+	done    map[string]bool     // base agents already promoted (replayed from the shelf)
+	Events  []PromoteEvent      // the promotions of this session
+	news    []PromoteEvent      // registered, not yet announced to a dispatcher
+	holes   []string            // register failures, drained by PromoteHoles
 }
 
-// PromoteEvent is one registered promotion, journaled so the log can say what happened.
+// PromoteEvent is one registered promotion.
 type PromoteEvent struct {
-	Base  string    // the ranking agent (domain-auth)
-	New   string    // the promoted agent (principal-domain-owner-auth)
-	Rank  string    // the promoted rank (principal_domain_owner)
-	When  string    // the ASL condition, as config wrote it
+	Base  string    `json:"base"` // the ranking agent (domain-auth)
+	New   string    `json:"new"`  // the promoted agent (principal-domain-auth)
+	Rank  string    `json:"rank"` // the promoted rank (principal_domain_owner)
+	When  string    `json:"when"` // the ASL condition, as config wrote it
 	At    time.Time `json:"at"`
-	Doc   string    // the doc the harness wrote for the new agent
-	MetAt string    // the snapshot line that crossed the condition
+	Doc   string    `json:"doc"` // the doc the harness wrote for the new agent
+	MetAt string    `json:"met"` // the snapshot line that crossed the condition
 }
 
-// promoteState builds the watch list from the rank table, or nil when no rank promotes.
+// tallyRow is one line of the promotion shelf: a report folded, or a promotion registered.
+type tallyRow struct {
+	Kind   string    `json:"kind"` // report | promote
+	Agent  string    `json:"agent"`
+	Status string    `json:"status,omitempty"`
+	Holes  int       `json:"holes,omitempty"`
+	New    string    `json:"new,omitempty"`
+	At     time.Time `json:"at"`
+}
+
+// newPromoteState builds the watch list from the rank table, or nil when no rank promotes.
 func newPromoteState(rs Ranks) *promoteState {
 	as := rs.Promotions()
 	if len(as) == 0 {
 		return nil
 	}
-	st := &promoteState{metrics: NewMetricsStore(), watch: map[string]ascender{}}
+	st := &promoteState{metrics: NewMetricsStore(), watch: map[string]ascender{}, done: map[string]bool{}}
 	for _, a := range as {
 		cond, err := ParseASL(a.When)
 		if err != nil { // Validate has already refused this; belt and braces
 			continue
 		}
 		to, _ := rs.Get(a.To)
-		st.watch[a.From] = ascender{To: to, ASL: cond, Done: map[string]bool{}}
+		st.watch[a.From] = ascender{To: to, ASL: cond}
 	}
 	return st
 }
 
-// FoldMetrics counts one Subagent report and runs the promotion pass. The parent agent is who gets
-// the tally (the ranking agent is the dispatcher's *target* — but the target filed the report,
-// so its own record grows; promotion reads the target's rank, never the dispatcher's).
+// tallyNote appends one row to the shelf (callers hold promote.mu, so the file's order is the
+// tally's order).
+func (w *Workspace) tallyNote(r tallyRow) {
+	if r.At.IsZero() {
+		r.At = time.Now().UTC()
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return
+	}
+	p := filepath.Join(w.Dir(), filepath.FromSlash(promotionShelf))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(b, '\n'))
+}
+
+// loadTally replays the shelf: every report folds again, every promotion marks its base done.
+// An unreadable shelf opens the workspace with an empty tally, never blocks it.
+func (w *Workspace) loadTally() {
+	if w.promote == nil {
+		return
+	}
+	f, err := os.Open(filepath.Join(w.Dir(), filepath.FromSlash(promotionShelf)))
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 16<<20)
+	w.promote.mu.Lock()
+	defer w.promote.mu.Unlock()
+	for sc.Scan() {
+		var r tallyRow
+		if json.Unmarshal(sc.Bytes(), &r) != nil || r.Agent == "" {
+			continue
+		}
+		switch r.Kind {
+		case "report":
+			w.promote.metrics.Fold(r.Agent, r.Status, r.Holes)
+		case "promote":
+			w.promote.done[r.Agent] = true
+		}
+	}
+}
+
+// FoldMetrics counts one Subagent report — on the shelf and in memory — and runs the promotion
+// pass. The tally belongs to the agent that filed the report; promotion reads its rank, never
+// the dispatcher's.
 func (w *Workspace) FoldMetrics(agent, status string, holes int) {
 	if w.promote == nil {
 		return
 	}
 	w.promote.mu.Lock()
 	w.promote.metrics.Fold(agent, status, holes)
+	w.tallyNote(tallyRow{Kind: "report", Agent: agent, Status: status, Holes: holes})
 	w.promote.mu.Unlock()
 	w.promoteMaybe(agent)
 }
 
-// promoteMaybe evaluates every divine bond against the agent's rank. It registers at most one
-// promotion per base agent per session; the event is journaled and the roster reloaded.
+// promoteMaybe evaluates the divine bond over the agent's rank. An agent promotes once: the shelf
+// and the roster (a live member naming it as its base) both remember.
 func (w *Workspace) promoteMaybe(agent string) {
 	if w.promote == nil {
 		return
 	}
-	w.promote.mu.Lock()
 	rank := w.RankOf(agent).Name
+	if w.successorOf(agent) != "" {
+		return
+	}
+	w.promote.mu.Lock()
 	watcher, ok := w.promote.watch[rank]
-	if !ok || watcher.Done[agent] {
+	if !ok || w.promote.done[agent] {
 		w.promote.mu.Unlock()
 		return
 	}
@@ -98,107 +177,150 @@ func (w *Workspace) promoteMaybe(agent string) {
 		return
 	}
 	// the crossing is real: mark before the write so a reload cannot double-register
-	watcher.Done[agent] = true
-	w.promote.watch[rank] = watcher
+	w.promote.done[agent] = true
 	w.promote.mu.Unlock()
 
-	newName, ev, err := w.registerPromoted(agent, watcher, m)
+	ev, err := w.registerPromoted(agent, watcher, m)
 	if err != nil {
-		w.promote.mu.Lock()
-		w.promote.holes = append(w.promote.holes, fmt.Sprintf("promote %s: %v", agent, err))
-		w.promote.mu.Unlock()
+		w.promoteHole(agent, watcher, fmt.Sprintf("promote %s: %v", agent, err))
 		return
 	}
 	w.promote.mu.Lock()
-	ev.At = time.Now()
 	w.promote.Events = append(w.promote.Events, ev)
+	w.promote.news = append(w.promote.news, ev)
+	w.tallyNote(tallyRow{Kind: "promote", Agent: agent, New: ev.New, At: ev.At})
 	w.promote.mu.Unlock()
-	// the promoted agent must be dispatchable on the next commission: re-derive the roster so
-	// membersOf reads the registered doc through the ontology, agent consistent with the others.
+	if err := w.AppendLog(Entry{At: ev.At, Author: ev.New, Title: fmt.Sprintf("promotion — %s rose as %s", agent, ev.New),
+		Task:    "promotesWhen `" + ev.When + "`",
+		Files:   []string{ev.Doc, w.docOf(agent)},
+		Gate:    "n/a (registered by the harness; no agent wrote it)",
+		Result:  fmt.Sprintf("%s (%s) holds %s's ownership, invariants and verify; %s's seat retired", ev.New, ev.Rank, agent, agent),
+		Learned: []string{"earned: " + ev.MetAt}}); err != nil {
+		w.promoteHole(agent, watcher, fmt.Sprintf("promote %s: log.md: %v", agent, err))
+	}
+	// the promoted agent must be dispatchable on the next commission and the base must leave
+	// the roster: re-derive it from the docs
 	if err := w.Reload(); err != nil {
-		w.promote.mu.Lock()
-		w.promote.holes = append(w.promote.holes, fmt.Sprintf("reload %s: %v", newName, err))
-		w.promote.mu.Unlock()
+		w.promoteHole(agent, watcher, fmt.Sprintf("reload after %s: %v", ev.New, err))
 	}
 }
 
-// registerPromoted names the promoted agent, writes its doc beside the base's, and reloads the
-// roster so the new member is dispatchable. The doc is the harness's own — a record of the
-// promotion, never the base's doc edited.
-func (w *Workspace) registerPromoted(base string, a ascender, m Metrics) (string, PromoteEvent, error) {
-	baseC := w.Member(base)
-	if baseC == nil {
-		return "", PromoteEvent{}, fmt.Errorf("no member %q on the roster", base)
+// promoteHole records one failure: drained by PromoteHoles for the dispatcher, and appended to
+// log.md so the record names it even when no dispatcher reads it.
+func (w *Workspace) promoteHole(agent string, a ascender, msg string) {
+	w.promote.mu.Lock()
+	w.promote.holes = append(w.promote.holes, msg)
+	w.promote.mu.Unlock()
+	_ = w.AppendLog(Entry{Author: agent, Title: "promotion hole — " + agent, Task: "promotesWhen `" + a.ASL.String() + "`",
+		Gate: "n/a (the harness's own act)", Result: "hole: " + msg})
+}
+
+// docOf is a member's doc path, "" when it is not on the roster.
+func (w *Workspace) docOf(name string) string {
+	if c := w.Member(name); c != nil {
+		return c.Doc
 	}
-	// the promoted id: the promoted rank's prefix + the base's short name, in its dir
-	short := base
-	for _, p := range []string{baseC.Rank + "-", a.To.Base + "-"} {
-		short = strings.TrimPrefix(short, p)
-	}
-	prefix := a.To.Prefix
-	if prefix == "" && a.To.Base != "" {
-		if br, ok := w.Ranks.Get(a.To.Base); ok {
-			prefix = br.Prefix
+	return ""
+}
+
+// successorOf names the live member that promoted from `base`, "" when none.
+func (w *Workspace) successorOf(base string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, c := range w.Members {
+		if c.PromotedOf == base {
+			return c.Name
 		}
 	}
-	newName := prefix + short
+	return ""
+}
+
+// registerPromoted writes the promoted agent's doc in the promoted rank's own dir — the base's doc
+// carried whole under the new name, with the bond and the reading that earned it — then retires
+// the base's seat. The base retires only once the new doc stands, so a failed register never
+// orphans the ownership.
+func (w *Workspace) registerPromoted(base string, a ascender, m Metrics) (PromoteEvent, error) {
+	baseC := w.Member(base)
+	if baseC == nil {
+		return PromoteEvent{}, fmt.Errorf("no member %q on the roster", base)
+	}
+	if baseC.Doc == "" {
+		return PromoteEvent{}, fmt.Errorf("%s carries no doc to promote with", base)
+	}
+	baseRank, _ := w.Ranks.Get(baseC.Rank)
+	if a.To.Dir == "" || a.To.Prefix == "" || a.To.Dir == baseRank.Dir || a.To.Prefix == baseRank.Prefix {
+		return PromoteEvent{}, fmt.Errorf("rank %s needs a dir and prefix of its own (ranks.%s.dir / .prefix) — on %s's the promoted name would be the base's", a.To.Name, strings.ReplaceAll(a.To.Name, "_", "-"), baseRank.Name)
+	}
+	short := strings.TrimPrefix(base, baseRank.Prefix)
+	newName := a.To.Prefix + short
 	if w.Member(newName) != nil {
-		return "", PromoteEvent{}, fmt.Errorf("%q is already on the roster", newName)
+		return PromoteEvent{}, fmt.Errorf("%q is already on the roster", newName)
 	}
-	dir := a.To.Dir
-	if dir == "" {
-		dir = baseC.Dir
-	}
-	// the folder is the base's short name; in the promoted rank's own dir there is no
-	// collision. When the promoted shares the base's dir, the README would land on the base's
-	// own doc — the stat below refuses rather than overwrite.
-	docRel := filepath.ToSlash(filepath.Join(w.Lex.WorkspaceDir, dir, short, "README.md"))
+	docRel := filepath.ToSlash(filepath.Join(w.Lex.WorkspaceDir, a.To.Dir, short, "README.md"))
 	abs := filepath.Join(w.Root, filepath.FromSlash(docRel))
 	if _, err := os.Stat(abs); err == nil {
-		return "", PromoteEvent{}, fmt.Errorf("%s already stands on disk", docRel)
+		return PromoteEvent{}, fmt.Errorf("%s already stands on disk", docRel)
+	}
+	text, err := os.ReadFile(filepath.Join(w.Root, filepath.FromSlash(baseC.Doc)))
+	if err != nil {
+		return PromoteEvent{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return "", PromoteEvent{}, err
+		return PromoteEvent{}, err
 	}
-	metAt := fmt.Sprintf("reports %d passes %d fails %d holes %d passRate %.0f%%",
-		m.Reports, m.Passes, m.Fails, m.Holes, m.rate(m.Passes))
-	doc := promoteDoc(newName, a.To, base, watcherWhen(a), metAt, rankParentOf(w.Ranks, a.To.Name, base))
-	if err := os.WriteFile(abs, []byte(doc), 0o644); err != nil {
-		return "", PromoteEvent{}, err
+	now := time.Now().UTC()
+	date := now.Format("2006-01-02")
+	metAt := fmt.Sprintf("reports %d, passes %d, fails %d, holes %d, passRate %.0f%%, holeRate %.0f%%",
+		m.Reports, m.Passes, m.Fails, m.Holes, m.rate(m.Passes), m.rate(m.Holes))
+	when := a.ASL.String()
+	if err := os.WriteFile(abs, []byte(promoteDoc(string(text), newName, a.To, base, when, metAt, date)), 0o644); err != nil {
+		return PromoteEvent{}, err
 	}
-	ev := PromoteEvent{Base: base, New: newName, Rank: a.To.Name, When: watcherWhen(a), Doc: docRel, MetAt: metAt}
-	return newName, ev, nil
+	if err := w.retireDocWhy(baseC, "promoted "+date+": the agent rose as "+newName+", its ownership and invariants with it"); err != nil {
+		_ = os.Remove(abs) // the base still holds the soil: the half-registered promoted goes
+		return PromoteEvent{}, fmt.Errorf("retiring %s: %v", base, err)
+	}
+	return PromoteEvent{Base: base, New: newName, Rank: a.To.Name, When: when, At: now, Doc: docRel, MetAt: metAt}, nil
 }
 
-// promoteDoc is the agent card the harness registers for a promotion — the workspace's words, carrying
-// the rank, the ownership it inherits, the bond to its base, and why it rose.
-func promoteDoc(name string, to Rank, base, when, metAt, parent string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n", name)
-	fmt.Fprintf(&b, "- **Rank:** %s (promoted %s)\n", to.Name, to.Base)
-	fmt.Fprintf(&b, "- **Owns:** inherits the base's — the promoted keeps everything %s held\n", to.Base)
-	fmt.Fprintf(&b, "- **Ascendant of:** `%s`\n", base)
-	fmt.Fprintf(&b, "- **Purpose:** %s\n", or(to.Job, "the consolidated shape of its base's experience"))
-	fmt.Fprintf(&b, "\n## Promotion\n\n")
-	fmt.Fprintf(&b, "- **Condition:** `%s`\n- **Crossed at:** %s\n", when, metAt)
-	if parent != "" {
-		fmt.Fprintf(&b, "\n## Bond\n\n- **Above:** `%s`\n", parent)
+var (
+	reH1     = regexp.MustCompile(`(?m)^#[ \t]+.*$`)
+	reRankLn = regexp.MustCompile(`(?mi)^[ \t]*[-*][ \t]*\*\*rank:?\*\*:?.*$`)
+	reAscOf  = regexp.MustCompile("(?mi)^[ \\t]*[-*][ \\t]*\\*\\*promoted from:?\\*\\*:?[ \\t]*`?([a-z0-9][a-z0-9_-]*)`?")
+)
+
+// promoteDoc is the promoted agent's card: the base's doc carried whole — identity renamed, the
+// rank line naming the promoted rank, the bond to the base — and a Promotion section with the
+// condition and the reading that crossed it.
+func promoteDoc(base, name string, to Rank, from, when, metAt, date string) string {
+	doc := base
+	if loc := reH1.FindStringIndex(doc); loc != nil {
+		doc = doc[:loc[0]] + "# " + name + doc[loc[1]:]
+	} else {
+		doc = "# " + name + "\n\n" + doc
 	}
-	return b.String()
+	bond := fmt.Sprintf("- **Rank:** %s\n- **Promoted from:** `%s` — promoted %s; its ownership, invariants and verify carried whole", to.Name, from, date)
+	if loc := reRankLn.FindStringIndex(doc); loc != nil {
+		doc = doc[:loc[0]] + bond + doc[loc[1]:]
+	} else if loc := reH1.FindStringIndex(doc); loc != nil {
+		doc = doc[:loc[1]] + "\n\n" + bond + doc[loc[1]:]
+	}
+	if !strings.HasSuffix(doc, "\n") {
+		doc += "\n"
+	}
+	doc += fmt.Sprintf("\n## Promotion\n\n- **Condition:** `%s`\n- **Crossed at:** %s\n- **Date:** %s\n", when, metAt, date)
+	return doc
 }
 
-// rankParentOf names the promoted agent's one-hop-up — the promoted rank's own reportsTo,
-// falling back to the base agent it promoted from when config left the rank's parent blank.
-func rankParentOf(rs Ranks, promotedRank, base string) string {
-	if r, ok := rs.Get(promotedRank); ok && r.ReportsTo != "" {
-		return r.ReportsTo
+// promotedOf reads the base a member's doc says it promoted from ("" for none).
+func promotedOf(doc string) string {
+	if m := reAscOf.FindStringSubmatch(doc); m != nil {
+		return strings.ToLower(m[1])
 	}
-	return base
+	return ""
 }
 
-func watcherWhen(a ascender) string { return a.ASL.String() }
-
-// Promotions is the session's ledger of registered promotions (the log sink reads it).
+// Promotions is the session's ledger of registered promotions.
 func (w *Workspace) Promotions() []PromoteEvent {
 	if w.promote == nil {
 		return nil
@@ -210,7 +332,19 @@ func (w *Workspace) Promotions() []PromoteEvent {
 	return out
 }
 
-// PromoteHoles drains the promotion failures so a whole-workspace error surface can report them.
+// PromoteNews drains the promotions registered since the last call — the dispatcher announces them.
+func (w *Workspace) PromoteNews() []PromoteEvent {
+	if w.promote == nil {
+		return nil
+	}
+	w.promote.mu.Lock()
+	defer w.promote.mu.Unlock()
+	out := w.promote.news
+	w.promote.news = nil
+	return out
+}
+
+// PromoteHoles drains the promotion failures — the dispatcher surfaces them as `@?`.
 func (w *Workspace) PromoteHoles() []string {
 	if w.promote == nil {
 		return nil
@@ -219,6 +353,19 @@ func (w *Workspace) PromoteHoles() []string {
 	defer w.promote.mu.Unlock()
 	out := append([]string(nil), w.promote.holes...)
 	w.promote.holes = nil
+	return out
+}
+
+// promoteLines renders what the last fold did for the dispatcher's report: each promotion
+// announced, each hole as `@?`.
+func (w *Workspace) promoteLines() []string {
+	var out []string
+	for _, ev := range w.PromoteNews() {
+		out = append(out, fmt.Sprintf("[promotion] %s rose as %s (%s): %s — its ownership, invariants and verify carried whole; %s's seat retired; dispatch %s from now on (log.md)", ev.Base, ev.New, ev.Rank, ev.MetAt, ev.Base, ev.New))
+	}
+	for _, h := range w.PromoteHoles() {
+		out = append(out, "@? promotion hole — "+h)
+	}
 	return out
 }
 

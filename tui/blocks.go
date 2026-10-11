@@ -22,7 +22,7 @@ const (
 	indent        = "  "
 )
 
-// Welcome is the framed box at start.
+// Welcome is the card the conversation opens with.
 type Welcome struct {
 	Dist      string
 	Version   string
@@ -35,95 +35,213 @@ type Welcome struct {
 	Holes     []string
 	// WorkspaceWord labels the root row ("workspace" | "workspace"); "" reads "workspace".
 	WorkspaceWord string
+	// Dash is the board's URL ("" when the board did not start).
+	Dash string
 }
 
-// Render the welcome box.
+// Welcome renders the opening card: the workspace's sprite beside its name, the tagline and the
+// lane legend; the session's key facts as a label/value grid (the roles summarised — /roles
+// has them whole); what the engine could not settle; one row of where to start.
 func (t Theme) Welcome(w Welcome, width int) string {
 	if w.WorkspaceWord == "" {
 		w.WorkspaceWord = "workspace"
 	}
-	inner := min(width-4, 76)
-	if inner < 30 {
-		inner = width - 4
+	cw := min(width, 84)
+	inner := cw - 4
+	art, tag := Mascot(w.Dist)
+	artW := 0
+	for _, l := range art {
+		artW = max(artW, ansi.StringWidth(l))
 	}
-	var rows []string
-	title := Title(w.Dist) + " " + t.dim.Render(w.Version)
-	_, tag := Mascot(w.Dist)
-	rows = append(rows, title)
+	head := []string{t.Brand(w.Dist) + " " + t.dim.Render(w.Version)}
 	if tag != "" {
-		rows = append(rows, t.dim.Italic(true).Render(ansi.Truncate(tag, inner, "…")))
+		head = append(head, t.dim.Italic(true).Render(tag))
+	}
+	head = append(head, "", t.laneLegend(w.Dist))
+	var rows []string
+	if len(art) > 0 && inner >= artW+3+28 {
+		for i := 0; i < max(len(art), len(head)); i++ {
+			a := strings.Repeat(" ", artW)
+			if i < len(art) {
+				a = art[i] + padRight(art[i], artW)
+			}
+			h := ""
+			if i < len(head) {
+				h = ansi.Truncate(head[i], inner-artW-3, "…")
+			}
+			rows = append(rows, a+"   "+h)
+		}
+	} else {
+		for _, h := range head {
+			rows = append(rows, ansi.Truncate(h, inner, "…"))
+		}
 	}
 	rows = append(rows, "")
-	rows = append(rows, t.dim.Render("the subagent holds its lane · ")+t.laneLegend(w.Dist), "")
-	labels := []string{w.WorkspaceWord, "model", "roles", "session", "handoff", "off"}
-	lw := 0
-	for _, l := range labels {
-		if len(l)+1 > lw {
-			lw = len(l) + 1
-		}
+	type kv struct{ k, v string }
+	vw := inner - 9 // the value column: the widest label and its gap ride left of it
+	facts := []kv{{w.WorkspaceWord, t.text.Render(tailPath(w.Workspace, vw))}, {"model", t.text.Render(w.Model)}}
+	if s := roleSummary(w.Roles); s != "" {
+		facts = append(facts, kv{"roles", s})
 	}
-	row := func(k, v string) {
-		if v == "" {
-			return
-		}
-		for i, l := range strings.Split(wrap(v, inner-lw-1), "\n") {
-			k2 := k
-			if i > 0 {
-				k2 = ""
-			}
-			rows = append(rows, t.dim.Render(fmt.Sprintf("%-*s", lw, k2))+ansi.Truncate(l, inner-lw-1, "…"))
-		}
+	facts = append(facts, kv{"session", t.dim.Render(w.Session)})
+	if w.Dash != "" {
+		facts = append(facts, kv{"dash", lipgloss.NewStyle().Hyperlink(w.Dash).Underline(true).Foreground(t.accent.GetForeground()).Render(w.Dash)})
 	}
-	row(w.WorkspaceWord, w.Workspace)
-	row("model", w.Model)
-	if len(w.Roles) > 0 {
-		row("roles", strings.Join(w.Roles, " · "))
+	if w.Handoff != "" {
+		facts = append(facts, kv{"handoff", t.text.Render(w.Handoff)})
 	}
-	row("session", w.Session)
-	row("handoff", w.Handoff)
 	if w.Off > 0 {
-		row("off", fmt.Sprintf("%d feature%s switched off by config (/status)", w.Off, plural(w.Off)))
+		facts = append(facts, kv{"off", t.dim.Render(fmt.Sprintf("%d feature%s switched off · /status", w.Off, plural(w.Off)))})
 	}
-	for _, h := range w.Holes {
-		for i, l := range strings.Split(wrap(h, inner-2), "\n") {
-			p := "  "
-			if i == 0 {
-				p = t.warn.Render("? ")
+	lw := 0
+	for _, f := range facts {
+		lw = max(lw, ansi.StringWidth(f.k))
+	}
+	for _, f := range facts {
+		if f.v == "" || ansi.Strip(f.v) == "" {
+			continue
+		}
+		k := t.dim.Render(smallCap(f.k) + strings.Repeat(" ", lw-ansi.StringWidth(f.k)))
+		rows = append(rows, k+"  "+ansi.Truncate(f.v, inner-lw-2, "…"))
+	}
+	if len(w.Holes) > 0 {
+		rows = append(rows, "")
+		for _, h := range w.Holes {
+			for i, l := range strings.Split(wrap(h, inner-2), "\n") {
+				p := "  "
+				if i == 0 {
+					p = t.warn.Render("▲ ")
+				}
+				rows = append(rows, p+t.text.Render(ansi.Truncate(l, inner-2, "…")))
 			}
-			rows = append(rows, p+ansi.Truncate(l, inner-2, "…"))
 		}
 	}
-	rows = append(rows, "", t.dim.Render("/help for commands · ? for shortcuts · esc interrupts · ctrl+c twice exits"))
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).Width(inner + 4) // lipgloss v2: the width includes padding and border
-	box = box.BorderForegroundBlend(t.reflecting()...)
-	return box.Render(strings.Join(rows, "\n"))
+	rows = append(rows, "", t.startHere(inner))
+	return t.panel("", rows, cw)
 }
 
-// reflecting is the border's reflecting light: the accent, sunk into the pane's dim and
-// back again, wrapped so the blend closes around the box (lipgloss blends stop-stop along
-// the border path — a wrapped set lands on its own start).
-func (t Theme) reflecting() []color.Color {
-	a, b := t.accent.GetForeground(), t.border.GetForeground()
-	return []color.Color{a, b, a}
+// tailPath keeps a path's end when it must be cut — the workspace's own name is the part that
+// says where you are: "…/kaginari/agent-one", never "/home/monta/kag…".
+func tailPath(p string, w int) string {
+	if ansi.StringWidth(p) <= w || w < 8 {
+		return p
+	}
+	r := []rune(p)
+	for len(r) > 0 && ansi.StringWidth(string(r))+1 > w {
+		r = r[1:]
+	}
+	s := string(r)
+	if i := strings.Index(s, "/"); i > 0 && i < len(s)-1 {
+		s = s[i:]
+	}
+	return "…" + s
 }
 
-// User is the human's message as sent.
+// startHere is the welcome's last row: the first keys worth knowing, key in the label tone,
+// its action dim — as many as fit.
+func (t Theme) startHere(w int) string {
+	pairs := [][2]string{{"⏎", "ask"}, {"/", "commands"}, {"ctrl+k", "palette"}, {"?", "keys"}, {"ctrl+t", "agents"}, {"esc", "interrupt"}}
+	out := ""
+	for _, p := range pairs {
+		item := t.label.Bold(true).Render(p[0]) + " " + t.dim.Render(p[1])
+		next := item
+		if out != "" {
+			next = out + t.dim.Render("   ") + item
+		}
+		if ansi.StringWidth(next) > w {
+			break
+		}
+		out = next
+	}
+	return out
+}
+
+// Roles is /roles: every role and the model it runs on, a label/value grid in a card.
+func (t Theme) Roles(roles []string, width int) string {
+	if len(roles) == 0 {
+		return t.dim.Render("no roles configured — every hat runs on the session's model")
+	}
+	lw := 0
+	for _, o := range roles {
+		name, _, _ := strings.Cut(o, " → ")
+		lw = max(lw, ansi.StringWidth(name))
+	}
+	var rows []string
+	for _, o := range roles {
+		name, model, _ := strings.Cut(o, " → ")
+		rows = append(rows, t.label.Render(name+strings.Repeat(" ", lw-ansi.StringWidth(name)))+"  "+t.text.Render(model))
+	}
+	return t.panel(t.title("roles"), rows, min(width, 84))
+}
+
+// roleSummary folds the roles to one line: roles sharing a model ride together
+// ("analyst judge drafter → gemini-flash"), the model's provider prefix dropped.
+func roleSummary(roles []string) string {
+	if len(roles) == 0 {
+		return ""
+	}
+	var order []string
+	by := map[string][]string{}
+	for _, o := range roles {
+		name, model, ok := strings.Cut(o, " → ")
+		if !ok {
+			name, model = o, ""
+		}
+		if i := strings.LastIndex(model, "/"); i >= 0 {
+			model = model[i+1:]
+		}
+		if _, seen := by[model]; !seen {
+			order = append(order, model)
+		}
+		by[model] = append(by[model], name)
+	}
+	var parts []string
+	for _, mo := range order {
+		names := strings.Join(by[mo], " ")
+		if mo == "" {
+			parts = append(parts, names)
+			continue
+		}
+		parts = append(parts, names+" → "+mo)
+	}
+	return fmt.Sprintf("%d · %s", len(roles), strings.Join(parts, " · "))
+}
+
+// User is the human's ask: a bar in the human's magenta down its left edge, the words in the
+// bright text tone beside it.
 func (t Theme) User(text string, width int) string {
 	text = strings.TrimSpace(text)
 	lines := strings.Split(wrap(text, width-2), "\n")
+	bar := t.magenta.Render("▌")
 	for i, l := range lines {
-		p := "  "
-		if i == 0 {
-			p = "> "
-		}
-		lines[i] = t.user.Render(p + l)
+		lines[i] = bar + " " + t.user.Render(l)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// Assistant is the model's answer, rendered as markdown.
+// Assistant is the model's answer, rendered as markdown in the conversation's text column; the
+// turn's first piece holds the primary's ✦ in the gutter.
 func (t Theme) Assistant(md string, width int) string {
-	return t.Markdown(md, width)
+	return t.answer(md, width, true)
+}
+
+func (t Theme) answer(md string, width int, first bool) string {
+	out := t.Markdown(md, width-2)
+	if out == "" {
+		return ""
+	}
+	lines := strings.Split(out, "\n")
+	for i, l := range lines {
+		g := "  "
+		if i == 0 && first {
+			g = t.accent.Render("✦") + " "
+		} else if strings.TrimSpace(ansi.Strip(l)) == "" {
+			lines[i] = ""
+			continue
+		}
+		lines[i] = g + l
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ToolView is one tool step as the block shows it.
@@ -594,9 +712,9 @@ type RailPlan struct {
 	Items []RailPlanItem
 	Stale bool // penned before this session's provisioning: last session's intent shown as memory, never this session's outstanding work
 	// Archived flags a deck that the boot sweep (LEC-2026-10-04-STALE-PLANS Order 1) moved under
-	// <planDir>/archive/: no longer live, still browsable in the rail ('c' snaps off it; ORDER 1's
+	// <planDir>/archive/: no longer live, still browsable in the rail (alt+n snaps off it; ORDER 1's
 	// app Plans() merge sets this — until that lands the field stays false and archived decks are
-	// indistinguishable from stale ones, which the 'c' gate already treats as snap-away view).
+	// indistinguishable from stale ones, which alt+n already treats as a snap-away view).
 	Archived bool
 }
 
@@ -736,62 +854,55 @@ func centre(s string, w int) string {
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", pad-left)
 }
 
-// railCard frames one section: a rounded border, its title one small-cap line tinted by the
-// card's own lane (vitals golden-the session's, subagents green like their role, files blue,
-// plan holds the role lane of the agent that owns the deck). Cards ride the pane's background
-// (lipgloss paints a style's background into its padded cells — every line lands full-width).
-func (t Theme) railCard(title string, lane color.Color, agent []string, rw int) []string {
-	inner := rw - 4 // border 2 + padding 2
-	if lane == nil {
-		lane = t.accent.GetForeground()
-	}
-	var rows []string
-	rows = append(rows, lipgloss.NewStyle().Foreground(lane).Bold(true).Render(smallCap(title)))
-	for _, l := range agent {
-		rows = append(rows, ansi.Truncate(l, inner, "…"))
-	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForegroundBlend(t.reflecting()...).Background(t.paneBg()).Padding(0, 1).Width(rw)
-	return strings.Split(box.Render(strings.Join(rows, "\n")), "\n")
-}
-
-// railCollapsedHeader renders a card's collapsed stub: `+<glyph> <title> (<count>)` inside a
-// one-row rounded box, adorning it the way the card's header would.
-func (t Theme) railCollapsedHeader(glyph, title string, count int, rw int) []string {
-	stub := fmt.Sprintf("+%s %s (%d)", glyph, title, count)
-	return t.railCard(stub, nil, nil, rw)
-}
-
-// Rail renders the sidebar's card stack at its proportioned width; every returned line is
-// exactly rw cells, the pane's background filling what content doesn't touch (mascot rows,
-// spacer rows). The pane's height padding lives with the model.
+// Rail renders the sidebar column on its own (the goldens' view): each content row padded one
+// cell a side, each section rule as the frame draws it between the divider and the border.
 func (t Theme) Rail(v RailView, widths ...int) string {
 	rw := railFloor
 	if len(widths) > 0 {
 		rw = widths[0]
 	}
-	inner := rw - 4
-	bg := lipgloss.NewStyle().Background(t.paneBg())
-	wipe := func(l string) string {
-		if pad := rw - ansi.StringWidth(l); pad > 0 {
-			l += strings.Repeat(" ", pad)
-		}
-		return bg.Render(l)
-	}
 	var out []string
-	if len(v.Mascot) > 0 {
-		for _, l := range v.Mascot {
-			out = append(out, wipe(centre(ansi.Truncate(t.paneArt(l), inner, ""), inner)))
+	for _, r := range t.railRows(v, rw) {
+		if r.sep {
+			out = append(out, fit(r.text, rw))
+		} else {
+			out = append(out, " "+fit(r.text, rw-2)+" ")
 		}
-		out = append(out, wipe(""))
 	}
-	var vitals []string
+	return strings.Join(out, "\n")
+}
+
+// railRows lays the sidebar out as rows for a column rw cells wide: the session's vitals (the
+// workspace's sprite beside them where it fits), then a ruled section each for the subagents, the
+// plan deck and the files touched. A section's rule carries its title, a fold glyph and its
+// count; a folded section is its rule alone (alt+c/p/f, or a click on the rule).
+func (t Theme) railRows(v RailView, rw int) []railRow {
+	inner := rw - 2
+	var out []railRow
+	line := func(s string) { out = append(out, railRow{text: s}) }
+	rule := func(key, title string, hue lipgloss.Style, count int) {
+		fold := "▾"
+		if v.Collapsed[key] {
+			fold = "▸"
+		}
+		head := t.dim.Render(fold+" ") + hue.Bold(true).Render(title)
+		if count >= 0 {
+			head += t.dim.Render(fmt.Sprintf(" · %d", count))
+		}
+		out = append(out, railRow{text: t.rule(rw, head, ""), sep: true, key: key})
+	}
+
+	// vitals: who and where, the context, the spend
+	var id []string
 	if v.Workspace != "" {
-		vitals = append(vitals, t.tag.Render(ansi.Truncate(v.Workspace, inner, "…")))
+		id = append(id, t.label.Bold(true).Render(v.Workspace))
 	}
-	vitals = append(vitals, t.dim.Render(ansi.Truncate(v.Model, inner, "…")))
+	if v.Model != "" {
+		id = append(id, t.dim.Render(v.Model))
+	}
 	ctx := t.dim.Render("ctx —")
 	if v.CtxKnown {
-		ctx = "ctx " + t.Meter(v.CtxPct, 8) + fmt.Sprintf(" %d%%", v.CtxPct)
+		ctx = t.Meter(v.CtxPct, 8) + " " + t.text.Render(fmt.Sprintf("%d%%", v.CtxPct))
 		if v.Stress {
 			ctx += " " + t.bad.Render("stress")
 		}
@@ -799,160 +910,162 @@ func (t Theme) Rail(v RailView, widths ...int) string {
 	if v.CtxMax != "" {
 		ctx += t.dim.Render(" / " + ansi.Truncate(v.CtxMax, 5, ""))
 	}
-	vitals = append(vitals, ctx)
+	id = append(id, ctx)
+	usage := t.text.Render(humanTokens(v.Tokens)) + t.dim.Render(" tok")
+	if strings.HasPrefix(v.Cost, "$") {
+		usage += t.dim.Render(" · ") + t.text.Render(v.Cost)
+	}
+	id = append(id, usage)
+	art := v.Mascot
+	artW := 0
+	for _, l := range art {
+		artW = max(artW, ansi.StringWidth(l))
+	}
+	switch {
+	case len(art) > 0 && inner >= artW+2+18:
+		// the sprite beside the facts: a portrait and its caption
+		for i := 0; i < max(len(art), len(id)); i++ {
+			a := strings.Repeat(" ", artW)
+			if i < len(art) {
+				a = art[i] + padRight(art[i], artW)
+			}
+			r := ""
+			if i < len(id) {
+				r = ansi.Truncate(id[i], inner-artW-2, "…")
+			}
+			line(a + "  " + r)
+		}
+	case len(art) > 0 && inner >= artW:
+		for _, a := range art {
+			line(centre(a, inner))
+		}
+		line("")
+		for _, r := range id {
+			line(r)
+		}
+	default:
+		for _, r := range id {
+			line(r)
+		}
+	}
 	if len(v.Layers) > 0 {
-		// each rank's spend as a lane pill: line-wrap instead of truncating — the badge's
-		// name stays whole, the layer's own card budget holds
-		var lines []string
-		var cur string
+		// each rank's spend as a chip in its lane; chips wrap whole, never cut
+		cur := ""
 		for _, l := range v.Layers {
-			lane := l.Lane
-			if lane == nil {
-				lane = t.dim.GetForeground()
-			}
-			fg := lipgloss.Color("#0b1424")
-			if !t.Dark {
-				fg = lipgloss.Color("#f8fafc")
-			}
-			pill := lipgloss.NewStyle().Background(lane).Foreground(fg).Padding(0, 1).Render(l.Rank + " " + humanTokens(l.Tokens))
-			if cur != "" && ansi.StringWidth(cur)+1+ansi.StringWidth(pill) > inner {
-				lines = append(lines, cur)
+			c := t.chip(l.Lane, l.Rank+" "+humanTokens(l.Tokens))
+			if cur != "" && ansi.StringWidth(cur)+1+ansi.StringWidth(c) > inner {
+				line(cur)
 				cur = ""
 			}
 			if cur != "" {
 				cur += " "
 			}
-			cur += pill
+			cur += c
 		}
 		if cur != "" {
-			lines = append(lines, cur)
+			line(cur)
 		}
-		vitals = append(vitals, lines...)
 	}
 	switch v.Zone {
 	case "NEAR":
-		vitals = append(vitals, t.warn.Render("zone NEAR"))
+		line(t.warn.Render("▲ zone near"))
 	case "STRESS":
-		vitals = append(vitals, t.bad.Render("zone STRESS"))
+		line(t.bad.Render("▲ zone stress — write to the log"))
 	}
-	usage := humanTokens(v.Tokens) + " tokens"
-	if v.Cost != "" {
-		usage += "  " + t.accent.Render(v.Cost)
-	}
-	vitals = append(vitals, t.dim.Render(usage))
 	if v.Dash != "" {
-		// the board rides as a terminal-hyperlink (OSC 8): ⌘-click (or the terminal's own
-		// link modifier) opens it in the browser — no paste, no copy
-		shown := v.Dash
-		if room := inner - 6; room > 12 {
-			shown = ansi.Truncate(shown, room, "…")
-		}
-		dash := lipgloss.NewStyle().Hyperlink(v.Dash).Underline(true).Foreground(t.accent.GetForeground()).Render(shown)
-		vitals = append(vitals, t.dim.Render("dash ↗ ")+dash)
+		// the board rides as a terminal hyperlink (OSC 8): the terminal's link modifier opens it
+		shown := ansi.Truncate(strings.TrimPrefix(v.Dash, "http://"), max(inner-7, 8), "…")
+		line(t.dim.Render("dash ↗ ") + lipgloss.NewStyle().Hyperlink(v.Dash).Underline(true).Foreground(t.accent.GetForeground()).Render(shown))
 	}
-	out = append(out, t.railCard("vitals", t.lane("orchestrator"), vitals, rw)...)
-	out = append(out, wipe(""))
 
+	// subagents: a roster, the state a chip on the right edge
 	subagents := v.Subagents
-	maxSubagents := v.MaxSubagents
-	if v.Collapsed["subagents"] {
-		out = append(out, t.railCollapsedHeader("⊕", "subagents", len(subagents), rw)...)
-		out = append(out, wipe(""))
-	} else {
+	rule("subagents", "subagents", t.label, len(subagents))
+	if !v.Collapsed["subagents"] {
+		maxSubagents := v.MaxSubagents
 		if maxSubagents <= 0 {
 			maxSubagents = 8
 		}
-		var subagentRows []string
 		if len(subagents) == 0 {
-			subagentRows = append(subagentRows, t.dim.Render("· none"))
+			line(t.dim.Render("· none yet"))
 		}
 		if len(subagents) > maxSubagents {
 			subagents = subagents[:maxSubagents]
 		}
 		for _, c := range subagents {
-			dot, st := t.dim, t.dim
-			if !c.Done {
-				dot = lipgloss.NewStyle().Foreground(c.Lane)
-				st = dot
-			} else if c.Failed {
-				dot = t.bad
-			} else {
-				dot = t.ok
+			hue := lipgloss.NewStyle().Foreground(c.Lane)
+			if c.Lane == nil {
+				hue = t.dim
 			}
 			word := strings.ToUpper(c.State)
 			if word == "" && c.Done {
 				word = "DONE"
 			}
-			state := word
-			if c.Aged != "" {
-				state += " · " + c.Aged
+			var state string
+			switch {
+			case c.Done && c.Failed:
+				state = t.bad.Render("✗ " + word)
+			case c.Done:
+				state = t.ok.Render("✓ " + word)
+			default:
+				state = hue.Render(word)
 			}
-			// keep name+state whole; the age yields first, mid-token chops never
-			nameW := inner - ansi.StringWidth("● "+state) - 1
-			if nameW < 4 && c.Aged != "" {
-				state = word
-				nameW = inner - ansi.StringWidth("● "+state) - 1
+			if c.Aged != "" && inner-ansi.StringWidth(c.Name)-ansi.StringWidth(state) > 10 {
+				state += t.dim.Render(" " + c.Aged)
 			}
-			row := dot.Render("● ") + t.text.Render(ansi.Truncate(c.Name, max(1, nameW), "")) + " " + st.Render(state)
-			subagentRows = append(subagentRows, row)
+			dot := hue.Render("●")
+			if c.Done {
+				dot = t.dim.Render("●")
+			}
+			nameW := max(inner-2-ansi.StringWidth(state)-1, 4)
+			name := ansi.Truncate(c.Name, nameW, "…")
+			row := dot + " " + t.text.Render(name)
+			row += strings.Repeat(" ", max(inner-ansi.StringWidth(row)-ansi.StringWidth(state), 1)) + state
+			out = append(out, railRow{text: row, subagent: c.Name})
 		}
-		out = append(out, t.railCard("subagents", t.lane("domain"), subagentRows, rw)...)
-		out = append(out, wipe(""))
 	}
 
+	// the plan deck, titled in its role's lane — the card's one hue
 	if v.Plan != nil {
-		// the whole card holds the role lane of the agent running the deck — the plan is
-		// that role's hat work (drafter drafts orange, judge verdicts green, analyst
-		// reads blue); the tint reads as "which role is thinking", never the agent's rank
 		lane := v.Plan.Lane
 		if lane == nil {
 			lane = t.lane("drafter")
 		}
-		cardBg := lipgloss.NewStyle().Background(lipgloss.Blend1D(6, t.paneBg(), lane)[1])
-		header := "plan ▸ " + v.Plan.Agent
-		switch {
-		case v.Plan.Archived:
-			header += " · archived (boot-swept under tmp/plans/archive) — c — current"
-		case v.Plan.Stale:
-			header += " · stale (penned in an earlier session) — c — current"
-		}
-		if v.Collapsed["plan"] {
-			out = append(out, t.railCollapsedHeader("◇", "plan — "+v.Plan.Agent, len(v.Plan.Items), rw)...)
-			out = append(out, wipe(""))
-		} else {
-			var rows []string
+		hue := lipgloss.NewStyle().Foreground(lane)
+		rule("plan", "plan ▸ "+v.Plan.Agent, hue, len(v.Plan.Items))
+		if !v.Collapsed["plan"] {
+			switch {
+			case v.Plan.Archived:
+				line(t.dim.Render("archived · alt+n for the current deck"))
+			case v.Plan.Stale:
+				line(t.dim.Render("stale · alt+n for the current deck"))
+			}
 			if len(v.Plan.Items) == 0 {
-				rows = append(rows, cardBg.Render(ansi.Truncate("  · deck empty", inner, "…")))
+				line(t.dim.Render("· deck empty"))
 			}
 			for _, it := range v.Plan.Items {
 				var mark string
+				text := t.text
 				switch it.Status {
 				case "in_progress":
-					mark = t.accent.Render("▸")
+					mark = hue.Render("▸")
 				case "done":
-					mark = t.ok.Render("✓")
+					mark, text = t.ok.Render("✓"), t.dim
 				case "blocked":
 					mark = t.bad.Render("✗")
 				default:
 					mark = t.dim.Render("·")
 				}
-				text := ansi.Truncate(mark+" "+planLine(it.Text), inner, "…")
-				if pad := inner - ansi.StringWidth(text); pad > 0 {
-					text += strings.Repeat(" ", pad)
-				}
-				rows = append(rows, cardBg.Render(text))
+				line(mark + " " + text.Render(ansi.Truncate(planLine(it.Text), inner-2, "…")))
 			}
-			out = append(out, t.railCard(header, lane, rows, rw)...)
-			out = append(out, wipe(""))
 		}
 	}
 
+	// files: the touch ledger as a tree, latest last
+	rule("files", "files", t.label, len(v.Files))
 	if v.Collapsed["files"] {
-		n := len(v.Files)
-		out = append(out, t.railCollapsedHeader("▪", "files", n, rw)...)
-		return strings.Join(out, "\n")
+		return out
 	}
-
 	files := append([]RailFile(nil), v.Files...)
 	maxFiles := v.MaxFiles
 	if maxFiles <= 0 {
@@ -963,18 +1076,17 @@ func (t Theme) Rail(v RailView, widths ...int) string {
 		hidden = len(files) - maxFiles
 		files = files[len(files)-maxFiles:]
 	}
-	var fileRows []string
 	if len(files) == 0 {
-		fileRows = append(fileRows, t.dim.Render("· nothing written yet"))
-	}
-	if len(files) > 0 {
-		fileRows = append(fileRows, strings.Split(filesTree(files, t), "\n")...)
+		line(t.dim.Render("· nothing written yet"))
+	} else {
+		for _, l := range strings.Split(filesTree(files, t), "\n") {
+			line(l)
+		}
 	}
 	if hidden > 0 {
-		fileRows = append(fileRows, t.dim.Render(fmt.Sprintf("· … +%d more", hidden)))
+		line(t.dim.Render(fmt.Sprintf("… +%d more", hidden)))
 	}
-	out = append(out, t.railCard("files", t.lane("analyst"), fileRows, rw)...)
-	return strings.Join(out, "\n")
+	return out
 }
 
 // Gate is the one quiet line after a turn that wrote.
@@ -985,22 +1097,15 @@ func (t Theme) Gate(verdict, logRel string, width int, word string) string {
 	if word == "" {
 		word = "gate"
 	}
-	mark := "✓"
-	bg := t.ok.GetForeground()
+	mark, hue := "✓", t.ok
 	if strings.HasPrefix(strings.ToLower(verdict), "fail") {
-		mark = "✗"
-		bg = t.bad.GetForeground()
+		mark, hue = "✗", t.bad
 	}
-	text := " " + mark + " " + word + " · " + verdict + " "
+	line := t.chip(hue.GetForeground(), mark+" "+word+" · "+verdict)
 	if logRel != "" {
-		text += "· " + logRel + " "
+		line += t.dim.Render(" · " + logRel)
 	}
-	fg := lipgloss.Color("#0d1117")
-	if !t.Dark {
-		fg = lipgloss.Color("#f6f8fa") // the dark-ink band is only light-theme'd once
-	}
-	card := lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true)
-	return card.Render(ansi.Truncate(text, width-2, "…"))
+	return ansi.Truncate(line, width, "…")
 }
 
 // Holes are what the engine could not settle, one line each.
@@ -1024,9 +1129,13 @@ func (t Theme) Notice(text string, width int) string {
 	return t.dim.Render(ansi.Truncate(text, width, "…"))
 }
 
-// Error is one line in the error colour.
+// Error is the error colour, wrapped to the width: a long error reads whole, never clipped.
 func (t Theme) Error(text string, width int) string {
-	return t.bad.Render(ansi.Truncate(text, width, "…"))
+	lines := strings.Split(wrap(expandTabs(strings.TrimRight(text, "\n")), width), "\n")
+	for i, l := range lines {
+		lines[i] = t.bad.Render(l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ChoiceView is an inline choice: the operator gate's approval, or a question the model asks.
@@ -1097,14 +1206,14 @@ func (t Theme) Choice(v ChoiceView, width int) string {
 		label := ansi.Truncate(row, inner-4, "…")
 		if i == v.Cursor && !v.Typing {
 			// the picked pill: accent fill, dark face, full row width so rows stay symmetrical
-			rows = append(rows, lipgloss.NewStyle().Background(t.accent.GetForeground()).Foreground(lipgloss.Color("#0b1424")).Bold(true).Padding(0, 1).Width(inner).Render(label))
+			rows = append(rows, lipgloss.NewStyle().Background(t.accent.GetForeground()).Foreground(t.onAccent()).Bold(true).Padding(0, 1).Width(inner).Render(label))
 		} else {
 			rows = append(rows, lipgloss.NewStyle().Foreground(t.dim.GetForeground()).Padding(0, 1).Width(inner).Render(label))
 		}
 	}
 	if v.Free && !v.Answered {
 		if v.Cursor >= len(v.Options) && !v.Typing {
-			rows = append(rows, lipgloss.NewStyle().Background(t.accent.GetForeground()).Foreground(lipgloss.Color("#0b1424")).Bold(true).Padding(0, 1).Render("… · type an answer"))
+			rows = append(rows, lipgloss.NewStyle().Background(t.accent.GetForeground()).Foreground(t.onAccent()).Bold(true).Padding(0, 1).Render("… · type an answer"))
 		} else {
 			rows = append(rows, lipgloss.NewStyle().Foreground(t.dim.GetForeground()).Padding(0, 1).Render("…   type an answer"))
 		}
@@ -1116,7 +1225,7 @@ func (t Theme) Choice(v ChoiceView, width int) string {
 	default:
 		rows = append(rows, "", t.dim.Render("↑↓ or a digit picks · enter confirms"))
 	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForegroundBlend(t.reflecting()...).Padding(0, 1).Width(inner + 4)
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.accent.GetForeground()).Padding(0, 1).Width(inner + 4)
 	return box.Render(strings.Join(rows, "\n"))
 }
 
@@ -1149,6 +1258,7 @@ type FooterView struct {
 	Subagents string // the plural word
 	Hint      string // "? for shortcuts"
 	Queued    int
+	Badge     string // a mode the session is in ("mouse: terminal"), lit in the accent
 	Message   string // a transient message shown in place of the hint
 	// Zone carries the instrument zone of the session's context reading ("OK", "NEAR",
 	// "STRESS", "UNREAD"; "" when the app doesn't read zones). The footer holds it; the
@@ -1201,6 +1311,9 @@ func (t Theme) Footer(f FooterView, width int) string {
 	}
 	if f.Queued > 0 {
 		parts = append(parts, fmt.Sprintf("%d queued", f.Queued))
+	}
+	if f.Badge != "" {
+		parts = append(parts, t.accent.Render(f.Badge))
 	}
 	right := f.Hint
 	if f.Message != "" {
@@ -1283,32 +1396,73 @@ type Shortcut struct{ Key, Does string }
 
 // Shortcuts renders the ? panel.
 func (t Theme) Shortcuts(list []Shortcut, width int) string {
+	kw := 14
+	for _, s := range list {
+		kw = max(kw, ansi.StringWidth(s.Key)+2)
+	}
 	var rows []string
 	for _, s := range list {
-		rows = append(rows, t.accent.Render(fmt.Sprintf("%-14s", s.Key))+t.dim.Render(s.Does))
+		does := ansi.Truncate(s.Does, max(width-4-kw, 8), "…")
+		rows = append(rows, t.accent.Render(s.Key+strings.Repeat(" ", kw-ansi.StringWidth(s.Key)))+t.dim.Render(does))
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.border.GetForeground()).Padding(0, 1)
 	return box.Render(strings.Join(rows, "\n"))
+}
+
+// keysSheet is the ? sheet under the frame: the shortcuts in one column, or two when one would
+// stand taller than room rows — keys in the label tone, their action dim.
+func (t Theme) keysSheet(list []Shortcut, w, room int) string {
+	kw := 0
+	for _, s := range list {
+		kw = max(kw, ansi.StringWidth(s.Key))
+	}
+	row := func(s Shortcut, cw int) string {
+		return t.label.Render(s.Key+strings.Repeat(" ", kw-ansi.StringWidth(s.Key))) + "  " + t.dim.Render(ansi.Truncate(s.Does, max(cw-kw-2, 4), "…"))
+	}
+	inner := w - 4
+	var rows []string
+	if len(list)+2 <= room || inner < 2*(kw+20)+3 {
+		for _, s := range list {
+			rows = append(rows, row(s, inner))
+		}
+	} else {
+		half := (len(list) + 1) / 2
+		colW := (inner - 3) / 2
+		for i := 0; i < half; i++ {
+			l := fit(row(list[i], colW), colW)
+			r := ""
+			if i+half < len(list) {
+				r = row(list[i+half], colW)
+			}
+			rows = append(rows, l+"   "+r)
+		}
+	}
+	return t.panel(t.title("keys"), rows, w)
 }
 
 // DefaultShortcuts is the list ? shows.
 func DefaultShortcuts() []Shortcut {
 	return []Shortcut{
 		{"ctrl+p", "walk plan decks"},
-		{"c", "snap to current plan (pinned stale/archived view)"},
-		{"C", "snap to current plan (any view)"},
+		{"alt+n", "snap to the current plan (off a stale deck)"},
 		{"enter", "send"},
 		{"shift+enter", "newline (also \\ enter, alt+enter)"},
 		{"↑ ↓", "history (on the first / last line)"},
 		{"/", "commands"},
 		{"ctrl+k", "command palette (fuzzy)"},
 		{"@path", "complete a file in the workspace (tab)"},
-		{"esc", "interrupt the turn · clear the input"},
-		{"ctrl+c ×2", "exit"},
+		{"esc", "interrupt · clear the input (↑ brings it back)"},
+		{"ctrl+c", "clear · interrupt · twice when idle: exit"},
+		{"pgup / pgdn", "scroll the chat (shift+↑ ↓ a line, the wheel)"},
+		{"ctrl+t", "the agents: every agent's log"},
+		{"drag", "select in the chat, copied on release"},
+		{"shift+drag", "selects with the terminal (/mouse: always)"},
+		{"ctrl+y", "copy the last answer (/copy)"},
 		{"ctrl+o", "expand the last collapsed block"},
 		{"ctrl+l", "redraw"},
 		{"?", "this list"},
-		{"alt+p / alt+c / alt+f", "collapse the plan / subagents / files rail cards"},
+		{"alt+p/c/f", "fold the plan / subagents / files sections"},
+		{"alt+s", "hide or show the sidebar (/sidebar)"},
 	}
 }
 
@@ -1317,13 +1471,14 @@ func (t Theme) Queued(text string, width int) string {
 	return t.dim.Render(ansi.Truncate("  ⏎ queued: "+oneLine(text), width, "…"))
 }
 
-// InputBox frames the textarea's view with the theme's border.
+// InputBox frames the textarea's view (the inline layout's input): a rounded box in the
+// border tone, "ask" set into its top edge.
 func (t Theme) InputBox(view string, width int, busy bool) string {
-	col := t.border.GetForeground()
+	title := t.title("ask")
 	if busy {
-		col = t.dim.GetForeground()
+		title = t.dim.Render(smallCap("answer the card above"))
 	}
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(col).Width(width).Render(view)
+	return t.panel(title, []string{view}, width)
 }
 
 // helpers

@@ -1,39 +1,83 @@
-/* @component shell — tokens: --surface, --ink, --accent-hero, --second, --space-s, --space-m, --space-l. The dashboard's frame: header, view tabs, and the panel grid; data-view picks overview or one panel full size. .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
+/* @component shell — tokens: --surface, --surface-2, --ink, --ink-muted, --accent, --accent-hero, --second, --line, --shadow, --radius-pill, --space-2xs, --space-s, --space-m, --space-l, --step--1, --hairline, --time, --time-slow, --ease, --weight-medium. The dashboard's frame: header, view tabs, and the panel grid. The overview is a cockpit — the living net is the hero, the console docks beside it (a splitter resizes it, a button folds it to a rail), the timeline of subagents and verdicts sits under the net; narrow, they stack. The folder tree is a drawer over every view but its own (data-drawer on .shell opens it, a scrim closes it). .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
 @layer components {
   .shell {
-    container-type: inline-size; display: grid; grid-template-rows: auto auto 1fr; min-block-size: 100vh; color: var(--ink);
+    container-type: inline-size; display: grid; grid-template-rows: auto auto 1fr; min-block-size: 100vh; color: var(--ink); font-weight: var(--weight-medium);
     background:
-      radial-gradient(60rem 36rem at 0% 0%, color-mix(in oklch, var(--accent-hero) 10%, transparent), transparent 70%),
-      radial-gradient(50rem 30rem at 100% 100%, color-mix(in oklch, var(--second) 8%, transparent), transparent 70%),
+      radial-gradient(60rem 36rem at 0% 0%, color-mix(in srgb, var(--accent-hero) 6%, transparent), transparent 70%),
+      radial-gradient(50rem 30rem at 100% 100%, color-mix(in srgb, var(--second) 4%, transparent), transparent 70%),
       var(--surface);
     background-attachment: fixed;
   }
+  /* the scanline: a faint band of the primary that sweeps the screen once every twenty seconds */
+  .shell::after {
+    content: ""; position: fixed; z-index: 50; inset-inline: 0; inset-block-start: 0; block-size: 18vh; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, color-mix(in oklch, var(--accent) 3%, transparent), transparent);
+    transform: translateY(-20vh); animation: shell-scan 20s linear infinite;
+  }
+  @keyframes shell-scan { to { transform: translateY(120vh); } }
+  @media (prefers-reduced-motion: reduce) { .shell::after { animation: none; display: none; } }
   .shell-main {
     --shell-gap: var(--space-m);
     display: grid; gap: var(--shell-gap); padding: var(--space-s) var(--space-m) var(--space-l);
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "console" "net" "metrics" "relations" "tree";
-    align-content: start;
+    grid-template-areas: "net" "timeline" "console";
+    align-content: start; min-inline-size: 0;
   }
-  .shell-main > [data-panel="console"] { grid-area: console; }
+  .shell-main > [data-panel="console"] { grid-area: console; block-size: clamp(30rem, 78vh, 64rem); }
   .shell-main > [data-panel="net"] { grid-area: net; }
+  .shell-main > [data-panel="timeline"] { grid-area: timeline; }
   .shell-main > [data-panel="metrics"] { grid-area: metrics; }
   .shell-main > [data-panel="relations"] { grid-area: relations; }
   .shell-main > [data-panel="tree"] { grid-area: tree; }
-  @container (min-width: 72rem) {
+  .shell-split { display: none; }
+  .shell-dock { display: none; }
+
+  /* the overview: the cockpit */
+  .shell-main[data-view="overview"] > [data-panel="metrics"],
+  .shell-main[data-view="overview"] > [data-panel="relations"] { display: none; }
+  .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body { max-block-size: 16rem; }
+  /* stacked, a pinned neuron's card takes the band whole: never cut at its foot */
+  .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body:has(.kcard) { max-block-size: none; }
+  @container (min-width: 64rem) {
     .shell-main[data-view="overview"] {
-      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-      grid-template-areas: "console net" "console metrics" "relations relations" "tree tree";
+      --shell-dock-w: var(--shell-dock, 27rem);
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, var(--shell-dock-w));
+      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-areas: "net split console" "timeline split console";
+      column-gap: var(--space-2xs);
+      block-size: calc(100vh - var(--shell-chrome, 7.5rem)); min-block-size: 34rem;
     }
-  }
-  @container (min-width: 96rem) {
-    .shell-main[data-view="overview"] {
-      grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 3fr);
-      grid-template-areas: "net console tree" "net console tree" "metrics relations relations";
+    .shell-main[data-view="overview"] > [data-panel="console"] { block-size: auto; min-block-size: 0; }
+    .shell-main[data-view="overview"] > [data-panel="net"] { min-block-size: 0; }
+    .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body,
+    .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body:has(.kcard) { max-block-size: clamp(5.5rem, 100vh - 44rem, 11rem); }
+    /* in 3D the stage takes the room: the timeline folds to its two newest rows */
+    .shell-main[data-view="overview"][data-net="3d"] > [data-panel="timeline"] .panel-body { max-block-size: 5.5rem; }
+    .shell-main[data-view="overview"] > .shell-split {
+      display: block; grid-area: split; inline-size: var(--space-s); cursor: col-resize; position: relative; border-radius: var(--radius-pill); outline: none;
     }
+    .shell-main[data-view="overview"] > .shell-split::after {
+      content: ""; position: absolute; inset-block: 30%; inset-inline: calc(50% - 1px); border-radius: var(--radius-pill);
+      background: var(--line); transition: background-color var(--time) var(--ease), inset var(--time) var(--ease);
+    }
+    .shell-main[data-view="overview"] > .shell-split:hover::after,
+    .shell-main[data-view="overview"] > .shell-split:focus-visible::after,
+    .shell-main[data-view="overview"] > .shell-split[data-drag]::after { inset-block: 8%; background: var(--accent); }
+    .shell-main[data-view="overview"] .shell-dock { display: inline-flex; }
+    /* folded: the console becomes a rail that still shows its state */
+    .shell-main[data-view="overview"][data-dock="closed"] { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .shell-main[data-view="overview"][data-dock="closed"] > .shell-split { pointer-events: none; }
+    .shell-main[data-view="overview"][data-dock="closed"] > [data-panel="console"] > :not(.panel-head) { display: none; }
+    .shell-main[data-view="overview"][data-dock="closed"] > [data-panel="console"] .panel-head { writing-mode: vertical-rl; flex-wrap: nowrap; border: 0; padding: var(--space-s) var(--space-2xs); }
+    .shell-main[data-view="overview"][data-dock="closed"] > [data-panel="console"] .panel-tools { margin: 0; }
+    .shell-main[data-view="overview"][data-dock="closed"] > [data-panel="console"] .panel-note,
+    .shell-main[data-view="overview"][data-dock="closed"] > [data-panel="console"] .panel-tools > :not(.shell-dock) { display: none; }
   }
-  .shell-main > [data-panel="console"] { block-size: clamp(30rem, 78vh, 64rem); }
-  .shell-main[data-view="console"] > [data-panel="console"] { block-size: calc(100vh - 9rem); }
+  @container (min-width: 110rem) {
+    .shell-main[data-view="overview"] { --shell-dock-w: var(--shell-dock, 36rem); }
+  }
+
+  /* one panel, full size */
   .shell-main:not([data-view="overview"]) { grid-template-areas: none; }
   .shell-main:not([data-view="overview"]) > [data-panel] { display: none; grid-area: auto; }
   .shell-main[data-view="console"] > [data-panel="console"],
@@ -41,4 +85,18 @@
   .shell-main[data-view="metrics"] > [data-panel="metrics"],
   .shell-main[data-view="relations"] > [data-panel="relations"],
   .shell-main[data-view="tree"] > [data-panel="tree"] { display: flex; }
+  .shell-main[data-view="console"] > [data-panel="console"] { block-size: calc(100vh - 9rem); }
+
+  /* the tree as a drawer, over every view but its own */
+  .shell-main:not([data-view="tree"]) > [data-panel="tree"] {
+    display: flex; position: fixed; z-index: 30; background: var(--surface-2); inset-block: var(--space-s); inset-inline-end: var(--space-s);
+    inline-size: min(30rem, calc(100vw - 2 * var(--space-s)));
+    box-shadow: var(--shadow), 0 1rem 3rem color-mix(in oklch, var(--ink) 18%, transparent);
+    transform: translateX(calc(100% + var(--space-l))); visibility: hidden;
+    transition: transform var(--time-slow) var(--ease), visibility 0s linear var(--time-slow);
+  }
+  .shell[data-drawer] .shell-main:not([data-view="tree"]) > [data-panel="tree"] { transform: none; visibility: visible; transition: transform var(--time-slow) var(--ease); }
+  .shell-scrim { position: fixed; inset: 0; z-index: 29; background: color-mix(in oklch, var(--surface) 22%, transparent); opacity: 0; pointer-events: none; transition: opacity var(--time-slow) var(--ease); }
+  .shell[data-drawer] .shell-scrim { opacity: 1; pointer-events: auto; }
+  .shell-key { font: var(--step--1) inherit; color: var(--ink-muted); border: var(--hairline) solid var(--line); border-radius: var(--radius-pill); padding: 0 var(--space-2xs); }
 }

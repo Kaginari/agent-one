@@ -133,7 +133,12 @@ func (w *Workspace) Prompt(as string, opt PromptOptions, engine *loop.Engine) st
 			if len(c.Verify) > 0 {
 				fmt.Fprintf(&b, " Verify: %s.", strings.Join(c.Verify, " · "))
 			}
-			b.WriteString(" A write outside your ownership is refused; a change under it changes its doc in the same turn (Docs-as-code).\n\n")
+			b.WriteString(" A write outside your ownership is refused; a change under it changes its doc in the same turn (Docs-as-code).\n")
+			// the rank's job, one line in the distribution's word for the rank (ranks.<r>.job)
+			if job := oneLine(r.Job); job != "" {
+				fmt.Fprintf(&b, "Your rank's job (%s): %s.\n", or(w.Lex.Display[c.Rank], c.Rank), strings.TrimSuffix(job, "."))
+			}
+			b.WriteString("\n")
 			// neighbourKnows: a sideways rank's layer-mates are named to it, coded — the
 			// harness reads the bonds, never the agent asking. Divine rules of the promotion
 			// rank above a base reach it as absolute rules (coded, not a prompt rule).

@@ -210,6 +210,109 @@ func Rollup(recs []UsageRecord, since time.Time, rng string) UsageReport {
 	return r
 }
 
+// ActivityDays is the window of the net's activity tiles: four weeks, one cell a day.
+const ActivityDays = 28
+
+// Activity is every agent's recent work, one cell per UTC day, oldest first.
+type Activity struct {
+	Days    []string                  `json:"days"`
+	Agents  map[string]*AgentActivity `json:"agents"`
+	Recent  []RecentRun               `json:"recent"` // the newest runs in the window, newest first (the cockpit's timeline)
+	Reading string                    `json:"reading"`
+	Lit     bool                      `json:"lit"`
+}
+
+// AgentActivity is one agent's days. Runs counts its loop journals that began that day (a Subagent's
+// run is one commission: the bond into it carries Runs as its weight); Tokens its usage.
+type AgentActivity struct {
+	Runs   []int  `json:"runs"`
+	Tokens []int  `json:"tokens"`
+	Total  int    `json:"total"`  // runs in the window
+	Failed int    `json:"failed"` // runs in the window whose end was not DONE/PASS
+	Last   string `json:"last,omitempty"`
+}
+
+// RecentRun is one journaled run as the timeline shows it.
+type RecentRun struct {
+	ID     string `json:"id,omitempty"` // the run's journal id: the timeline keys a row by it
+	As     string `json:"as"`
+	Ask    string `json:"ask,omitempty"`
+	Status string `json:"status"`
+	At     string `json:"at"`
+}
+
+// RecentRuns is how many runs the timeline carries.
+const RecentRuns = 40
+
+// BuildActivity folds the journals into days ending at now's UTC day. Runs without a readable
+// start time and records outside the window are left out, never guessed into a day.
+func BuildActivity(runs []Run, recs []UsageRecord, now time.Time, days int) Activity {
+	a := Activity{Agents: map[string]*AgentActivity{}}
+	end := now.UTC().Truncate(24 * time.Hour)
+	start := end.AddDate(0, 0, -(days - 1))
+	for i := 0; i < days; i++ {
+		a.Days = append(a.Days, start.AddDate(0, 0, i).Format("2006-01-02"))
+	}
+	agent := func(name string) *AgentActivity {
+		x := a.Agents[name]
+		if x == nil {
+			x = &AgentActivity{Runs: make([]int, days), Tokens: make([]int, days)}
+			a.Agents[name] = x
+		}
+		return x
+	}
+	day := func(t time.Time) int {
+		d := int(t.UTC().Truncate(24*time.Hour).Sub(start).Hours() / 24)
+		if d < 0 || d >= days {
+			return -1
+		}
+		return d
+	}
+	for _, r := range runs {
+		t, err := time.Parse(time.RFC3339Nano, r.At)
+		if err != nil || r.As == "" {
+			continue
+		}
+		d := day(t)
+		if d < 0 {
+			continue
+		}
+		x := agent(r.As)
+		x.Runs[d]++
+		x.Total++
+		if s := strings.ToUpper(r.Status); s != "DONE" && s != "PASS" && s != "" {
+			x.Failed++
+		}
+		if r.At > x.Last {
+			x.Last = r.At
+		}
+		// a commission opens with its wire header (@ROOT, @ASK, @CAP …): the timeline shows the words
+		var words []string
+		for _, l := range strings.Split(r.Ask, "\n") {
+			if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "@") {
+				words = append(words, l)
+			}
+		}
+		ask := strings.Join(words, " ")
+		if len(ask) > 160 {
+			ask = ask[:160] + "…"
+		}
+		a.Recent = append(a.Recent, RecentRun{ID: r.ID, As: r.As, Ask: ask, Status: r.Status, At: r.At})
+	}
+	sort.SliceStable(a.Recent, func(i, j int) bool { return a.Recent[i].At > a.Recent[j].At })
+	if len(a.Recent) > RecentRuns {
+		a.Recent = a.Recent[:RecentRuns]
+	}
+	for _, u := range recs {
+		d := day(u.TS)
+		if d < 0 || u.Agent == "" {
+			continue
+		}
+		agent(u.Agent).Tokens[d] += u.Tokens()
+	}
+	return a
+}
+
 // Run is one loop journal, as the board shows it.
 type Run struct {
 	ID     string
@@ -255,6 +358,13 @@ type Node struct {
 	Doc    string   `json:"doc"`
 	Owns   []string `json:"owns"`
 	Shared bool     `json:"shared"`
+	// Parent is the member's place in the tree: the one it answers to by its upward bond
+	// (truth, verdict, reports, above — the first that holds). A member with none, or one whose
+	// bond names an agent not on disk, hangs under the orchestrator by an implied `reports` edge. ""
+	// for the orchestrator and for a skill.
+	Parent       string `json:"parent,omitempty"`
+	Orchestrator bool   `json:"orchestrator,omitempty"` // the session agent at the top of the tree
+	Label        string `json:"label,omitempty"`        // the lexicon's word for it (the orchestrator's); "" = Name
 }
 
 // Edge is one typed bond.
@@ -262,16 +372,20 @@ type Edge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Bond string `json:"bond"` // truth | verdict | reports | above | holds
+	// Implied marks a bond the drawing adds and the ontology did not assert: an orphan's
+	// `reports` to the orchestrator, so the tree stays connected and the gap stays visible.
+	Implied bool `json:"implied,omitempty"`
 }
 
 // Team is the member graph, projected for drawing.
 type Team struct {
-	Reading  Reading
-	Nodes    []Node   `json:"nodes"`
-	Edges    []Edge   `json:"edges"`
-	Lanes    []string `json:"lanes"` // drawing order, left to right
-	Findings []string `json:"findings"`
-	Notes    []string `json:"notes"`
+	Reading      Reading
+	Nodes        []Node   `json:"nodes"`
+	Edges        []Edge   `json:"edges"`
+	Lanes        []string `json:"lanes"`        // drawing order, left to right
+	Orchestrator string   `json:"orchestrator"` // the id of the tree's top node, always among Nodes
+	Findings     []string `json:"findings"`
+	Notes        []string `json:"notes"`
 }
 
 // MemoryView is the memory tiers as the board shows them.
@@ -734,6 +848,7 @@ func BuildTeam(w *onto.Workspace) *Team {
 		}
 		c.Nodes = append(c.Nodes, Node{ID: m.Local(), Name: name, Kind: "skill", Lane: laneOf(name, holders[m.Local()], shared), Doc: docOf(m), Shared: shared})
 	}
+	treeUp(c)
 	sort.Slice(c.Nodes, func(i, j int) bool { return c.Nodes[i].ID < c.Nodes[j].ID })
 	sort.Slice(c.Edges, func(i, j int) bool {
 		a, b := c.Edges[i], c.Edges[j]
@@ -755,6 +870,69 @@ func BuildTeam(w *onto.Workspace) *Team {
 	}
 	c.Lanes = append(c.Lanes, "skill:shared")
 	return c
+}
+
+// treeUp makes the team one tree: the orchestrator is always a node (a workspace whose ontology never
+// typed it still has a session at its top), every member names its parent by the first upward
+// bond that reaches a node, and a member with no way up — no bond, a bond to an agent that is not
+// on disk, or a loop — hangs under the orchestrator by an implied `reports` edge and a note, so the net
+// draws every member connected and says which links it drew rather than read.
+func treeUp(c *Team) {
+	c.Orchestrator = onto.Orchestrator.Local()
+	idx := map[string]int{}
+	for i, n := range c.Nodes {
+		idx[n.ID] = i
+	}
+	if i, ok := idx[c.Orchestrator]; ok {
+		c.Nodes[i].Orchestrator = true
+		c.Nodes[i].Kind, c.Nodes[i].Rank, c.Nodes[i].Lane = "member", c.Orchestrator, c.Orchestrator
+	} else {
+		c.Nodes = append(c.Nodes, Node{ID: c.Orchestrator, Name: c.Orchestrator, Kind: "member", Rank: c.Orchestrator, Lane: c.Orchestrator, Orchestrator: true})
+		idx[c.Orchestrator] = len(c.Nodes) - 1
+	}
+	order := map[string]int{"truth": 0, "verdict": 1, "reports": 2, "above": 3}
+	up := map[string]Edge{}
+	for _, e := range c.Edges {
+		rank, upward := order[e.Bond]
+		if !upward || e.From == e.To {
+			continue
+		}
+		if j, ok := idx[e.To]; !ok || c.Nodes[j].Kind != "member" {
+			continue
+		}
+		if have, ok := up[e.From]; !ok || rank < order[have.Bond] {
+			up[e.From] = e
+		}
+	}
+	for i := range c.Nodes {
+		n := &c.Nodes[i]
+		if n.Kind != "member" || n.Orchestrator {
+			continue
+		}
+		if e, ok := up[n.ID]; ok {
+			n.Parent = e.To
+		}
+	}
+	// a loop never reaches the orchestrator: break it where it is found
+	for i := range c.Nodes {
+		n := &c.Nodes[i]
+		if n.Kind != "member" || n.Orchestrator {
+			continue
+		}
+		seen := map[string]bool{n.ID: true}
+		for p := n.Parent; p != "" && p != c.Orchestrator; p = c.Nodes[idx[p]].Parent {
+			if seen[p] {
+				n.Parent = ""
+				break
+			}
+			seen[p] = true
+		}
+		if n.Parent == "" {
+			n.Parent = c.Orchestrator
+			c.Edges = append(c.Edges, Edge{From: n.ID, To: c.Orchestrator, Bond: "reports", Implied: true})
+			c.Notes = append(c.Notes, n.ID+" has no bond up to a member on disk — drawn under "+c.Orchestrator)
+		}
+	}
 }
 
 // isAssertedAbove keeps only the `above` bonds that are one hop (not the transitive closure).

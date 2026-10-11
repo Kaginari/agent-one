@@ -5,5 +5,11 @@
   .kcard dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2xs) var(--space-s); margin: 0; }
   .kcard dt { color: var(--ink-muted); }
   .kcard dd { margin: 0; font-family: var(--font-code); overflow-wrap: anywhere; }
+  .kcard-row { display: contents; }
+  .kcard-close { margin-inline-start: auto; }
+  /* compact: the card in the cockpit's lower band — its facts flow in columns, the doc stays home */
+  .kcard[data-compact] dl { grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr)); gap: var(--space-2xs) var(--space-s); }
+  .kcard[data-compact] .kcard-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: var(--space-s); }
+  .kcard[data-compact] .kcard-doc { display: none; }
   .kcard-doc { margin: 0; max-block-size: 16rem; overflow: auto; white-space: pre-wrap; font: var(--step--1) / var(--leading) var(--font-code); color: var(--ink-muted); }
 }

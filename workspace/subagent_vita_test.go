@@ -27,12 +27,12 @@ func TestStratTargets(t *testing.T) {
 	dir := fixture(t)
 	w := open(t, dir)
 	thrn := w.Engine("orchestrator", Build{Tools: nil})
-	got := w.stratTargets(thrn)
+	got := w.stratTargets(thrn, SubagentOptions{StrictFlow: true})
 	if !strings.Contains(got, "coord-core") || strings.Contains(got, "zone-auth") {
 		t.Fatalf("orchestrator may reach only its child rank (coord-core here): %q", got)
 	}
 	coord := w.Engine("coord-core", Build{Tools: nil})
-	got = w.stratTargets(coord)
+	got = w.stratTargets(coord, SubagentOptions{StrictFlow: true})
 	if !strings.Contains(got, "domain-security") || strings.Contains(got, "zone-auth") {
 		t.Fatalf("coord-core may reach its domain owners, never the zone workers directly: %q", got)
 	}

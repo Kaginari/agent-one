@@ -46,6 +46,9 @@ var (
 	skillDirs     = []string{".opencode/skills", ".opencode/skill", ".claude/skills"}
 )
 
+// Orchestrator is the session agent's term: the top of every workspace's tree, the one every bond climbs to.
+var Orchestrator = tOrchestrator
+
 // Infer runs forward chaining to a fixpoint: subClassOf and subPropertyOf
 // closure, type propagation, subproperty entailment, domain and range typing,
 // inverses, and transitive properties. It returns the number of derived

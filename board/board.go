@@ -252,6 +252,7 @@ func (b *Board) routes() {
 	b.mux.HandleFunc("/api/subagent", b.apiSubagent)
 	b.mux.HandleFunc("/api/usage", b.apiUsage)
 	b.mux.HandleFunc("/api/team", b.apiTeam)
+	b.mux.HandleFunc("/api/activity", b.apiActivity)
 	b.mux.HandleFunc("/api/tree", b.apiTree)
 	b.mux.HandleFunc("/api/tree/children", b.apiTreeChildren)
 	b.mux.HandleFunc("/api/subagents", b.apiSubagents)
@@ -494,8 +495,20 @@ func (b *Board) laneLabels(c *Team) []laneLabel {
 	return out
 }
 
-func (b *Board) team(r *http.Request) (any, string) {
+// teamNamed is the team with the lexicon's words on it: the orchestrator holds the dist's name for
+// the session agent (Orchestrator here; agent-one has its own), never a hard-coded one.
+func (b *Board) teamNamed() *Team {
 	c := b.src.Team()
+	for i := range c.Nodes {
+		if c.Nodes[i].Orchestrator && c.Nodes[i].Label == "" {
+			c.Nodes[i].Label = b.names.get("rank." + c.Nodes[i].Rank)
+		}
+	}
+	return c
+}
+
+func (b *Board) team(r *http.Request) (any, string) {
+	c := b.teamNamed()
 	labels := b.laneLabels(c)
 	payload := struct {
 		*Team
@@ -592,11 +605,39 @@ func (b *Board) apiUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Board) apiTeam(w http.ResponseWriter, r *http.Request) {
-	c := b.src.Team()
+	c := b.teamNamed()
+	// every list is a list on the wire, an empty workspace's included — never null
+	if c.Nodes == nil {
+		c.Nodes = []Node{}
+	}
+	if c.Edges == nil {
+		c.Edges = []Edge{}
+	}
+	for _, l := range []*[]string{&c.Lanes, &c.Findings, &c.Notes} {
+		if *l == nil {
+			*l = []string{}
+		}
+	}
+	labels := b.laneLabels(c)
+	if labels == nil {
+		labels = []laneLabel{}
+	}
 	writeJSON(w, struct {
 		*Team
 		Labels []laneLabel `json:"labels"`
-	}{c, b.laneLabels(c)})
+	}{c, labels})
+}
+
+// apiActivity is each agent's recent work, day by day, for the net's activity tiles and the
+// weight of its bonds: runs from the loop journals, tokens from the usage journal. An agent the
+// instruments never saw is absent — its tile stays blank, never a made-up zero.
+func (b *Board) apiActivity(w http.ResponseWriter, r *http.Request) {
+	runs, rr := b.src.Loop()
+	recs, ur := b.src.Usage()
+	a := BuildActivity(runs, recs, b.opt.Now(), ActivityDays)
+	a.Reading = rr.String() + " · " + ur.String()
+	a.Lit = rr.Lit || ur.Lit
+	writeJSON(w, a)
 }
 
 func (b *Board) apiTree(w http.ResponseWriter, r *http.Request) {

@@ -114,6 +114,7 @@ type tuiHost struct {
 	filesAt        time.Time
 	words          tui.Words
 	exit           int
+	plans          plansMemo // the rail's decks, read again only when they moved
 }
 
 func (a *App) tuiWords() tui.Words {
@@ -251,6 +252,11 @@ func (h *tuiHost) Welcome() tui.Welcome {
 	w.Roles = roles
 	w.Off = len(a.Cfg.Off())
 	w.Holes = a.Holes()
+	a.mu.Lock()
+	if a.boardAddr != "" {
+		w.Dash = "http://" + a.boardAddr + "/dash"
+	}
+	a.mu.Unlock()
 	return w
 }
 
@@ -405,6 +411,8 @@ var builtinCommands = []tui.MenuItem{
 	{Name: "handoff", Description: "/handoff [focus] writes one for a fresh session · /handoff read picks the last up"},
 	{Name: "sessions", Description: "the sessions of this workspace"},
 	{Name: "resume", Description: "/resume <id> — reopen a session"},
+	{Name: "copy", Description: "copy the last answer's markdown to the clipboard"},
+	{Name: "mouse", Description: "hand the mouse to the terminal (its own selection) or back to the panes"},
 	{Name: "clear", Description: "clear the screen"},
 	{Name: "quit", Description: "end the session"},
 }

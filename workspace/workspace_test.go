@@ -87,7 +87,8 @@ func TestLexicon(t *testing.T) {
 	if a.Token("domain") != "domain" || a.Rank("zone-auth") != "zone" || a.Rank("nobody-x") != "" || a.Rank("domain-x") != "domain" {
 		t.Error("tokens and ranks")
 	}
-	if l := a.Layout(); len(l.Ranks) != 5 || l.Ranks[2].Dir != "zone" || l.Ranks[2].Parent != "domain" || l.Policy != "AGENT-ONE.md" {
+	// seven rank dirs: the promoted ranks live in their own (principal-coord, principal-domain)
+	if l := a.Layout(); len(l.Ranks) != 7 || l.Ranks[2].Dir != "zone" || l.Ranks[2].Parent != "domain" || l.Ranks[5].Dir != "principal-domain" || l.Policy != "AGENT-ONE.md" {
 		t.Errorf("layout %+v", l)
 	}
 	if l := a.Loop(); l.Human != "Operator" || l.WorkspaceDir != ".agent-one" || l.Agent != "ephemeral-subagent" {
@@ -638,7 +639,7 @@ func TestChainDepth(t *testing.T) {
 	if got := customRanks().ChainDepth(); got != 3 {
 		t.Fatalf("custom table lead→persistent agent→{coder,writer}: %d", got)
 	}
-	shallow := Ranks{{Name: "lead", ReportsTo: Orchestrator, Job: "x", Agent: "ephemeral", Role: "drafter", Tools: AllTools, Dir: "lead", Prefix: "lead-"}}
+	shallow := Ranks{{Name: "lead", ReportsTo: Orchestrator, Job: "x", Role: "drafter", Tools: AllTools, Dir: "lead", Prefix: "lead-"}}
 	if got := shallow.ChainDepth(); got != 1 {
 		t.Fatalf("one rank under orchestrator: %d", got)
 	}

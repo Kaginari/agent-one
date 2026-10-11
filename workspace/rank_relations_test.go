@@ -192,20 +192,17 @@ func TestDivineRulesReachTheBase(t *testing.T) {
 
 func TestPromotionsWalksTheBonds(t *testing.T) {
 	rs := Ranks(DefaultRanks(Default()))
-	// the default table wires both divine promotions coded on the intelligence band
+	// the default table wires both divine promotions on the conservative record band
 	got := rs.Promotions()
 	if len(got) != 2 {
-		t.Fatalf("the default table wires principal_coordinator and principal_domain_owner on intelligence: %v", got)
+		t.Fatalf("the default table wires principal_coordinator and principal_domain_owner: %v", got)
 	}
 	byFrom := map[string]Promotion{}
 	for _, a := range got {
 		byFrom[a.From] = a
 	}
-	if byFrom["coord"].When != "promote coord when intelligence >= 70 && reports >= 5" {
-		t.Fatalf("principal_coordinator promotesWhen = %q, want the intelligence band", byFrom["coord"].When)
-	}
-	if byFrom["domain"].When != "promote domain when intelligence >= 70 && reports >= 5" {
-		t.Fatalf("principal_domain_owner promotesWhen = %q, want the intelligence band", byFrom["domain"].When)
+	if byFrom["coord"].When != DefaultPromoteCoord || byFrom["domain"].When != DefaultPromoteDomain {
+		t.Fatalf("promotesWhen = %q / %q, want the defaults", byFrom["coord"].When, byFrom["domain"].When)
 	}
 	// a custom promotesWhen still carries through
 	rs2 := append(Ranks(nil), rs...)

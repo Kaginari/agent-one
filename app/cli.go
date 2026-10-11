@@ -162,7 +162,7 @@ var commands = []struct{ name, summary string }{
 	{"lessons", "the guts' readings ranked — the autopsy instrument: lessons [<journal dir|bench run dir>] [<top N>]"},
 	{"bench", "a fixed task set on every configured model (mock always; real providers with keys)"},
 	{"selftest", "every package's selftest, one @S PASS n checks"},
-	{"init", "found a workspace here: init [--level light|medium|complex] [--bench] — light: the policy only; medium: a team sketched from the tree; complex: the model reads all the code and founds the team"},
+	{"init", "found a workspace here: init [--level light|medium|complex] [--bench] — light: the policy only; medium: a team read from the tree (build files, sizes, imports), no model; complex: the model reads all the code and founds the team"},
 	{"board", "serve the board and the dashboard (read-only) without a session, on 127.0.0.1"},
 	{"guard", "the global dangerous-command guard: check, test, show, export, hook, install"},
 	{"install", "run the policy inside Claude Code through its hooks: install --claude [--global] [--yes]"},
@@ -449,12 +449,13 @@ func cmdInit(dist string, f cliFlags, io IO) (int, string) {
 	lex := lexiconFor()
 	if level == "medium" {
 		s := sketchTeam(root, d)
-		wrote, err := writeSketch(root, d, s, lex.Ranks, lex.Prefixes, lex.Display)
+		res, err := writeSketch(root, d, s, lex.Ranks, lex.Prefixes, lex.Display)
 		if err != nil {
 			fmt.Fprintf(io.Err, "@S FAIL\n@? init --level medium: %v\n", err)
 			return 2, ""
 		}
-		rep.medium = &mediumRep{members: s.all(), wrote: wrote, kept: len(s.all()) - len(wrote)}
+		rep.medium = &mediumRep{members: s.all(), wrote: res.wrote, kept: len(res.kept), covered: len(res.covered), prefix: lex.Prefixes,
+			coords: s.count("coord"), domains: s.count("domain"), zones: s.count("zone"), service: s.count("service"), lanes: s.lanes(lex.Prefixes)}
 	}
 	rep.bench = f.bench
 	// The chain policy at provisioning: a founded workspace never stands broken — audit it and seal
@@ -492,8 +493,15 @@ func cmdInit(dist string, f cliFlags, io IO) (int, string) {
 		for _, wf := range rep.medium.wrote {
 			fmt.Fprintln(io.Out, "@F "+wf)
 		}
-		fmt.Fprintf(io.Out, "@S OK a team sketched from the tree: %d members written (%d kept as they were) — refine their invariants and verify lines, or run `%s init --level complex` to have the model read the code\n",
-			len(rep.medium.wrote), rep.medium.kept, dist)
+		m := rep.medium
+		for _, l := range m.lanes {
+			fmt.Fprintln(io.Out, "@F lane "+l)
+		}
+		if m.covered > 0 {
+			fmt.Fprintf(io.Out, "@F %d sketched member%s left out: the workspace's members already hold their ground\n", m.covered, plural(m.covered))
+		}
+		fmt.Fprintf(io.Out, "@S OK a team sketched from the tree (%s): %d members written (%d kept as they were) — refine their invariants and verify lines, or run `%s init --level complex` to have the model read the code\n",
+			m.census(), len(m.wrote), m.kept, dist)
 	}
 	if level == "complex" {
 		fmt.Fprintf(io.Out, "@S OK the founding session starts: the model reads all the code and founds the team\n")

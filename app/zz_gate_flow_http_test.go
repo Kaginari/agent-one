@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,8 @@ func TestDashGateAnswerOverHTTP(t *testing.T) {
 		when("push it", call("bash", map[string]string{"command": "git push origin main"})),
 		text("push attempted"),
 	)
-	w.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", ""))
+	// a free board port: the default 7411 may belong to a live session on this machine
+	w.write(".agent-one/config.yaml", strings.Replace(mockCfg(".agent-one/tmp/s.json", ""), "autostart: false", "autostart: false, port: "+strconv.Itoa(pickBoardPort()), 1))
 	a := w.open()
 	bus := a.webBus()
 

@@ -118,14 +118,18 @@ func (m *Model) openBoard() tea.Cmd {
 // closeBoard gives the screen back and prints what finished while the board was open.
 func (m *Model) closeBoard() tea.Cmd {
 	m.board = nil
-	held := m.held
-	m.held = nil
+	return m.release()
+}
+
+// release prints what finished under a full-screen view, once: a width that moved meanwhile
+// reflows the whole transcript instead.
+func (m *Model) release() tea.Cmd {
 	if m.width != m.lastWidth {
 		seq := m.reflowSeq
 		return func() tea.Msg { return evReflow{seq} }
 	}
-	for _, b := range held {
-		m.enqueue(printItem{text: b})
+	if !m.paneMode() {
+		m.catchUp()
 	}
 	return nil
 }

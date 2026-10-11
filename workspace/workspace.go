@@ -25,9 +25,12 @@ type Member struct {
 	Doc       string   // relative path of the owning doc
 	Dir       string   // relative path of the member's directory
 	Ownership []string // normalized path prefixes it owns
-	Parent    string   // one hop up (domain for a zone worker, coord for an domain owner, orchestrator for an coordinator)
-	Skills    []string // held skills
-	Verify    []string // shell commands whose exit codes are the invariants' reading
+	Parent    string   // one hop up (domain owner for a zone worker, coordinator for a domain owner, orchestrator for a coordinator); a retired parent's promoted stands in for it
+	// PromotedOf names the base this agent promoted from (its doc's `Promoted of` line); "" for
+	// an agent that never promoted
+	PromotedOf string
+	Skills     []string // held skills
+	Verify     []string // shell commands whose exit codes are the invariants' reading
 }
 
 // Options is what Open needs beyond the root and the lexicon.
@@ -127,6 +130,7 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 	}
 	w.promote = newPromoteState(w.Ranks)
 	w.loadLedgers() // the scars come home before the first agent runs (freeze policy 2026-10-07)
+	w.loadTally()   // and the promotion record: an agent's reports count across sessions
 	policyPath := filepath.Join(abs, lex.WorkspaceDir, lex.Policy)
 	if w.Policy, err = LoadPolicy(policyPath, lex.WorkspaceDir+"/"+lex.Policy, lex.Principles); err != nil {
 		w.Notes = append(w.Notes, err.Error())
@@ -282,7 +286,26 @@ func membersOf(root string, ow *onto.Workspace, ranks Ranks) []Member {
 			}
 		}
 		c.Verify = VerifyOf(text)
+		c.PromotedOf = promotedOf(text)
 		out = append(out, c)
+	}
+	// succession: a member whose one-hop-up retired by promoting reports to its promoted —
+	// the base's doc stays as the graph's memory, its line now runs through the risen agent
+	succ, live := map[string]string{}, map[string]bool{}
+	for _, c := range out {
+		live[c.Name] = true
+	}
+	for _, c := range out {
+		if c.PromotedOf != "" && !live[c.PromotedOf] {
+			succ[c.PromotedOf] = c.Name
+		}
+	}
+	for i := range out {
+		seen := map[string]bool{}
+		for p := out[i].Parent; succ[p] != "" && !seen[p]; p = out[i].Parent {
+			seen[p] = true
+			out[i].Parent = succ[p]
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
