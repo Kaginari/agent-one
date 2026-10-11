@@ -127,7 +127,7 @@ func (m *Model) vpWheel(msg tea.MouseWheelMsg) (tea.Cmd, bool) {
 // right padding column) or on the sidebar's (its right border) jumps the thumb there and holds
 // it, a drag walks it, the release lets go. true when the event was the bar's.
 func (m *Model) barMouse(msg tea.Msg) bool {
-	if !m.paneMode() || m.mouseTerm || m.choice != nil || m.palette != nil || m.board != nil || m.bview != nil {
+	if !m.paneMode() || m.mouseTerm || m.choice != nil || m.palette != nil || m.pick != nil || m.board != nil || m.bview != nil {
 		return false
 	}
 	l := m.geom()

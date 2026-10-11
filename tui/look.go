@@ -120,17 +120,14 @@ func (m *Model) switchLook(name, mode string) tea.Cmd {
 	return tea.Batch(cmd, func() tea.Msg { return evLookSaved{name, mode, h.SetTheme(name, mode)} })
 }
 
-// themeSlash is /theme [name] [dark|light|system]: alone it flips dark and light; a palette's
+// themeSlash is /theme [name] [dark|light|system]: alone it opens the picker; a palette's
 // name holds it in the mode in force; a mode word alone keeps the palette; "list" (or anything
 // unknown) prints the palettes.
 func (m *Model) themeSlash(rest string) tea.Cmd {
 	name, mode := m.theme.Name, m.theme.lookMode()
 	args := strings.Fields(strings.ToLower(rest))
 	if len(args) == 0 {
-		if m.theme.Dark {
-			return m.switchLook(name, "light")
-		}
-		return m.switchLook(name, "dark")
+		return m.openThemePick()
 	}
 	for _, a := range args {
 		switch {

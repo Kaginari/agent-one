@@ -32,7 +32,7 @@ func (m *Model) openSettings() tea.Cmd {
 		st.sidebar = "hidden"
 	}
 	st.form = huh.NewForm(huh.NewGroup(
-		huh.NewSelect[string]().Title("theme").Inline(true).Options(themes...).Value(&st.theme),
+		huh.NewSelect[string]().Title("theme").Options(themes...).Height(len(themes)+1).Value(&st.theme),
 		huh.NewSelect[string]().Title("mode").Inline(true).
 			Options(huh.NewOption("dark", "dark"), huh.NewOption("light", "light"), huh.NewOption("system", "system")).Value(&st.mode),
 		huh.NewSelect[string]().Title("mouse").Inline(true).
@@ -90,7 +90,7 @@ func (m *Model) applySettings(st *settingsState) tea.Cmd {
 // settingsView is the form in its card: the primary's edge (a floating focus), the keys under.
 func (m *Model) settingsView() string {
 	t := m.theme
-	rows := []string{m.settings.form.View(), "", t.keys("←→ change · tab next · enter save · esc close")}
+	rows := []string{m.settings.form.View(), "", t.keys("↑↓ theme · ←→ change · tab next · enter save · esc close")}
 	return t.panelIn(t.accent, t.title("settings"), rows, 56)
 }
 

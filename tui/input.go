@@ -25,6 +25,9 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.palette != nil {
 		return m, m.paletteKey(k)
 	}
+	if m.pick != nil {
+		return m, m.pickKey(k)
+	}
 	if k.String() == "ctrl+t" {
 		return m, m.openAgents()
 	}

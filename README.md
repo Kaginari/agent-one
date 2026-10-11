@@ -288,7 +288,7 @@ reviews the change before the turn is done:
 | drag · `ctrl+y` · `/mouse` | select and copy · copy the last answer · the mouse to the terminal |
 | `alt+s` · `alt+c` / `alt+p` / `alt+f` | hide the sidebar · fold its subagents / plan / files |
 | `/settings` · `/roles` | theme, mode, mouse and sidebar in one form · every role and its model |
-| `/theme [name] [dark\|light\|system]` | hold another palette — the dashboard follows; alone, flip dark and light |
+| `/theme [name] [dark\|light\|system]` | hold another palette — the dashboard follows; alone, the picker: every theme with its swatches, previewed live, the mode under them |
 
 ### Themes
 

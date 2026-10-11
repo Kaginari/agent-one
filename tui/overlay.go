@@ -32,7 +32,7 @@ type paletteHit struct {
 // paletteActions are the UI's own entries beside the host's commands.
 var paletteActions = []MenuItem{
 	{Name: "board", Description: "the board, full screen"},
-	{Name: "theme", Description: "flip dark and light — /theme <name> [dark|light|system] holds another palette"},
+	{Name: "theme", Description: "pick the theme and its mode, previewed live — /theme <name> [dark|light|system] sets one"},
 	{Name: "help", Description: "commands and shortcuts"},
 	{Name: "copy", Description: "copy the last answer's markdown"},
 	{Name: "mouse", Description: "the mouse to the terminal (its own selection) or back to the panes"},
@@ -249,7 +249,8 @@ func (m *Model) overlay(base string) string {
 	l := m.lay
 	popup := l.pane && (m.menu != nil || m.comp != nil || m.shortcuts)
 	form := l.pane && m.settings != nil
-	if m.palette == nil && len(m.toasts) == 0 && !m.choiceFloat() && !m.burstOn && !popup && !form {
+	pick := l.pane && m.pick != nil
+	if !pick && m.palette == nil && len(m.toasts) == 0 && !m.choiceFloat() && !m.burstOn && !popup && !form {
 		return base
 	}
 	var layers []*lipgloss.Layer
@@ -340,6 +341,11 @@ func (m *Model) overlay(base string) string {
 		sv := m.settingsView()
 		x, y := centerRect(l.mc+2, l.H-l.topY, lipgloss.Width(sv), strings.Count(sv, "\n")+1)
 		layers = append(layers, lipgloss.NewLayer(sv).X(x).Y(y).Z(4))
+	}
+	if pick {
+		pv := m.pickView()
+		x, y := centerRect(l.mc+2, l.H-l.topY, lipgloss.Width(pv), strings.Count(pv, "\n")+1)
+		layers = append(layers, lipgloss.NewLayer(pv).X(x).Y(y).Z(4))
 	}
 	if m.palette != nil {
 		pv := m.paletteView()

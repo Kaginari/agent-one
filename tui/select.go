@@ -62,7 +62,7 @@ func (m *Model) selSpot(x, y int, clamp bool) (spot, bool) {
 
 // mouseSelect handles the chat pane's mouse: ok false leaves the event to the rail.
 func (m *Model) mouseSelect(msg tea.Msg) (tea.Cmd, bool) {
-	if !m.paneMode() || m.mouseTerm || m.choice != nil || m.palette != nil {
+	if !m.paneMode() || m.mouseTerm || m.choice != nil || m.palette != nil || m.pick != nil {
 		return nil, false
 	}
 	switch msg := msg.(type) {

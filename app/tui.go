@@ -431,7 +431,7 @@ var builtinCommands = []tui.MenuItem{
 	{Name: "handoff", Description: "/handoff [focus] writes one for a fresh session · /handoff read picks the last up"},
 	{Name: "sessions", Description: "the sessions of this workspace"},
 	{Name: "resume", Description: "/resume <id> — reopen a session"},
-	{Name: "theme", Description: "/theme <name> [dark|light|system] — the palette the terminal and the dashboard hold; alone, flip dark and light"},
+	{Name: "theme", Description: "/theme <name> [dark|light|system] — the palette the terminal and the dashboard hold; alone, the picker"},
 	{Name: "copy", Description: "copy the last answer's markdown to the clipboard"},
 	{Name: "mouse", Description: "hand the mouse to the terminal (its own selection) or back to the panes"},
 	{Name: "clear", Description: "clear the screen"},

@@ -7,6 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Kaginari/agent-one/theme"
 )
 
 // themeHost keeps the look the way the app does: it records every switch.
@@ -36,7 +38,7 @@ func runCmd(m *Model, c tea.Cmd) {
 }
 
 // /theme <name> holds the palette at once and hands it to the host to keep; a mode word keeps the
-// palette; /theme alone flips dark and light; an unknown name lists the palettes and changes
+// palette; /theme alone opens the picker; an unknown name lists the palettes and changes
 // nothing; the dashboard's choice (EvTheme) is followed live.
 func TestThemeSwitchesLive(t *testing.T) {
 	h := &themeHost{}
@@ -61,8 +63,13 @@ func TestThemeSwitchesLive(t *testing.T) {
 		t.Fatalf("/theme light keeps the palette: %s %v", m.theme.Name, m.theme.Dark)
 	}
 	runCmd(m, m.slash("/theme"))
-	if !m.theme.Dark || h.set[2] != [2]string{"synthwave", "dark"} {
-		t.Fatal("/theme alone flips")
+	if m.pick == nil {
+		t.Fatal("/theme alone opens the picker")
+	}
+	runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyLeft}))
+	runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyEnter}))
+	if m.pick != nil || !m.theme.Dark || h.set[2] != [2]string{"synthwave", "dark"} {
+		t.Fatalf("the picker's mode, kept: %v %v", m.theme.Dark, h.set)
 	}
 	runCmd(m, m.slash("/theme vaporwave"))
 	if m.theme.Name != "synthwave" || len(h.set) != 3 {
@@ -99,5 +106,47 @@ func TestDetectThemeFor(t *testing.T) {
 	}
 	if th := DetectThemeFor(env(map[string]string{"COLORFGBG": "0;15"}), "AGENT_ONE_", "glitch", "system"); th.Dark {
 		t.Fatal("system reads COLORFGBG")
+	}
+}
+
+// The picker lists every palette with its swatches; moving wears the palette at once without
+// keeping it; esc goes back to the look it opened on; enter keeps the one under the cursor.
+func TestThemePickerPreviewsAndKeeps(t *testing.T) {
+	h := &themeHost{}
+	th := DetectThemeFor(func(string) string { return "" }, "AGENT_ONE_", "cyberpunk", "dark")
+	th.Color, th.TrueColor = true, true
+	m := New(h, th, DefaultWords())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 34})
+	m.Update(evBgWait{})
+	m.Render()
+	runCmd(m, m.slash("/theme"))
+	f := ansi.Strip(m.Render())
+	for _, p := range theme.All {
+		if !strings.Contains(f, p.Label) {
+			t.Fatalf("the picker lacks %s:\n%s", p.Label, f)
+		}
+	}
+	if !strings.Contains(f, "● in use") || !strings.Contains(f, "[dark]") {
+		t.Fatalf("the picker marks the palette and mode in use:\n%s", f)
+	}
+	runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyDown}))
+	if m.theme.Name != theme.All[1].Name || len(h.set) != 0 {
+		t.Fatalf("down previews %s unsaved: %s %v", theme.All[1].Name, m.theme.Name, h.set)
+	}
+	runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyRight}))
+	if m.theme.Dark {
+		t.Fatal("right previews light")
+	}
+	runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyEscape}))
+	if m.pick != nil || m.theme.Name != "cyberpunk" || !m.theme.Dark || len(h.set) != 0 {
+		t.Fatalf("esc goes back: %s %v %v", m.theme.Name, m.theme.Dark, h.set)
+	}
+	runCmd(m, m.slash("/theme"))
+	for i := 0; i < 4; i++ {
+		runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyDown}))
+	}
+	runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyEnter}))
+	if want := theme.All[4].Name; m.pick != nil || m.theme.Name != want || len(h.set) != 1 || h.set[0] != [2]string{want, "dark"} {
+		t.Fatalf("enter keeps %s: %s %v", want, m.theme.Name, h.set)
 	}
 }
