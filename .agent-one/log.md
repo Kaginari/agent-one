@@ -18,3 +18,14 @@ Append-only. Newest entries at the bottom. One entry per change.
   - the README's CLI table and app/cli.go's commands table are tied by no test; the two policy copies are (TestEmbeddedLawsMatchTheWorkspace)
   - the leak test scans .agent-one/ and .claude/ too; every doc written here was checked with go test .
   - not on this machine: goreleaser and the harbor CLI — goreleaser check and the smoke run are CI's readings only
+
+### [2026-10-11T05:45:00+02:00] orchestrator — the upgrades: the hardened gate and sandbox, the operation room, the one-page dashboard, value, the forge, evolution, themes
+- **Task:** bring the engine upgrades into agent-one in its own words — the security, provider and first-run fixes and the Claude Code hooks; subagents and council, promotion, consolidation, systems, the ledger, guts, pulse, plan deck, memory review, housekeep; the sandbox's namespaces, masked credentials and Seatbelt (`--docker-agent`, `--containered` aliased); the dashboard as one page with relates and the 3D brain; the framed, Cyberpunk terminal; the value law (value/, rank/); the forge's first slice; policy.evolution; theme/ with ui.theme and ui.mode; the creed's edits to AGENT-ONE.md
+- **Files:** branch `upgrades` (not pushed) — app/, board/, config/, loop/, memory/, onto/, provider/, sandbox/, tool/, tui/, workspace/, wire/, rank/, value/, theme/, AGENT-ONE.md and its two copies, README.md, CHANGELOG.md, the members' docs
+- **Gate:** n/a — operator-ordered port; onto check 0 findings, housekeep whole
+- **Result:** done on the branch — gofmt clean, go vet clean, go test ./... green, selftest 201, a mock turn through coordinator → domain owner → zone worker passes the gate
+- **Learned:**
+  - the members' docs were written with the forked-from field names (Territory, Traits), which this workspace's parser never read; they now say Owns and Invariants, and theme/, value/ and rank/ have owners
+  - /dev/tcp on a command line now reads as outward, and an approved outward act gets the network: the sandbox's egress test probes from a script the gate cannot see
+  - this distribution's words run longer (orchestrator, .agent-one/config.local.yaml, "to promote"): the sidebar's rank column and two notices were fitted to them
+  - the unsaid's wire kinds are policy, team and domain; a prompt that says "ownership" teaches the model a token the wire drops
