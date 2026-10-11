@@ -83,6 +83,7 @@ live register, so context is spent on work, not on words.
 | `@V` | a verdict on a claim, with evidence |
 | `@?` | a hole — named, never guessed |
 | `@U <kind> …` | the unsaid: one piece of knowledge that was in the worker's head and nowhere on disk; kind is `policy`, `team` or `domain` (§The unsaid) |
+| `@$ <agent>: <ask>` | an order one layer down — drained as dispatches at the turn boundary, re-checked against the hierarchy; a fresh line per order |
 | `@FORGE <kind>:<name> \| <text>` | a draft the run proved — kind `tool` or `skill`; rides the report up, is filed by the harness as a team note tagged `forge` (its agent, run and hash), and registers only from the operator's queue (`/forge`, `agent-one forge`) |
 | `@E <bytes>` | closes the response |
 
