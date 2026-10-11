@@ -2,7 +2,7 @@
 
 - **Rank:** Domain owner
 - **Owns:** `app/`, `cmd/`
-- **Reports to:** coord-agent-one
+- **Reports to:** coord-host
 - **Skills:** domain-gate-review
 - **Purpose:** rules the binary's wiring — the CLI, the live session and its hosts, the tool shelf and the policy hooks — and holds its gate; app is the one package that imports every other.
 

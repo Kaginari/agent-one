@@ -2,7 +2,7 @@
 
 - **Rank:** Domain owner
 - **Owns:** `config/`
-- **Reports to:** coord-agent-one
+- **Reports to:** coord-workspace
 - **Skills:** domain-gate-review
 - **Purpose:** rules the switchboard — every layer, every origin, every refusal — and holds its gate: no key is added, no default flipped, no refusal weakened without this owner's pass.
 

@@ -2,7 +2,7 @@
 
 - **Rank:** Domain owner
 - **Owns:** `tui/`, `ui/`, `board/`, `theme/`
-- **Reports to:** coord-agent-one
+- **Reports to:** coord-host
 - **Skills:** domain-gate-review
 - **Purpose:** rules what the operator sees — the terminal, the board and dashboard on loopback, the web ui system the agent builds pages with — and holds its gate.
 

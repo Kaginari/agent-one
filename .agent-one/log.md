@@ -29,3 +29,12 @@ Append-only. Newest entries at the bottom. One entry per change.
   - /dev/tcp on a command line now reads as outward, and an approved outward act gets the network: the sandbox's egress test probes from a script the gate cannot see
   - this distribution's words run longer (orchestrator, .agent-one/config.local.yaml, "to promote"): the sidebar's rank column and two notices were fitted to them
   - the unsaid's wire kinds are policy, team and domain; a prompt that says "ownership" teaches the model a token the wire drops
+
+### [2026-10-11T12:30:00+02:00] orchestrator — the workspace in four lanes: coordinators per lane, the skills inside the workspace
+- **Task:** make .agent-one/ the same shape as the engine's other distribution: one coordinator per lane instead of one for all, the skills kept in the workspace, machine-local config never tracked
+- **Files:** .agent-one/coord/{engine,workspace,host,canon} (coord-agent-one became coord-canon), the six domain docs' Reports to, .agent-one/base-skills/ (the six from .claude/skills, plus loop-core, gate-safety, review-core, bench-run, zone-wire-and-journals), zone-drain wears zone-wire-and-journals, .agent-one/.gitignore (*.local.yaml); .claude/ untracked (ignored, generated)
+- **Gate:** n/a — operator-ordered restructure; onto check 0 findings · 31 members · 11 skills, housekeep whole
+- **Result:** done on the branch — selftest 201, go test . (the leak test) green
+- **Learned:**
+  - a coordinator never authors: its Owns is the lane's routing map, so a lane's dir may be both a coordinator's and a domain owner's
+  - .agent-one/.gitignore predated the scaffold's config.local.* line: a token in config.local.yaml could have been committed

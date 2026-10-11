@@ -2,7 +2,7 @@
 
 - **Rank:** Domain owner
 - **Owns:** `workspace/`, `onto/`, `memory/`, `toolbox/`, `discover/`, `value/`, `rank/`
-- **Reports to:** coord-agent-one
+- **Reports to:** coord-workspace
 - **Skills:** domain-gate-review, zone-workspace-docs
 - **Purpose:** rules the workspace as the binary reads it — the policy's ranks and review gate, the ontology that derives members from their docs, the memory and toolbox instruments, and what other harnesses wrote — and holds its gate.
 

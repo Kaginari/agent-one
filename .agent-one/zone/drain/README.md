@@ -3,7 +3,7 @@
 - **Rank:** Zone worker
 - **Owns:** `compact/`, `instrument/`, `wire/`
 - **Reports to:** domain-engine
-- **Skills:** zone-go-package
+- **Skills:** zone-go-package, zone-wire-and-journals
 - **Purpose:** the ground truth of what leaves the context and how it is measured: the drain, the occupancy readings, and the wire envelope every report travels in.
 
 ## Invariants

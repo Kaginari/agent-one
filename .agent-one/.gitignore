@@ -7,3 +7,4 @@ memory/long/
 toolbox/registry.json
 tmp/
 config.local.*
+*.local.yaml
