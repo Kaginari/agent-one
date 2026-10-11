@@ -111,3 +111,26 @@ func TestDiff(t *testing.T) {
 		t.Error("identical texts should diff empty")
 	}
 }
+
+// A document that is one flow map — the scaffold's `{}` under its comments, or `{a: 1}` — takes
+// a new key: the map is re-rendered as a block, the comments stay. Before, the key was appended
+// after the flow map and the edit was refused as unreadable (a theme switch was never kept).
+func TestEditIntoAFlowDocument(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{"# local layer\n# more\n{}\n", "# local layer\n# more\nui:\n  theme: glitch\n"},
+		{"{models: {default: m/x}}\n", "models:\n  default: m/x\nui:\n  theme: glitch\n"},
+		{"# only a comment\n", "# only a comment\nui:\n  theme: glitch\n"},
+	} {
+		v, err := Parse([]byte("glitch"), "v")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := Edit([]byte(tc.src), "c.yaml", []string{"ui", "theme"}, v)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.src, err)
+		}
+		if string(out) != tc.want {
+			t.Fatalf("%q:\n got %q\nwant %q", tc.src, out, tc.want)
+		}
+	}
+}

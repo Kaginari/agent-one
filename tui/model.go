@@ -737,7 +737,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyLook(msg.Name, msg.Mode)
 	case evLookSaved:
 		if msg.err != nil {
-			m.say("theme " + msg.name + " · " + msg.mode + " — held, not saved: " + msg.err.Error())
+			// a failed save stays in the conversation: the next start would not hold the pick
+			text := "theme " + msg.name + " · " + msg.mode + " — held for this session only, not saved: " + msg.err.Error()
+			m.say("theme not saved")
+			return m, m.print(func(w int) string { return m.theme.Error(text, w) })
 		} else {
 			m.say("theme " + msg.name + " · " + msg.mode + " — saved to " + m.words.ConfigRel)
 		}

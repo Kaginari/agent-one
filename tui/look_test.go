@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -148,5 +149,33 @@ func TestThemePickerPreviewsAndKeeps(t *testing.T) {
 	runCmd(m, m.pickKey(tea.KeyPressMsg{Code: tea.KeyEnter}))
 	if want := theme.All[4].Name; m.pick != nil || m.theme.Name != want || len(h.set) != 1 || h.set[0] != [2]string{want, "dark"} {
 		t.Fatalf("enter keeps %s: %s %v", want, m.theme.Name, h.set)
+	}
+}
+
+// The slash menu offers the terminal's own commands beside the host's: /settings, /sidebar …
+// were answered but never listed.
+func TestSlashMenuListsTheUIsCommands(t *testing.T) {
+	m := New(&themeHost{}, DetectThemeFor(func(string) string { return "" }, "AGENT_ONE_", "cyberpunk", "dark"), DefaultWords())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 34})
+	for _, q := range []string{"/sett", "/side", "/them"} {
+		m.setInput(q)
+		m.refreshMenus()
+		if m.menu == nil || len(m.menu.items) == 0 || !strings.HasPrefix(m.menu.items[0].Name, q[1:]) {
+			t.Fatalf("%s: the menu %v", q, m.menu)
+		}
+	}
+}
+
+// A save that fails stays in the conversation, not only in the passing status line.
+func TestThemeSaveFailureStays(t *testing.T) {
+	m := New(&themeHost{}, DetectThemeFor(func(string) string { return "" }, "AGENT_ONE_", "cyberpunk", "dark"), DefaultWords())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 34})
+	m.Update(evBgWait{})
+	_, cmd := m.Update(evLookSaved{name: "glitch", mode: "dark", err: errors.New("edit refused")})
+	if cmd != nil {
+		cmd()
+	}
+	if tr := m.Transcript(); !strings.Contains(tr, "not saved: edit refused") {
+		t.Fatalf("the failure is not in the conversation:\n%s", tr)
 	}
 }

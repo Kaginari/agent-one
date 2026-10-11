@@ -152,11 +152,32 @@ func Edit(src []byte, file string, path []string, value *Node) ([]byte, error) {
 	}
 	lines := strings.Split(strings.ReplaceAll(string(src), "\r\n", "\n"), "\n")
 	if root.Kind == Null {
+		// an empty document (nothing, or only comments, or a bare null): the comments stay,
+		// the entries go under them
 		root = &Node{Kind: Map, Line: 1, End: 0}
-		lines = lines[:0]
+		kept := lines[:0]
+		for _, l := range lines {
+			if t := strings.TrimSpace(l); t == "" || strings.HasPrefix(t, "#") {
+				kept = append(kept, l)
+			}
+		}
+		for len(kept) > 0 && strings.TrimSpace(kept[len(kept)-1]) == "" {
+			kept = kept[:len(kept)-1]
+		}
+		lines = kept
 	}
 	if root.Kind != Map {
 		return nil, fmt.Errorf("edit: %s is not a map document", file)
+	}
+	// A whole document written as one flow map ({} or {a: 1}) is re-rendered as a block first —
+	// a block key can never follow a flow document.
+	if root.End == root.Line && root.Line > 0 && strings.HasPrefix(strings.TrimSpace(stripComment(lines[root.Line-1])), "{") {
+		var block []string
+		for i, k := range root.Keys {
+			block = append(block, renderEntry(k, root.Vals[i], 0)...)
+		}
+		out := append(append(append([]string{}, lines[:root.Line-1]...), block...), lines[root.Line:]...)
+		return Edit([]byte(strings.Join(out, "\n")), file, path, value)
 	}
 	// chain[i] is the node at path[:i]; it stops at the deepest existing node.
 	chain := []*Node{root}

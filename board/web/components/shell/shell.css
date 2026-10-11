@@ -43,9 +43,7 @@
   .shell-main[data-view="overview"] > [data-panel="memory"],
   .shell-main[data-view="overview"] > [data-panel="toolbox"],
   .shell-main[data-view="overview"] > [data-panel="config"] { display: none; }
-  .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body { max-block-size: 16rem; }
-  /* stacked, a pinned neuron's card takes the band whole: never cut at its foot */
-  .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body:has(.kcard) { max-block-size: none; }
+  .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body { max-block-size: 22rem; }
   @container (min-width: 64rem) {
     .shell-main[data-view="overview"] {
       --shell-dock-w: var(--shell-dock, 27rem);
@@ -57,10 +55,9 @@
     }
     .shell-main[data-view="overview"] > [data-panel="console"] { block-size: auto; min-block-size: 0; }
     .shell-main[data-view="overview"] > [data-panel="net"] { min-block-size: 0; }
-    .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body,
-    .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body:has(.kcard) { max-block-size: clamp(5.5rem, 100vh - 44rem, 11rem); }
-    /* in 3D the stage takes the room: the timeline folds to its two newest rows */
-    .shell-main[data-view="overview"][data-net="3d"] > [data-panel="timeline"] .panel-body { max-block-size: 5.5rem; }
+    .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body { max-block-size: clamp(9rem, 100vh - 42rem, 18rem); }
+    /* in 3D the stage takes more of the room, the timeline still shows its newest rows */
+    .shell-main[data-view="overview"][data-net="3d"] > [data-panel="timeline"] .panel-body { max-block-size: clamp(8rem, 100vh - 46rem, 13rem); }
     .shell-main[data-view="overview"] > .shell-split {
       display: block; grid-area: split; inline-size: var(--space-s); cursor: col-resize; position: relative; border-radius: var(--radius-pill); outline: none;
     }

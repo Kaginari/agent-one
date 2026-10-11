@@ -48,16 +48,22 @@ var noArgs = map[string]bool{"board": true, "clear": true, "help": true, "quit":
 	"status": true, "sessions": true, "compact": true, "theme": true, "copy": true, "mouse": true,
 	"sidebar": true, "roles": true, "settings": true}
 
-func (m *Model) openPalette() {
+// allCommands is every command the terminal answers: the host's, then the UI's own it does not
+// list (/settings, /sidebar …) — one list for the slash menu and the palette.
+func (m *Model) allCommands() []MenuItem {
 	seen := map[string]bool{}
 	var all []MenuItem
-	for _, it := range append(append([]MenuItem(nil), paletteActions...), m.host.Commands()...) {
+	for _, it := range append(append([]MenuItem(nil), m.host.Commands()...), paletteActions...) {
 		if !seen[it.Name] {
 			seen[it.Name] = true
 			all = append(all, it)
 		}
 	}
-	m.palette = &paletteState{all: all}
+	return all
+}
+
+func (m *Model) openPalette() {
+	m.palette = &paletteState{all: m.allCommands()}
 	m.menu, m.comp = nil, nil
 }
 

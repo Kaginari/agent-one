@@ -84,6 +84,7 @@
     <section class="panel" data-panel="net" aria-labelledby="h-net">
       <header class="panel-head"><h2 class="panel-title" id="h-net">Neural net</h2><span class="panel-note" id="net-note">—</span><div class="now" id="now" aria-label="now" role="group" hidden></div>
         <div class="panel-tools"><span class="net-mode" id="net-mode" role="group" aria-label="net view"><button type="button" data-mode="2d" aria-pressed="true">2D</button><button type="button" data-mode="3d" aria-pressed="false">3D</button></span><button class="button" data-size="s" data-variant="quiet" type="button" id="net-clear">Clear focus</button></div></header>
+      <div class="net-float" id="net-float" role="region" aria-label="the focused neuron" hidden></div>
       <div class="panel-body">
         <div class="net-frame"><div class="net-layout" data-side id="net-layout">
           <div class="stack" data-gap="s">
@@ -116,7 +117,7 @@
     </section>
     <section class="panel" data-panel="timeline" aria-labelledby="h-timeline">
       <header class="panel-head"><h2 class="panel-title" id="h-timeline">Timeline</h2><span class="panel-note" id="timeline-note">subagents and verdicts, newest first</span></header>
-      <div class="panel-body"><div class="stack" data-gap="s"><div id="timeline-slot"></div><ol class="timeline" id="timeline"></ol></div></div>
+      <div class="panel-body"><ol class="timeline" id="timeline"></ol></div>
     </section>
     <section class="panel" data-panel="metrics" aria-labelledby="h-metrics">
       <header class="panel-head"><h2 class="panel-title" id="h-metrics">Metrics</h2><span class="panel-note" id="metrics-note">—</span>

@@ -228,7 +228,7 @@ func (m *Model) refreshMenus() {
 	v := m.input.Value()
 	// the slash menu: the input is one line starting with "/" and no space yet
 	if strings.HasPrefix(v, "/") && !strings.ContainsAny(v, " \n") {
-		items := filterMenu(m.host.Commands(), strings.TrimPrefix(v, "/"))
+		items := filterMenu(m.allCommands(), strings.TrimPrefix(v, "/"))
 		if m.menu == nil {
 			m.menu = &menuState{}
 		}

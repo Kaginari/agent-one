@@ -30,5 +30,12 @@
   .kcard[data-compact] dl { grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr)); gap: var(--space-2xs) var(--space-s); }
   .kcard[data-compact] .kcard-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: var(--space-s); }
   .kcard[data-compact] .kcard-doc { display: none; }
+  /* floating over the net: a lit glass card, a smaller face beside the title, the doc kept short */
+  .kcard[data-float] { background: color-mix(in oklch, var(--surface) 90%, transparent); backdrop-filter: blur(0.5rem); border-color: var(--kcard-rank, var(--line)); }
+  .kcard[data-float] .kcard-portrait, .kcard[data-float] .kcard-glyph { inline-size: 4.5rem; block-size: 4.5rem; }
+  .kcard[data-float] .kcard-glyph { padding: 0.9rem; }
+  .kcard[data-float] .kcard-face { grid-template-columns: auto 1fr; justify-items: start; align-items: center; gap: var(--space-s); }
+  .kcard[data-float] .kcard-portrait, .kcard[data-float] .kcard-glyph { inline-size: 3.5rem; block-size: 3.5rem; }
+  .kcard[data-float] .kcard-doc { max-block-size: 8rem; }
   .kcard-doc { margin: 0; max-block-size: 16rem; overflow: auto; white-space: pre-wrap; font: var(--step--1) / var(--leading) var(--font-code); color: var(--ink-muted); }
 }

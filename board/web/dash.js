@@ -125,9 +125,9 @@
     setHash(v, arg);
     fitTabs();
     bus.dispatchEvent(new CustomEvent('view', { detail: { view: v, arg: arg || '', changed } }));
-    // in the cockpit the focused neuron's card sits in the band under the net, compact; on the
+    // in the cockpit the focused neuron's card floats over the net's top-right corner; on the
     // net's own page it takes the side column
-    const kc = document.getElementById('kcard'), slot = document.getElementById('timeline-slot'), side = document.querySelector('.net-side');
+    const kc = document.getElementById('kcard'), slot = document.getElementById('net-float'), side = document.querySelector('.net-side');
     const nl = document.getElementById('net-layout');
     if (nl) nl.toggleAttribute('data-side', v !== 'overview');
     // the cockpit keeps the net's findings on the net's own page (the note counts them) and
@@ -137,7 +137,7 @@
     if (nw) nw.hidden = v !== 'overview';
     const nn = document.getElementById('net-note');
     if (nn) nn.hidden = v === 'overview';
-    if (kc && slot && side) { (v === 'overview' ? slot : side).append(kc); try { if (team) knowledge(focus); } catch (_) { /* booting: the net's state is not declared yet */ } }
+    if (kc && slot && side) { (v === 'overview' ? slot : side).append(kc); if (v !== 'overview') slot.hidden = true; try { if (team) knowledge(focus); } catch (_) { /* booting: the net's state is not declared yet */ } }
     if (v === 'tree' && document.querySelector('.shell[data-drawer]')) document.querySelector('.shell').removeAttribute('data-drawer');
     requestAnimationFrame(() => netDraw());
     try { leaderboard(); } catch (_) { /* booting: the board's state is not declared yet */ }
@@ -671,7 +671,7 @@
   function knowledge(id) {
     const box = $('#kcard');
     box.replaceChildren();
-    const slot = box.parentElement && box.parentElement.id === 'timeline-slot' ? box.parentElement : null;
+    const slot = box.parentElement && box.parentElement.id === 'net-float' ? box.parentElement : null;
     if (slot) slot.hidden = !id;
     if (!id || !team) { if (main.dataset.view === 'overview') return; box.append(el('p', { class: 'net-hint', text: 'Hover a neuron to light its path to the ' + word('rank.orchestrator', 'orchestrator') + ' and everything below it; click (or Enter) pins it here. Each tile is four weeks of that ' + word('agent', 'agent') + "'s work, a cell a day — blank where no instrument saw any." })); return; }
     const n = team.nodes.find(x => x.id === id);
@@ -711,7 +711,7 @@
       icon.kind === 'portrait' ? el('img', { class: 'kcard-portrait', src: icon.url, alt: word('rank.' + n.rank, n.rank || 'agent'), width: 112, height: 112 })
         : svg('svg', { class: 'kcard-glyph', viewBox: '0 0 24 24', 'aria-hidden': 'true' }, svg('use', { href: icon.url })),
       el('figcaption', { text: isSkill(n) ? word('skill', 'skill') : word('rank.' + n.rank, n.rank || 'agent') + (n.family ? ' · ' + n.family : '') })) : null;
-    box.append(el('article', { class: 'kcard', 'data-compact': main.dataset.view === 'overview', 'data-rank': n.orchestrator ? 'orchestrator' : (isSkill(n) ? false : n.rank || false), 'data-family': n.family || false },
+    box.append(el('article', { class: 'kcard', 'data-float': main.dataset.view === 'overview', 'data-rank': n.orchestrator ? 'orchestrator' : (isSkill(n) ? false : n.rank || false), 'data-family': n.family || false },
       face,
       el('div', { class: 'kcard-title' }, n.orchestrator ? (n.label || n.name) : n.name, el('span', { class: 'pill', 'data-tone': 'info', text: isSkill(n) ? word('skill', 'skill') : word('rank.' + n.rank, n.rank || 'agent') }), liveNames.has(n.name) ? pill('running') : null,
         el('button', { class: 'button kcard-close', 'data-size': 's', 'data-variant': 'quiet', type: 'button', text: 'close', 'aria-label': 'clear the focus', onclick: () => setFocus('') })),
