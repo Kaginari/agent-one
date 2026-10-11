@@ -8,6 +8,23 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Private package registries log in, and can be the only source.** `registry.packages.auth` (and
+  `npmAuth`, `pipAuth`, `goAuth` over it) is the login each manager presents, written at every start
+  under the workspace's `tmp/registry/`, owner-only: npm an npmrc whose bearer token stays a `${VAR}`
+  reference, pip and uv the login inside their index URL, go a netrc for its proxy host. Env-first; a
+  literal token is refused from the tracked config. `registry.packages.policy: private-only` keeps every
+  manager on those URLs: GOPROXY loses `direct`, a manager with no private URL is switched off, and the
+  guard (and the Claude Code hook) refuses a command that points a manager elsewhere, installs from a URL
+  or a repository, or fetches a public registry host.
+- **Every config key says what it does.** `config.Describe` holds a line per key (a switch says on/off
+  first); the dashboard's config tree shows each under its key. A test fails a default key that has none.
+- **The theme picker.** `/theme` alone opens a picker: every palette with its swatches, the mode under
+  them, previewed live; enter keeps it, esc goes back. `/settings` lists every palette too.
+- **The workspace in four lanes.** One coordinator per lane (engine, workspace, host, canon) instead of
+  one for all; the skills live in `.agent-one/base-skills` (five more: loop-core, gate-safety,
+  review-core, bench-run, zone-wire-and-journals); `.claude/` is generated and ignored.
+- **The dashboard in the README**: the neural net with an agent's card, the 3D brain, the config tab.
+
 - **Themes for both faces.** One package of named palettes (`theme/`) dresses the terminal and
   the dashboard, the same roles in a dark and a light variant: omoro.io's Cyberpunk (unchanged,
   the default) and six more of its cyberpunk family — Neon Dystopia, Corporate Rebellion, Rain
@@ -403,6 +420,15 @@ All notable changes to Agent-One are recorded here. The format follows
   names the missing key and the rerun, and does not start a founding session it cannot finish.
 
 ### Fixed
+
+- **A theme pick is kept** in a workspace whose `config.local.yaml` is the scaffold's comments over `{}`;
+  a save that fails stays in the conversation.
+- **`/settings` and the terminal's own commands are in the slash menu.**
+- **The pinned agent's card floats over the net's corner**; the timeline keeps more of the height.
+- **The conversation follows its bottom across a resize**, and the welcome heads it even after a fast
+  first turn.
+- **Machine-local config and the stream journal stay untracked**: `.agent-one/.gitignore` gains
+  `*.local.yaml` (a token in config.local.yaml could have been committed) and `instruments/stream/`.
 
 - The terminal's conversation pane kept following the bottom only while its height held: a
   smaller window or a draft growing the ask box read as the human scrolling up, and new blocks —

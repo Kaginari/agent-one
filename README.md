@@ -290,6 +290,27 @@ reviews the change before the turn is done:
 | `/settings` · `/roles` | theme, mode, mouse and sidebar in one form · every role and its model |
 | `/theme [name] [dark\|light\|system]` | hold another palette — the dashboard follows; alone, the picker: every theme with its swatches, previewed live, the mode under them |
 
+### The dashboard
+
+`agent-one dash` (or `/dash` in the terminal) opens the board beside the session: one page on
+127.0.0.1, the session mirrored live. The **neural net** draws the team as it stands — the
+orchestrator, the coordinators, the domain owners, the zone workers and the skills they use, each tile
+four weeks of its work, a link as thick as the subagents it carried; a click pins an agent's card over
+the net's corner (who it answers to, who is below, what it owns, its skills, its work):
+
+![the neural net with an agent's card](docs/screens/agent-one-dash-net.png)
+
+In 3D the same tree is a brain — the orchestrator at the centre, each rank a shell further out, each
+lane a tinted region (lane · heat · health), the skills a crown above:
+
+![the 3D brain](docs/screens/agent-one-dash-brain.png)
+
+The tabs read the rest of the workspace: subagents, memory, the toolbox, the metrics and value, and the
+**config** — every resolved value, the file and line that set it, and a line saying what each key
+does (a switch says on/off first):
+
+![the config tab](docs/screens/agent-one-dash-config.png)
+
 ### Themes
 
 One palette dresses both faces — the terminal and the dashboard — from one package of named
