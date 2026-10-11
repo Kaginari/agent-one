@@ -139,8 +139,12 @@ func TestE2ESessionGateAndTools(t *testing.T) {
 			when("contain", map[string]interface{}{"calls": []interface{}{
 				map[string]interface{}{"name": "bash", "input": map[string]string{"command": "echo x > " + outside + "/probe; echo probe=$?"}},
 				map[string]interface{}{"name": "bash", "input": map[string]string{"command": "exec 3<>/dev/tcp/127.0.0.1/" + port + " && echo NET=YES || echo NET=NO"}},
+				// the same probe hidden in a script: the command line reads as a plain run, so the
+				// gate classifies it below outward and only the sandbox stands between it and the net
+				map[string]interface{}{"name": "bash", "input": map[string]string{"command": "bash .agent-one/tmp/net.sh"}},
 			}}),
 			text("@S DONE contained\n@E 20"))
+		w.write(".agent-one/tmp/net.sh", "exec 3<>/dev/tcp/127.0.0.1/"+port+" && echo HIDDEN=YES || echo HIDDEN=NO\n")
 		w.write(".agent-one/config.yaml", "models: {default: mock/m}\nproviders: {mock: {enabled: true, script: .agent-one/tmp/s.json}}\ntools: {bash: {sandbox: bwrap}}\nui: {board: {autostart: false}}\n")
 		code, out, errb = w.exec(agentOne, "", nil, "run", "--quiet", "--approve", "outward", "contain")
 		if code != 0 {
@@ -149,7 +153,13 @@ func TestE2ESessionGateAndTools(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(outside, "probe")); err == nil {
 			t.Error("a write outside the workspace landed through the sandbox")
 		}
-		if j := w.journalText(".agent-one"); !strings.Contains(j, "NET=NO\\n\"") || strings.Contains(j, "NET=YES\\n\"") {
+		j := w.journalText(".agent-one")
+		// /dev/tcp on the command line is outward (an approved outward act gets the network); the
+		// hidden probe is not, and the sandbox keeps it off the network
+		if !strings.Contains(j, `"why":"network through /dev/tcp/"`) {
+			t.Errorf("a /dev/tcp command must read as outward at the gate:\n%s", j)
+		}
+		if !strings.Contains(j, "HIDDEN=NO\\n\"") || strings.Contains(j, "HIDDEN=YES\\n\"") {
 			var acts []string
 			for _, l := range strings.Split(j, "\n") {
 				if strings.Contains(l, `"t":"act"`) || strings.Contains(l, `"t":"gate"`) {

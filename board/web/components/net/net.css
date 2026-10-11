@@ -69,7 +69,7 @@
   .net [data-rank="service"] { --net-node: var(--series-3); }
   .net [data-rank="auditor"] { --net-node: var(--series-5); }
   .net [data-rank="skill:zone"] { --net-node: var(--series-1); }
-  .net [data-rank="skill:verdict"] { --net-node: var(--series-4); }
+  .net [data-rank="skill:review"] { --net-node: var(--series-4); }
   .net [data-rank="skill:global"] { --net-node: var(--series-2); }
   .net [data-rank="skill:shared"] { --net-node: var(--ink-muted); }
   .net-probe { position: absolute; inline-size: 0; block-size: 0; overflow: hidden; color: var(--net-node); }
