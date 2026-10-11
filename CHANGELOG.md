@@ -28,11 +28,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 - **Stress-driven evolution.** A member that is stressed — council strain at
   `policy.evolution.stressAt` (the council's `escalateAt` by default), its last `failStreak` gate
-  verdicts failed, or a doom checkpoint — while its Notes working notes (its doc's plus its held
-  Skills') holds more than `notesMax` (7) entries evolves in the same wave, weighed after every
+  verdicts failed, or a doom checkpoint — while its working notes (its doc's plus its held
+  skills') hold more than `notesMax` (7) entries evolves in the same wave, weighed after every
   Subagent's report and at run start. One arm is chosen from evidence and its reason logged:
   **split** (a large zone whose failures and Notes cluster in two sub-directories becomes two
-  young named for their halves, each with its Notes and the survey's invariants and verify; a
+  new members named for their halves, each with its notes and the survey's invariants and verify; a
   domain owner's zone workers are divided with it; the parent retires), **rebirth** (a configuration its own verify or
   the tree contradicts is written again from the code, the old doc rests in
   `<workspace>/attic/<name>@<date>.md`, a `rebirth` row starts its value record again) or **mutate**
@@ -356,7 +356,7 @@ All notable changes to Agent-One are recorded here. The format follows
 ### Changed
 
 - **A retired seat claims no soil.** The ontology keeps a retired member's name, bonds and Skills
-  but derives no ownership from its doc, so the young of a split (or a promotion, or a council
+  but derives no ownership from its doc, so the new members of a split (or a promotion, or a council
   relief) never overlap it and `onto check` stays clean. The council's relief no longer fires on an
   agent that just evolved, and relief now runs after the report's fold.
 - **A rank has one spelling.** `rank.Canon` (lower case, hyphenated) is used by config, the

@@ -216,10 +216,10 @@ beside its state, the orchestrator's own score and the agent nearest its promoti
 and where each part came from; the full policy is [`docs/canon/ranks.md`](docs/canon/ranks.md) §Value.
 
 **Evolution.** A member that reads stressed (council strain, a streak of failed gates, a doom
-checkpoint) while its `## Working notes` working notes holds more than seven entries heals itself in the same
+checkpoint) while its `## Working notes` buffer holds more than seven entries heals itself in the same
 wave (`policy.evolution`, on by default). The harness picks one arm from evidence and logs why:
-**split** a large zone whose failures cluster in two sub-directories into two young, each with its
-half and its Notes; **rebirth** a configuration its own verify or the tree contradicts, from the code as
+**split** a large zone whose failures cluster in two sub-directories into two new members, each with its
+half and its notes; **rebirth** a configuration its own verify or the tree contradicts, from the code as
 it is now (the old doc goes to the attic, the value record starts again); or **mutate**, consolidating
 the repeated lesson into invariants and registering a recurring how as a crafted skill it holds. Each arm
 is staged and proven (verify green, the ontology no worse) before it lands, then on cooldown for
@@ -649,5 +649,6 @@ and the per-step value sense (`policy.guts`) they motivated.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Role badges use [Tabler Icons](https://tabler.io/icons) (MIT); the dashboard's
-faces (Orbitron, Rajdhani, JetBrains Mono, embedded in the board) are SIL OFL.
+MIT — see [LICENSE](LICENSE). Role badges and the rank families' glyphs use [Tabler Icons](https://tabler.io/icons)
+(MIT); the skill glyph is [Lucide](https://lucide.dev)'s brain-circuit (ISC); the dashboard's faces (Orbitron,
+Rajdhani, JetBrains Mono, embedded in the board) are SIL OFL.
