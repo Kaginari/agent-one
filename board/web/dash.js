@@ -261,7 +261,7 @@
   // ---------- the console ----------
   const log = $('#log'), form = $('#ask-form'), field = $('#ask'), sendBtn = $('#send'), stopBtn = $('#interrupt');
   let turn = null, answer = null, answerText = '', thinking = null, paint = 0;
-  const tools = new Map(), courts = new Map(), choices = new Map();
+  const tools = new Map(), subagents = new Map(), choices = new Map();
   let live = { session: false };
   const history = []; let hIdx = -1;
 
@@ -334,10 +334,10 @@
     card.append(sum, body);
   }
   function courtCard(e) {
-    let c = courts.get(e.name);
+    let c = subagents.get(e.name);
     if (!c) {
       c = { card: el('details', { class: 'toolcard', 'data-kind': 'court' }), log: el('div', { class: 'stack', 'data-gap': 's' }), stream: '' };
-      courts.set(e.name, c);
+      subagents.set(e.name, c);
       add(c.card, ensureTurn());
     }
     c.last = e;
@@ -451,7 +451,7 @@
         if (!paint) paint = requestAnimationFrame(paintAnswer);
         break;
       case 'stream': {
-        const c = courts.get(e.agent);
+        const c = subagents.get(e.agent);
         if (c) { c.stream = (c.stream + e.text).slice(-8000); if (c.last) courtCard(c.last); break; }
         if (e.kind !== 'thinking') break;
         ensureTurn();
@@ -465,7 +465,7 @@
       }
       case 'tool': {
         const t = e.tool;
-        const target = t.agent && courts.get(t.agent) ? courts.get(t.agent).log : null;
+        const target = t.agent && subagents.get(t.agent) ? subagents.get(t.agent).log : null;
         let card = tools.get(t.id);
         if (!card) { card = toolCard(t); tools.set(t.id, card); add(card, target || ensureTurn()); }
         else fillTool(card, t);
@@ -474,7 +474,7 @@
         break;
       }
       case 'bodystep': {
-        const c = courts.get(e.agent);
+        const c = subagents.get(e.agent);
         if (!c) break;
         let card = tools.get(e.tool.id);
         if (!card) { card = toolCard(e.tool); tools.set(e.tool.id, card); c.log.append(card); } else fillTool(card, e.tool);
@@ -482,7 +482,7 @@
       }
       case 'subagent': courtCard(e); break;
       case 'state':
-        if (courts.has(e.agent)) break;
+        if (subagents.has(e.agent)) break;
         if (thinking && e.state !== 'thinking') { thinking.box.firstChild.textContent = 'thought for ' + Math.round((Date.now() - thinking.started) / 1000) + ' s'; thinking = null; }
         if (e.state === 'waiting on gate' || e.state === 'gating') setAsk('running', 'weighing the verdict');
         break;
@@ -1154,7 +1154,7 @@
     g.append(svg('text', { class: 'spark-axis', x: W - 2, y: H - 3, 'text-anchor': 'end' }, document.createTextNode(days[days.length - 1].key)));
     box.replaceChildren(g);
   }
-  function courtPoll() {
+  function subagentPoll() {
     return getJSON('api/subagent').then(c => {
       subagent = c.agents || [];
       for (const b of subagent) { if (b.state && !/^(done|idle)$/.test(b.state)) liveNames.add(b.name); else liveNames.delete(b.name); }
