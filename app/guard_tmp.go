@@ -141,7 +141,7 @@ func probeMarker(cmd string) string {
 // absolute scratch path (bash words must survive `cwd:`), and reports the rewrites. A word
 // qualifies when it is exactly a path or a VAR=path assignment; `cd` / `chdir` into off-workspace
 // is refused outright under refuseForCwd.
-func rewriteTmpCommand(cmd, scratch string, refuseForCwd bool) (out, msg string) {
+func rewriteTmpCommand(cmd, scratch, workspace string, refuseForCwd bool) (out, msg string) {
 	if scratch == "" || !strings.Contains(cmd, "/") {
 		return cmd, ""
 	}
@@ -171,6 +171,11 @@ func rewriteTmpCommand(cmd, scratch string, refuseForCwd bool) (out, msg string)
 			name, val, assign = w, w, false
 		}
 		if !strings.HasPrefix(val, "/") || strings.HasPrefix(val, "//") {
+			continue
+		}
+		// a path inside the workspace is the workspace's own, wherever the workspace lives (/app in a
+		// container, a dir under /tmp or /var): only what leaves it is herded into scratch
+		if workspace != "" && (strings.TrimRight(val, "/;&|)'\"") == workspace || strings.HasPrefix(val, workspace+"/")) {
 			continue
 		}
 		root, rest := classifyRoot(val)
@@ -245,7 +250,7 @@ func (a *App) tmpGuardHook() func(s *loop.Session, tool string, input json.RawMe
 			if refuseCwd && strings.HasPrefix(strings.TrimSpace(in.Cwd), "/") && !strings.HasPrefix(strings.TrimSpace(in.Cwd), a.AgentRoot()+"/") && strings.TrimSpace(in.Cwd) != a.AgentRoot() {
 				return "refused: cwd " + in.Cwd + " is outside the workspace — run under the workspace's root or drop `cwd` and the command runs from " + a.AgentRoot()
 			}
-			if rw, msg := rewriteTmpCommand(in.Command, a.absScratch(scratch), refuseCwd); msg != "" {
+			if rw, msg := rewriteTmpCommand(in.Command, a.absScratch(scratch), a.AgentRoot(), refuseCwd); msg != "" {
 				if strings.HasPrefix(msg, "cd ") {
 					return fmt.Sprintf("refused: %s leaves the workspace — run from the workspace's root or pass no `cwd`; under mode %s a chdir is never rewritten", msg, mode)
 				}
