@@ -318,6 +318,11 @@ palettes (`theme/`), each with the same roles in a dark and a light variant: the
 the depth, the text tones, the primary and accent, the verdicts, the plan, the rank lanes and the
 tool classes. Seven are omoro.io's cyberpunk family, the eighth the dashboard's own HUD:
 
+`/theme` alone opens the picker — every palette with its swatches, the one in use marked, the mode
+under them; the frame takes the palette under the cursor as you move, enter keeps it:
+
+![the theme picker](docs/screens/agent-one-theme-picker.png)
+
 | `ui.theme` | from | the look |
 |---|---|---|
 | `cyberpunk` (default) | Void · Smog Purple · Danger Red · Amber Haze · Scanner Cyan | cyan on smog-violet, amber orchestrator |
