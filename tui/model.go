@@ -53,6 +53,8 @@ type Model struct {
 	width, height int
 	ready         bool
 
+	evolved string // the session's last evolution (policy.evolution), the sidebar's line
+
 	// the turn
 	busy          bool
 	turnStart     time.Time
@@ -714,6 +716,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.finish(msg)
 	case EvNotice:
 		return m, m.print(func(w int) string { return m.theme.Notice(msg.Text, w) })
+	case EvEvolution:
+		m.evolved = msg.Line
+		pill := m.theme.pill("")
+		if msg.Status == "hole" {
+			pill = m.theme.pill("bad")
+		}
+		text := "✦ " + msg.Line
+		if msg.Reason != "" && msg.Status != "hole" {
+			text += " — " + msg.Reason
+		}
+		return m, tea.Batch(m.print(func(w int) string { return m.theme.Notice(text, w) }), m.Toast("✦ "+msg.Line, pill))
 	case EvError:
 		return m, m.print(func(w int) string { return m.theme.Error(msg.Text, w) })
 	case EvLines:
@@ -953,6 +966,7 @@ func (m *Model) railView(rw int) RailView {
 		Files:     m.files,
 		CtxMax:    m.footer.CtxMax,
 		Layers:    m.footer.Layers,
+		Evolved:   m.evolved,
 	}
 	switch {
 	case m.choice != nil:

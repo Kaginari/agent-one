@@ -865,6 +865,8 @@ type RailView struct {
 	// names what it does) or "wait" (an ask waits for the human)
 	State string
 	Verb  string
+	// Evolved is the session's last evolution, one line ("zone-x mutated its configuration")
+	Evolved string
 }
 
 const railFilesMax = 10

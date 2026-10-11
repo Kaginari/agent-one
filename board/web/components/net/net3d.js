@@ -1127,9 +1127,9 @@
       for (const f of flashes) {
         const q = st.nodes.get(f.id);
         if (!q) continue;
-        const age = (rp ? rp.t : now) - f.at, life = f.kind === 'read' ? 700 : 1100, t = clamp(age / life, 0, 1);
+        const age = (rp ? rp.t : now) - f.at, life = f.kind === 'read' ? 700 : f.kind === 'evolve' ? 2400 : 1100, t = clamp(age / life, 0, 1);
         const c = f.tone === 'info' ? pal.accent : f.tone === 'rank' || f.tone === 'down' ? col(q.rank) : pal[f.tone] || col(q.rank);
-        const big = f.kind === 'read' ? 0.6 : 1, sz = q.rad * (3 + 9 * t * big) * (dark ? 1 : 0.8);
+        const big = f.kind === 'read' ? 0.6 : f.kind === 'evolve' ? 1.8 : 1, sz = q.rad * (3 + 9 * t * big) * (dark ? 1 : 0.8);
         put(q.p, c, (1 - t) * (dark ? 0.95 : 0.85), sz, -0.82);
         if (t < 0.3) put(q.p, c, (0.3 - t) * 1.6 * big, q.rad * 4.5, 0);
       }

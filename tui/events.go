@@ -76,6 +76,14 @@ type EvPlanOutcome struct {
 	Why            string // the score's evidence, quoted ("" = no score carded)
 }
 
+// EvEvolution is one evolution of policy.evolution (a stressed member whose working notes overflowed:
+// split, mutate or rebirth — applied, proposed or a hole): a toast, a scrollback notice, and the
+// sidebar's last-evolution line. Line is the one-line telling the workspace wrote.
+type EvEvolution struct {
+	ID, Agent, Arm, Reason, Status, Mode, Hole, Skill, Line string
+	Into                                                    []string
+}
+
 // EvQuit ends the program.
 type EvQuit struct{}
 

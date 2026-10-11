@@ -318,6 +318,31 @@ type Policy struct {
 	// Value: the one definition of success every surface reads (the ASL fold, the council, the
 	// leaderboard, the guts' end-of-run), the ledger's window, and the families' value policies.
 	Value ValuePolicy `json:"value"`
+	// Evolution: a stressed member whose Notes working notes overflows heals itself — split, mutate
+	// or rebirth (ranks.md §Evolution).
+	Evolution EvolutionPolicy `json:"evolution"`
+}
+
+// EvolutionPolicy is policy.evolution (ranks.md §Evolution): a member that is stressed (strain at
+// stressAt, its last failStreak gate verdicts failed, or a doom checkpoint) AND whose Notes
+// working notes holds more than notesMax entries evolves by one arm, chosen from evidence: split (a
+// large ownership whose failures cluster in two sub-directories), mutate (the Notes repeat a
+// lesson: consolidated into invariants, a crafted skill when the lesson is a how) or rebirth (its invariants
+// are stale: a fresh doc from the code). mode auto applies; propose queues the diff for the
+// human (`evolve list|show|apply|reject`). A member evolves at most once per cooldownRuns of
+// its runs. stressAt 0 reads policy.stress.escalateAt; notesMax 0 switches evolution off.
+type EvolutionPolicy struct {
+	Enabled      bool     `json:"enabled"`
+	Mode         string   `json:"mode"`
+	NotesMax     int      `json:"notesMax"`
+	StressAt     int      `json:"stressAt"`
+	FailStreak   int      `json:"failStreak"`
+	CooldownRuns int      `json:"cooldownRuns"`
+	Arms         []string `json:"arms"`
+	// SplitLines and SplitFiles are what "large" means for the split arm: an ownership holding at
+	// least this many source lines, or this many files (0 = that measure never reads large).
+	SplitLines int `json:"splitLines"`
+	SplitFiles int `json:"splitFiles"`
 }
 
 // ValuePolicy is policy.value (ranks.md §Value): which run words pass, fail or stay neutral; the
@@ -410,6 +435,9 @@ type GutsClamp struct {
 // a lane's DNA moves on the human's or a manager's word — never silently here.
 type ForgePolicy struct {
 	DemandAtSteps int `json:"demandAtSteps"`
+	// EvolvedStatus is the status a skill the harness registers on its own (an evolution's mutate
+	// arm) lands at: trial (default — the human promotes it) or active.
+	EvolvedStatus string `json:"evolvedStatus"`
 }
 
 type Stress struct {

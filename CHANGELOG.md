@@ -8,6 +8,28 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Stress-driven evolution.** A member that is stressed — council strain at
+  `policy.evolution.stressAt` (the council's `escalateAt` by default), its last `failStreak` gate
+  verdicts failed, or a doom checkpoint — while its Notes working notes (its doc's plus its held
+  Skills') holds more than `notesMax` (7) entries evolves in the same wave, weighed after every
+  Subagent's report and at run start. One arm is chosen from evidence and its reason logged:
+  **split** (a large zone whose failures and Notes cluster in two sub-directories becomes two
+  young named for their halves, each with its Notes and the survey's invariants and verify; a
+  domain owner's zone workers are divided with it; the parent retires), **rebirth** (a configuration its own verify or
+  the tree contradicts is written again from the code, the old doc rests in
+  `<workspace>/attic/<name>@<date>.md`, a `rebirth` row starts its value record again) or **mutate**
+  (each repeated lesson becomes an invariant, a verify line lands where tests cover it, a recurring how
+  is registered as a crafted skill the agent holds, at `policy.forge.evolvedStatus`). Every plan is
+  staged and proven before it lands — its verify green, the ontology over an overlay of the new
+  docs no worse, every agent on the soil meant — else the old docs stand and a hole is logged. An
+  `evolution` row in the value ledger carries the cooldown (`cooldownRuns`, 10) across restarts.
+  `mode: propose` queues the diff for `agent-one evolve list | show | apply | reject`. The session
+  stream carries an `evolution` event: the terminal toasts it and keeps it in the sidebar, the
+  dashboard adds a timeline row, rings the neuron in the arm's colour and reloads the team;
+  `agent-one status` lists recent evolutions and `/api/value` each agent's working notes, stress and
+  cooldown. `config explain evolution` prints the policy with its origins; switched off, it is an
+  honesty finding.
+
 - **Each rank is valued by its own job.** One definition of success (`policy.value`: pass, fail and
   neutral words; a run's word is the loop's when it did not close `DONE`, else the agent's `@S`) is
   read by the promotion fold, the council, the dashboard's leaderboard and activity, and the loop
@@ -315,6 +337,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **A retired seat claims no soil.** The ontology keeps a retired member's name, bonds and Skills
+  but derives no ownership from its doc, so the young of a split (or a promotion, or a council
+  relief) never overlap it and `onto check` stays clean. The council's relief no longer fires on an
+  agent that just evolved, and relief now runs after the report's fold.
 - **A rank has one spelling.** `rank.Canon` (lower case, hyphenated) is used by config, the
   workspace, the ontology's team, the board, the portraits' file names and the TUI's keys;
   `auditor`, `auditor` and `Auditor` are read as `auditor`.

@@ -14,7 +14,7 @@ var fileLayers = map[string]bool{"global": true, "project": true, "local": true}
 func (c *Config) finish() error {
 	steps := []func() error{
 		c.checkScalars, c.checkProviders, c.checkTools, c.checkMCP, c.checkPermissions,
-		c.resolveRules, c.mergeRegistry, c.buildRanks, c.resolveValues, c.checkModels, c.checkGate, c.checkCompaction, c.checkGuts,
+		c.resolveRules, c.mergeRegistry, c.buildRanks, c.resolveValues, c.checkModels, c.checkGate, c.checkCompaction, c.checkGuts, c.checkEvolution,
 	}
 	for _, s := range steps {
 		if err := s(); err != nil {
@@ -158,6 +158,12 @@ func (c *Config) Off() []Finding {
 	if c.Policy.DoomLoop.Threshold <= 0 {
 		add("policy.doomLoop.threshold")
 	}
+	if c.Policy.Evolution.NotesMax <= 0 {
+		add("policy.evolution.notesMax")
+	}
+	if c.Policy.Evolution.Enabled && len(c.Policy.Evolution.Arms) == 0 {
+		add("policy.evolution.arms")
+	}
 	if c.Policy.Guts.BenchThrashVisits < 0 {
 		add("policy.guts.benchThrashVisits")
 	}
@@ -261,4 +267,78 @@ func (c *Config) checkGuts() error {
 		}
 	}
 	return nil
+}
+
+// EvolutionArms are the arms policy.evolution may name, in the order the chooser weighs them.
+var EvolutionArms = []string{"split", "mutate", "rebirth"}
+
+// checkEvolution refuses a mode or an arm the binary cannot run.
+func (c *Config) checkEvolution() error {
+	e := c.Policy.Evolution
+	switch e.Mode {
+	case "", "auto", "propose":
+	default:
+		return fmt.Errorf("%s: policy.evolution.mode: %q is not auto | propose", c.Where("policy.evolution.mode"), e.Mode)
+	}
+	for i, a := range e.Arms {
+		if !contains(EvolutionArms, a) {
+			path := fmt.Sprintf("policy.evolution.arms[%d]", i)
+			return fmt.Errorf("%s: %s: %q is not %s", c.Where(path), path, a, strings.Join(EvolutionArms, " | "))
+		}
+	}
+	switch c.Policy.Forge.EvolvedStatus {
+	case "", "trial", "active":
+	default:
+		return fmt.Errorf("%s: policy.forge.evolvedStatus: %q is not trial | active", c.Where("policy.forge.evolvedStatus"), c.Policy.Forge.EvolvedStatus)
+	}
+	return nil
+}
+
+// EvolutionStressAt is policy.evolution.stressAt as the workspace reads it: its own value, else the
+// council's escalateAt (the strain at which an agent already needs its manager).
+func (c *Config) EvolutionStressAt() int {
+	if c.Policy.Evolution.StressAt > 0 {
+		return c.Policy.Evolution.StressAt
+	}
+	return c.Policy.Stress.EscalateAt
+}
+
+// EvolutionOn is whether a stressed member may evolve at all: the switch on, a working notes limit, an arm.
+func (c *Config) EvolutionOn() bool {
+	e := c.Policy.Evolution
+	return e.Enabled && e.NotesMax > 0 && len(e.Arms) > 0
+}
+
+// ExplainEvolution prints policy.evolution as the workspace runs it, each part with its origin: the
+// switch, the mode, what reads stressed, the working notes limit, the cooldown and the arms.
+func (c *Config) ExplainEvolution() string {
+	e := c.Policy.Evolution
+	var b strings.Builder
+	state := "on"
+	switch {
+	case !e.Enabled:
+		state = "OFF (" + c.Where("policy.evolution.enabled") + ")"
+	case e.NotesMax <= 0:
+		state = "OFF — notesMax " + fmt.Sprint(e.NotesMax) + " (" + c.Where("policy.evolution.notesMax") + ")"
+	case len(e.Arms) == 0:
+		state = "OFF — no arm (" + c.Where("policy.evolution.arms") + ")"
+	}
+	mode := e.Mode
+	if mode == "" {
+		mode = "auto"
+	}
+	fmt.Fprintf(&b, "# evolution policy · %s · mode %s  # %s\n", state, mode, c.Where("policy.evolution.mode"))
+	stressWhere := c.Where("policy.evolution.stressAt")
+	if e.StressAt <= 0 {
+		stressWhere = "policy.stress.escalateAt — " + c.Where("policy.stress.escalateAt")
+	}
+	fmt.Fprintf(&b, "stressed when: strain >= %d  # %s\n", c.EvolutionStressAt(), stressWhere)
+	fmt.Fprintf(&b, "           or: the last %d gate verdicts failed  # %s\n", e.FailStreak, c.Where("policy.evolution.failStreak"))
+	b.WriteString("           or: its last run ended in a doom checkpoint\n")
+	fmt.Fprintf(&b, "and its working notes holds more than %d Notes (its own doc's + its held skills')  # %s\n", e.NotesMax, c.Where("policy.evolution.notesMax"))
+	fmt.Fprintf(&b, "cooldown: %d of its runs between evolutions  # %s\n", e.CooldownRuns, c.Where("policy.evolution.cooldownRuns"))
+	fmt.Fprintf(&b, "arms: %s  # %s\n", strings.Join(e.Arms, ", "), c.Where("policy.evolution.arms"))
+	fmt.Fprintf(&b, "split reads large at: %d lines or %d files  # %s · %s\n", e.SplitLines, e.SplitFiles, c.Where("policy.evolution.splitLines"), c.Where("policy.evolution.splitFiles"))
+	fmt.Fprintf(&b, "a registered skill lands: %s  # %s\n", or(c.Policy.Forge.EvolvedStatus, "trial"), c.Where("policy.forge.evolvedStatus"))
+	return b.String()
 }

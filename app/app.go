@@ -24,6 +24,7 @@ import (
 	"github.com/Kaginari/agent-one/provider"
 	"github.com/Kaginari/agent-one/sandbox"
 	"github.com/Kaginari/agent-one/tool"
+	"github.com/Kaginari/agent-one/tui"
 	"github.com/Kaginari/agent-one/wire"
 	"github.com/Kaginari/agent-one/workspace"
 )
@@ -102,8 +103,9 @@ type App struct {
 	mountModel config.Model
 	planBoot   time.Time // the interactive session's provisioning: plan decks penned earlier are stale (memory, never gate-holders)
 	boardAddr  string
-	boardH     *board.Board // board serveBoard retained; its token authorizes dash acts
-	web        *webBus      // the session, for the dashboard (web.go)
+	boardH     *board.Board          // board serveBoard retained; its token authorizes dash acts
+	web        *webBus               // the session, for the dashboard (web.go)
+	evoSink    func(tui.EvEvolution) // the terminal host's send, while a TUI runs: evolutions reach it and the dashboard
 	rules      []workspace.Rule
 	engines    []*loop.Engine
 	mu         sync.Mutex
@@ -199,6 +201,7 @@ func New(opt Options) (*App, error) {
 	// the sandbox, the human gate, the shelf, mcp, discoveries
 	a.Sandbox = newSandbox(cfg, a.Root)
 	a.Gate = a.newGate()
+	a.armEvolution()
 	asker := tool.TTYAsker(opt.In, opt.Err)
 	if opt.IsTTY != nil && !opt.IsTTY() || opt.IsTTY == nil && !gate.StdinIsTTY() {
 		asker = nil

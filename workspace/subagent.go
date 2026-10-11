@@ -536,19 +536,6 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 				rep.Status, rep.Failed = "ESCALATE", true
 			}
 		}
-		// the relief arm (policy.stress.relieveAt): the warrant talked, now the zone changes —
-		// outside the council's lock; relieve rereads safely, and both the act and the ledger
-		// shall witness it
-		if rel := b.Subagent.StressRelieveAt; rel > 0 {
-			w.mu.Lock()
-			strainNow := w.stress[agent]
-			w.mu.Unlock()
-			if strainNow >= rel {
-				if act, ok := w.relieve(agent); ok {
-					rep.Text += "\n@? council relief — " + agent + " crosses relieveAt: " + act
-				}
-			}
-		}
 		w.subagentGated(parent, agent, rep.Wrote)
 		// the value ledger grows before the return: the ranking agent's report is its record, and
 		// a promotion may register off it. One definition of success (policy.value): the run's word is
@@ -558,7 +545,28 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 		strainNow := w.stress[agent]
 		w.mu.Unlock()
 		w.foldResult(cr.Name, parent.As, r, strainNow, warrant, false) // the roster's name: a short or old name folds into one record
-		if lines := w.promoteLines(); len(lines) > 0 {
+		lines := w.promoteLines()
+		// policy.evolution: a stressed agent whose working notes overflowed heals itself in the same wave —
+		// split, mutate or rebirth, proven before it lands (workspace/evolve.go)
+		evolved, evoFiles := w.evolveAfterRun(cr.Name)
+		lines = append(lines, evolved...)
+		// the harness wrote them on the agent's behalf, proven before the swap: the dispatcher's
+		// end gate leaves them alone, as it does a subagent's own gated writes
+		w.subagentGated(parent, agent, evoFiles)
+		// the relief arm (policy.stress.relieveAt): the warrant talked, now the zone changes —
+		// outside the council's lock; relieve rereads safely, and both the act and the ledger
+		// shall witness it. An agent that just evolved has had its zone changed already.
+		if rel := b.Subagent.StressRelieveAt; rel > 0 && len(evolved) == 0 {
+			w.mu.Lock()
+			strainNow := w.stress[agent]
+			w.mu.Unlock()
+			if strainNow >= rel && w.Member(agent) != nil {
+				if act, ok := w.relieve(agent); ok {
+					rep.Text += "\n@? council relief — " + agent + " crosses relieveAt: " + act
+				}
+			}
+		}
+		if len(lines) > 0 {
 			note := strings.Join(lines, "\n")
 			if rep.ReportPath != "" {
 				rep.Text = note + "\n" + rep.Text // the envelope's digest shows the head: lead with it

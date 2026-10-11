@@ -666,22 +666,74 @@ var (
 	reDate               = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 )
 
-func countNotes(doc string) int {
+func countNotes(doc string) int { return len(NotesOf(doc)) }
+
+// CountNotes is a doc's working notes count: the dated entries under its ## Working notes heading — the
+// reading Working notes, the dashboard's working notes stress and policy.evolution all take.
+func CountNotes(doc string) int { return countNotes(doc) }
+
+// WorkingNote is one dated entry of a ## Working notes working notes: its line and every line after it up to the
+// next entry or the working notes's end. Start and End are byte offsets into the doc (End past the
+// entry's last newline), so a writer can cut entries out and leave the rest of the working notes whole.
+type WorkingNote struct {
+	Date       string // the first YYYY-MM-DD on the entry's line
+	Text       string // the entry, its lines joined, the bullet and the date heading kept
+	Start, End int
+}
+
+// WorkingNotesSpan is the byte range of a doc's working notes agent (after the heading line, up to the next # or
+// ## heading); ok is false when the doc keeps no ## Working notes.
+func WorkingNotesSpan(doc string) (start, end int, ok bool) {
 	loc := reNotes.FindStringIndex(doc)
 	if loc == nil {
-		return 0
+		return 0, 0, false
 	}
-	agent := doc[loc[1]:]
-	if end := reWorkingNotesEnd.FindStringIndex(agent); end != nil {
-		agent = agent[:end[0]]
+	start = loc[1]
+	if nl := strings.IndexByte(doc[start:], '\n'); nl >= 0 {
+		start += nl + 1
+	} else {
+		start = len(doc)
 	}
-	n := 0
-	for _, l := range strings.Split(agent, "\n") {
-		if reWorkingNotesBullet.MatchString(l) && reDate.MatchString(l) {
-			n++
+	end = len(doc)
+	if e := reWorkingNotesEnd.FindStringIndex(doc[start-1:]); e != nil {
+		end = start - 1 + e[0] + 1
+	}
+	if end < start {
+		end = start
+	}
+	return start, end, true
+}
+
+// NotesOf reads a doc's working notes into its dated entries, in order. A line counts as an entry when
+// it is a bullet or a ### heading carrying a date — the one rule every counter shares.
+func NotesOf(doc string) []WorkingNote {
+	start, end, ok := WorkingNotesSpan(doc)
+	if !ok {
+		return nil
+	}
+	var out []WorkingNote
+	at := start
+	for at < end {
+		nl := strings.IndexByte(doc[at:end], '\n')
+		lineEnd := end
+		if nl >= 0 {
+			lineEnd = at + nl + 1
 		}
+		line := strings.TrimRight(doc[at:lineEnd], "\n")
+		if reWorkingNotesBullet.MatchString(line) && reDate.MatchString(line) {
+			if len(out) > 0 {
+				out[len(out)-1].End = at
+			}
+			out = append(out, WorkingNote{Date: reDate.FindString(line), Start: at, End: lineEnd})
+		} else if len(out) > 0 {
+			out[len(out)-1].End = lineEnd
+		}
+		at = lineEnd
 	}
-	return n
+	for i := range out {
+		out[i].Text = strings.TrimSpace(doc[out[i].Start:out[i].End])
+	}
+	return out
 }
 
 func (w *Workspace) WorkingNotes() []WorkingNotes {

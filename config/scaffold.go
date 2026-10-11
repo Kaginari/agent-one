@@ -115,6 +115,15 @@ stress:
 forge:
   demandAtSteps: 12     # a run this long is asked once, at its close, to name a @FORGE draft
                         # (or say the path was one-off); 0 = off, reported as switched off
+  evolvedStatus: trial  # a skill an evolution registers on its own lands at trial | active
+evolution:
+  enabled: true         # a stressed member whose Notes workingNotes overflows heals itself
+  mode: auto            # auto applies the arm; propose queues it (agent-one evolve list|show|apply|reject)
+  notesMax: 7        # the workingNotes past which a stressed member evolves; 0 = off
+  stressAt: 0           # the strain that reads stressed; 0 = policy.stress.escalateAt
+  failStreak: 3         # or this many gate verdicts failed in a row
+  cooldownRuns: 10      # a member evolves at most once per this many of its runs
+  arms: [split, mutate, rebirth]
 `
 	scaffoldAgents["budgets"] = fmt.Sprintf(localHead, "budgets.local.yaml") + `
 # budgets — spend ceilings (the VALUE of the budgets section). Off = 0.

@@ -134,3 +134,35 @@ func TestRankCanonSpellings(t *testing.T) {
 		t.Fatalf("a value spelled auditor reads auditor: %+v", r)
 	}
 }
+
+// policy.evolution: on by default with the owner's numbers; switched off (enabled: false, or a working notes
+// limit of 0) it is an honesty finding with its origin; stressAt falls back to the council's
+// escalateAt; a mode or an arm the binary cannot run is refused.
+func TestEvolutionPolicy(t *testing.T) {
+	c := newWorkspace(t, nil).load()
+	e := c.Policy.Evolution
+	if !c.EvolutionOn() || e.Mode != "auto" || e.NotesMax != 7 || e.CooldownRuns != 10 || strings.Join(e.Arms, ",") != "split,mutate,rebirth" || c.EvolutionStressAt() != c.Policy.Stress.EscalateAt {
+		t.Fatalf("the shipped policy: %+v stressAt %d", e, c.EvolutionStressAt())
+	}
+	if c.Policy.Forge.EvolvedStatus != "trial" {
+		t.Fatalf("an evolved skill lands at trial: %q", c.Policy.Forge.EvolvedStatus)
+	}
+	off := newWorkspace(t, map[string]string{".agent-one/config.yaml": "policy:\n  evolution: {enabled: false, notesMax: 0, stressAt: 4}\n"}).load()
+	got := strings.Join(off.OffLines(), "\n")
+	for _, k := range []string{"policy.evolution.enabled", "policy.evolution.notesMax"} {
+		if !strings.Contains(got, "@? off "+k+" — ") {
+			t.Errorf("Off() lacks %s:\n%s", k, got)
+		}
+	}
+	if off.EvolutionOn() || off.EvolutionStressAt() != 4 {
+		t.Fatalf("off, with its own stressAt: %v %d", off.EvolutionOn(), off.EvolutionStressAt())
+	}
+	if !strings.Contains(off.ExplainEvolution(), "OFF") {
+		t.Fatalf("explain says off:\n%s", off.ExplainEvolution())
+	}
+	for _, bad := range []string{"policy:\n  evolution: {mode: yolo}\n", "policy:\n  evolution: {arms: [split, grow]}\n", "policy:\n  forge: {evolvedStatus: live}\n"} {
+		if err := newWorkspace(t, map[string]string{".agent-one/config.yaml": bad}).loadErr(); err == nil {
+			t.Errorf("refused: %s", bad)
+		}
+	}
+}

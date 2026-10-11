@@ -26,7 +26,7 @@ type Member struct {
 	Dir       string   // relative path of the member's directory
 	Ownership []string // normalized path prefixes it owns
 	Parent    string   // one hop up (domain owner for a zone worker, coordinator for a domain owner, orchestrator for a coordinator); a retired parent's promoted stands in for it
-	// PromotedOf names the base this agent promoted from (its doc's `Promoted of` line); "" for
+	// PromotedOf names the base this agent promoted from (its doc's `Promoted from` line); "" for
 	// an agent that never promoted
 	PromotedOf string
 	Skills     []string // held skills
@@ -39,6 +39,7 @@ type Options struct {
 	Ontology     bool         // load the ontology (members need it; off = an empty roster)
 	Ranks        Ranks        // the rank table; nil = DefaultRanks(lex) (config's `rankSet: replace` passes the whole table)
 	Value        ValueOptions // policy.value: the one definition of success and the ledger's window
+	Evolution    EvolutionOptions
 }
 
 // Workspace is one opened workspace.
@@ -102,6 +103,8 @@ type Workspace struct {
 	// same gate failing on the same files for the same agent hardens into a spec directive).
 	pairMarks   map[string]time.Time
 	gateStreaks map[string]*gateStreak
+	// evo is policy.evolution: the armed options, this session's evolutions (workspace/evolve.go)
+	evo evoState
 }
 
 // Discover walks up from dir for the workspace dir.
@@ -133,6 +136,7 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 		return nil, fmt.Errorf("ranks: %v", err)
 	}
 	w.promote = newPromoteState(w.Ranks)
+	w.SetEvolution(opt.Evolution)
 	w.loadLedgers() // the scars come home before the first agent runs (freeze policy 2026-10-07)
 	w.openValue()   // and the value ledger: an agent's runs count across sessions
 	policyPath := filepath.Join(abs, lex.WorkspaceDir, lex.Policy)

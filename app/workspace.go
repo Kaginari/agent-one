@@ -80,6 +80,7 @@ func openWorkspace(cfg *config.Config, root string, lex workspace.Lexicon) (*wor
 		Ontology:     cfg.Ontology.Enabled,
 		Ranks:        ranksFor(cfg, lex),
 		Value:        valueOptions(cfg),
+		Evolution:    evolutionOptions(cfg),
 	})
 }
 

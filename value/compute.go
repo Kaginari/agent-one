@@ -141,6 +141,15 @@ func Fold(rows []Row, o Opts) map[string]Signals {
 		}
 		return a
 	}
+	// a rebirth starts an agent's record again: its own rows before the latest rebirth row are not
+	// read (a dispatcher's counts of it still are — they are the dispatcher's record)
+	reborn := map[string]time.Time{}
+	for _, r := range rows {
+		if r.Kind == KindRebirth && r.At.After(reborn[r.Agent]) {
+			reborn[r.Agent] = r.At
+		}
+	}
+	own := func(r Row) bool { return in(r) && !r.At.Before(reborn[r.Agent]) }
 	// the latest strain per agent (any time: strain is a standing reading, not a windowed count)
 	lastWarrant := map[string]bool{} // dispatcher\x00child → the child's previous run under it carried a warrant
 	var turns []Row
@@ -148,7 +157,7 @@ func Fold(rows []Row, o Opts) map[string]Signals {
 		switch r.Kind {
 		case KindRun:
 			a := get(r.Agent)
-			if !r.At.Before(a.strainAt) {
+			if !r.At.Before(a.strainAt) && !r.At.Before(reborn[r.Agent]) {
 				a.strain, a.strainAt = r.Strain, r.At
 			}
 			if r.By != "" {
@@ -169,7 +178,7 @@ func Fold(rows []Row, o Opts) map[string]Signals {
 			if r.Turn {
 				turns = append(turns, r)
 			}
-			if !in(r) {
+			if !own(r) {
 				continue
 			}
 			a.runs++
@@ -215,11 +224,11 @@ func Fold(rows []Row, o Opts) map[string]Signals {
 				}
 			}
 		case KindVerdict:
-			if in(r) {
+			if own(r) {
 				get(r.Agent).verdicts++
 			}
 		case KindOverturn:
-			if in(r) {
+			if own(r) {
 				get(r.Agent).overturned++
 			}
 		}
@@ -231,7 +240,7 @@ func Fold(rows []Row, o Opts) map[string]Signals {
 		reopen = 3
 	}
 	for i, t := range turns {
-		if !in(t) {
+		if !own(t) {
 			continue
 		}
 		a := get(t.Agent)

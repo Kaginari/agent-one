@@ -738,13 +738,13 @@
       if (!el) return;
       el.setAttribute('data-ping', tone || 'down');
       clearTimeout(el._ping);
-      el._ping = setTimeout(() => el.removeAttribute('data-ping'), kind === 'read' ? 700 : 1400);
+      el._ping = setTimeout(() => el.removeAttribute('data-ping'), kind === 'read' ? 700 : kind === 'evolve' ? 2600 : 1400);
       if (!reducedQ.matches && st.L) {
         const p = st.L.pos.get(id);
         if (!p) return;
         const r = s('circle', { class: 'net-ripple', 'data-tone': tone === 'down' ? false : tone, 'data-kind': kind || false, cx: p.x, cy: p.y, r: p.size * 0.7 });
         el.append(r);
-        setTimeout(() => r.remove(), 1300);
+        setTimeout(() => r.remove(), kind === 'evolve' ? 2600 : 1300);
       }
     }
     // an action on a neuron: a tool step, a turn's end, a gate verdict — each class reads its own
@@ -753,10 +753,11 @@
     // failing one or a denial: a red one). Bursts coalesce: within a burst (acts less than 1.5 s
     // apart) a neuron ripples only when something louder than the burst so far arrives; otherwise
     // it just breathes until the burst ends — a 20-step Subagent is one breathing neuron.
-    const LOUD = { read: 0, write: 1, done: 1, gate: 2, outward: 2, destructive: 3, pass: 3, fail: 4 };
-    const TONE = { read: 'info', write: 'rank', done: 'rank', gate: 'warn', outward: 'warn', destructive: 'warn', pass: 'ok', fail: 'danger' };
+    // an evolution (policy.evolution) is the loudest: a wide, slow ring in its arm's hue (the caller's tone)
+    const LOUD = { read: 0, write: 1, done: 1, gate: 2, outward: 2, destructive: 3, pass: 3, fail: 4, evolve: 5 };
+    const TONE = { read: 'info', write: 'rank', done: 'rank', gate: 'warn', outward: 'warn', destructive: 'warn', pass: 'ok', fail: 'danger', evolve: 's6' };
     const BURST = 1500;
-    function act(name, kind) {
+    function act(name, kind, tone) {
       const m = st.m;
       if (!m || !(kind in LOUD)) return;
       let id = m.orchestrator ? m.orchestrator.id : '';
@@ -774,8 +775,9 @@
         if (st.three) st.three.busy(id, true);
         if (loud <= was.loud) return;
       }
-      if (st.three) st.three.act(id, TONE[kind], kind);
-      if (st.mode !== '3d' && st.visible) ping(id, TONE[kind], kind);
+      const t = (kind === 'evolve' && tone) || TONE[kind];
+      if (st.three) st.three.act(id, t, kind);
+      if (st.mode !== '3d' && st.visible) ping(id, t, kind);
     }
     function tick() {
       if (st.raf || !st.pulses.length || !st.visible) return;

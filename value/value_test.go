@@ -187,3 +187,22 @@ func TestSeedFromThePromotionTally(t *testing.T) {
 		t.Fatal("the seed is recorded")
 	}
 }
+
+// A rebirth row starts an agent's record again: its own runs before it are not read; its strain
+// before it is not read either.
+func TestRebirthStartsTheRecordAgain(t *testing.T) {
+	t0 := time.Now().Add(-time.Hour)
+	rows := []Row{
+		{Kind: KindRun, Agent: "zone-a", Loop: "DONE", Word: "FAIL", Status: "FAIL", Strain: 6, At: t0},
+		{Kind: KindRun, Agent: "zone-a", Loop: "DONE", Word: "FAIL", Status: "FAIL", Strain: 7, At: t0.Add(time.Minute), By: "domain-a"},
+		{Kind: KindRebirth, Agent: "zone-a", At: t0.Add(2 * time.Minute)},
+		{Kind: KindRun, Agent: "zone-a", Loop: "DONE", Word: "DONE", Status: "DONE", At: t0.Add(3 * time.Minute)},
+	}
+	s := Fold(rows, Opts{})
+	if a := s["zone-a"]; a["runs"] != 1 || a["fails"] != 0 || a["passRate"] != 100 || a["strain"] != 0 {
+		t.Fatalf("the reborn record: %v", a)
+	}
+	if o := s["domain-a"]; o["planLandRate"] != 0 || o["runs"] != 0 {
+		t.Fatalf("the dispatcher keeps its own record of the old runs: %v", o)
+	}
+}

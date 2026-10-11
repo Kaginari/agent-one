@@ -38,6 +38,7 @@ func (a *App) REPL(ctx context.Context) int {
 	for _, h := range a.Holes() {
 		fmt.Fprintln(errw, "@? "+h)
 	}
+	a.evolveSweep() // policy.evolution's run-start pass: a stressed agent whose working notes overflowed heals first
 	streamed := 0
 	var outMu sync.Mutex
 	if a.Cfg.Output.Stream && a.Cfg.Output.Format != "json" {

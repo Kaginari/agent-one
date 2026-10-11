@@ -315,3 +315,24 @@ func TestGateWearsTheDomainOwner(t *testing.T) {
 		t.Fatalf("the gate shows the domain owner:\n%s", s)
 	}
 }
+
+// An evolution (policy.evolution) is a toast, a notice in the scrollback and the sidebar's line.
+func TestEvolutionToastAndSidebar(t *testing.T) {
+	m := New(&fakeHost{}, NewTheme(true), DefaultWords())
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	m.Update(EvEvolution{Agent: "zone-x", Arm: "mutate", Status: "applied", Reason: "its Notes repeat a lesson", Line: "zone-x mutated its configuration"})
+	if len(m.toasts) != 1 || !strings.Contains(m.toasts[0].text, "✦ zone-x mutated its configuration") {
+		t.Fatalf("a toast: %+v", m.toasts)
+	}
+	if m.evolved != "zone-x mutated its configuration" {
+		t.Fatalf("the sidebar keeps the last evolution: %q", m.evolved)
+	}
+	rows := m.theme.railRows(m.railView(40), 40)
+	found := false
+	for _, r := range rows {
+		found = found || strings.Contains(ansi.Strip(r.text), "✦ zone-x")
+	}
+	if !found {
+		t.Fatal("the sidebar draws it")
+	}
+}

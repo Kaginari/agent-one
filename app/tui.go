@@ -39,6 +39,24 @@ func (a *App) TUI(ctx context.Context) int {
 	h.attach(fanout{ui, a.webBus()})
 	a.webBus().attach(h)
 	defer a.webBus().close()
+	// evolutions reach the terminal and the dashboard through the host; the run-start sweep
+	// runs once both are up, so its toasts are seen
+	// the run-start sweep lands before the first turn (its writes are never the turn's); what
+	// it says is held until the program runs, then sent
+	var held []tui.EvEvolution
+	a.mu.Lock()
+	a.evoSink = func(ev tui.EvEvolution) { held = append(held, ev) }
+	a.mu.Unlock()
+	a.evolveSweep()
+	a.mu.Lock()
+	a.evoSink = func(ev tui.EvEvolution) { h.send(ev) }
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.evoSink = nil; a.mu.Unlock() }()
+	go func() {
+		for _, ev := range held {
+			h.send(ev)
+		}
+	}()
 	code := h.run(ui.Run)
 	// veil-exit: the human's stop is its own chronicle row — an end with no cause could read
 	// earned DONE either way; this one names the hand (Operator 2026-10-03)

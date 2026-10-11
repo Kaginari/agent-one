@@ -150,6 +150,9 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 		}
 		line(kv("cost", cost))
 	}
+	if v.Evolved != "" {
+		line(kv("evo", t.plan.Render(ansi.Truncate("✦ "+v.Evolved, max(valW, 8), "…"))))
+	}
 	if v.Dash != "" {
 		// the board rides as a terminal hyperlink (OSC 8): the terminal's link modifier opens it
 		shown := ansi.Truncate(strings.TrimPrefix(v.Dash, "http://"), max(valW-2, 8), "…")

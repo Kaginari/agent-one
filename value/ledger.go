@@ -19,11 +19,13 @@ const LegacyShelf = "instruments/promotion.jsonl"
 
 // Row kinds.
 const (
-	KindRun      = "run"      // one run of one agent (a Subagent's report, or an orchestrator turn)
-	KindVerdict  = "verdict"  // a gate verdict, credited to the agent that held the gate
-	KindOverturn = "overturn" // a held pass a later fail on the same paths undid
-	KindPromote  = "promote"  // a promotion registered (the base agent is done promoting)
-	KindSeed     = "seed"     // the ledger was seeded from the legacy shelf
+	KindRun      = "run"       // one run of one agent (a Subagent's report, or an orchestrator turn)
+	KindVerdict  = "verdict"   // a gate verdict, credited to the agent that held the gate
+	KindOverturn = "overturn"  // a held pass a later fail on the same paths undid
+	KindPromote  = "promote"   // a promotion registered (the base agent is done promoting)
+	KindSeed     = "seed"      // the ledger was seeded from the legacy shelf
+	KindEvolve   = "evolution" // a stressed agent evolved (split, mutate, rebirth) — its cooldown counts from here
+	KindRebirth  = "rebirth"   // an agent was reborn: its record starts again from this row
 )
 
 // Holes splits a run's holes by whose they are: the workspace's (infra — a provider refusal, a
@@ -84,6 +86,11 @@ type Row struct {
 	Ref  string `json:"ref,omitempty"`  // an overturn: the overturned verdict's time (RFC3339Nano)
 	New  string `json:"new,omitempty"`  // a promotion: the promoted agent
 	From string `json:"from,omitempty"` // a seed: the shelf it was read from
+
+	// an evolution: the arm, why it was chosen, and the agents it left (a split's young)
+	Arm    string   `json:"arm,omitempty"`
+	Reason string   `json:"reason,omitempty"`
+	Into   []string `json:"into,omitempty"`
 }
 
 // Append writes one row to the ledger at path (created with its dirs). The write is one

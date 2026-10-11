@@ -362,6 +362,50 @@ type AgentValue struct {
 	Meter      value.Meter      `json:"meter"`
 	Strain     int              `json:"strain"`
 	Promotion  *PromoteProgress `json:"promotion,omitempty"`
+	Evolution  *AgentEvolution  `json:"evolution,omitempty"`
+}
+
+// AgentEvolution is where an agent stands against policy.evolution: its working notes, its stress, its cooldown
+// and its last evolution.
+type AgentEvolution struct {
+	Notes        int        `json:"notes"`
+	NotesMax     int        `json:"notesMax"`
+	Stressed     bool       `json:"stressed"`
+	Why          []string   `json:"why,omitempty"`
+	RunsSince    int        `json:"runsSince"`
+	CooldownLeft int        `json:"cooldownLeft"`
+	Last         *value.Row `json:"last,omitempty"`
+}
+
+// EvolutionReport is policy.evolution as armed, and the latest evolutions the ledger holds.
+type EvolutionReport struct {
+	Enabled      bool        `json:"enabled"`
+	Mode         string      `json:"mode"`
+	NotesMax     int         `json:"notesMax"`
+	StressAt     int         `json:"stressAt"`
+	FailStreak   int         `json:"failStreak"`
+	CooldownRuns int         `json:"cooldownRuns"`
+	Arms         []string    `json:"arms"`
+	Recent       []value.Row `json:"recent"`
+	Open         int         `json:"open"` // proposals waiting on the human
+}
+
+// EvolutionView reads policy.evolution and the ledger's evolution rows, newest first (at most n).
+func (w *Workspace) EvolutionView(n int) EvolutionReport {
+	o := w.Evolution()
+	rep := EvolutionReport{Enabled: o.on(), Mode: o.Mode, NotesMax: o.NotesMax, StressAt: o.StressAt, FailStreak: o.FailStreak, CooldownRuns: o.CooldownRuns, Arms: o.Arms, Recent: []value.Row{}}
+	rows := w.Ledger()
+	for i := len(rows) - 1; i >= 0 && len(rep.Recent) < n; i-- {
+		if rows[i].Kind == value.KindEvolve {
+			rep.Recent = append(rep.Recent, rows[i])
+		}
+	}
+	for _, p := range w.Proposals() {
+		if p.Status == "open" {
+			rep.Open++
+		}
+	}
+	return rep
 }
 
 // PromoteProgress is an agent's distance to its promotion: each condition leaf's reading.
@@ -387,14 +431,15 @@ type RankValue struct {
 
 // ValueReport is the whole value picture: what /api/value serves.
 type ValueReport struct {
-	Window string                    `json:"window"`
-	Def    value.Def                 `json:"def"`
-	Ledger string                    `json:"ledger"`
-	Rows   int                       `json:"rows"`
-	Off    bool                      `json:"off"`
-	Agents []AgentValue              `json:"agents"`
-	Ranks  []RankValue               `json:"ranks"`
-	Meters map[string]value.MeterDef `json:"meters"`
+	Window    string                    `json:"window"`
+	Def       value.Def                 `json:"def"`
+	Ledger    string                    `json:"ledger"`
+	Rows      int                       `json:"rows"`
+	Off       bool                      `json:"off"`
+	Agents    []AgentValue              `json:"agents"`
+	Ranks     []RankValue               `json:"ranks"`
+	Meters    map[string]value.MeterDef `json:"meters"`
+	Evolution EvolutionReport           `json:"evolution"`
 }
 
 // valueOf renders one agent's value from its signals.
@@ -414,6 +459,10 @@ func (w *Workspace) valueOf(agent string, s value.Signals) AgentValue {
 		if ok {
 			bv.Promotion = &PromoteProgress{To: watcher.To.Name, When: watcher.ASL.Cond.String(), Met: watcher.ASL.Cond.Eval(s), Leaves: watcher.ASL.Cond.Leaves(s)}
 		}
+	}
+	if c := w.Member(agent); c != nil && c.Doc != "" && c.Name == agent {
+		st, cd := w.StressOf(agent), w.CooldownOf(agent)
+		bv.Evolution = &AgentEvolution{Notes: w.WorkingNotesOf(agent), NotesMax: w.Evolution().NotesMax, Stressed: st.Stressed, Why: st.Why, RunsSince: cd.RunsSince, CooldownLeft: cd.Left, Last: cd.Last}
 	}
 	return bv
 }
@@ -441,6 +490,7 @@ func (w *Workspace) ValueReport() ValueReport {
 	}
 	all := w.AllSignals()
 	rep.Rows = len(w.Ledger())
+	rep.Evolution = w.EvolutionView(10)
 	// every agent on the roster appears, an agent with no record as a low-confidence zero
 	names := map[string]bool{}
 	for b := range all {

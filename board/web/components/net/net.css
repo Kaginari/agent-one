@@ -176,6 +176,14 @@
   .net-ripple[data-tone="ok"] { --net-spark: var(--ok); }
   .net-ripple[data-tone="warn"] { --net-spark: var(--warn); }
   .net-ripple[data-tone="danger"] { --net-spark: var(--danger); }
+  /* an evolution: a wide, slow ring in its arm's hue — split s1, mutate s2, rebirth s6 */
+  .net-ripple[data-kind="evolve"] { stroke-width: 3; animation-duration: calc(var(--time-slow) * 5); }
+  .net-ripple[data-tone="s1"] { --net-spark: var(--series-1); }
+  .net-ripple[data-tone="s2"] { --net-spark: var(--series-2); }
+  .net-ripple[data-tone="s6"] { --net-spark: var(--series-6); }
+  .net-node[data-ping="s1"] .net-halo { fill: var(--series-1); }
+  .net-node[data-ping="s2"] .net-halo { fill: var(--series-2); }
+  .net-node[data-ping="s6"] .net-halo { fill: var(--series-6); }
   .net[data-asleep] * { animation-play-state: paused; }
 
   /* the legend, findings */

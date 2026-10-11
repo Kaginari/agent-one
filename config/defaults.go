@@ -69,7 +69,8 @@ const defaultsJSON = `{
     "value":      { "enabled": true, "window": "28d", "pass": ["DONE", "PASS"], "fail": ["FAIL", "ESCALATE", "CHECKPOINT"], "neutral": ["DENIED", "INTERRUPTED", "DRY", "SUSPENDED"], "reopenTurns": 3, "minRecord": 5, "families": {} },
     "doomLoop":   { "enabled": true, "threshold": 3 },
     "stress":     { "escalateAt": 5, "maxConsults": 3, "relieveAt": 7 },
-    "forge":      { "demandAtSteps": 12 }
+    "forge":      { "demandAtSteps": 12, "evolvedStatus": "trial" },
+    "evolution":  { "enabled": true, "mode": "auto", "notesMax": 7, "stressAt": 0, "failStreak": 3, "cooldownRuns": 10, "arms": ["split", "mutate", "rebirth"], "splitLines": 1500, "splitFiles": 24 }
   },
   "memory": {
     "short":  { "enabled": true, "cacheDir": "[dist-dir]/memory/short" },
