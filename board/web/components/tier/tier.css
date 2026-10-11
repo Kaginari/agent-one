@@ -1,0 +1,25 @@
+/* @component tier — tokens: --space-s, --accent, --space-xs, --bracket-width, --surface, --hairline, --line, --radius-m, --second, --series-4, --ink-muted, --space-2xs, --weight-bold, --step--1, --font-heading, --tracking-label, --step-3, --leading-tight, --font-code, --ink, --font-body, --space-3xs, --warn, --ok. One memory tier as an instrument: a bracketed card whose head names the tier and what it answers, a large mono figure, then its facts as label · value rows; data-tier picks its hue (short|long|shared), data-silent greys a tier nobody measured, data-tone on a fact warns. */
+@layer components {
+  .tiers { display: grid; gap: var(--space-s); grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr)); }
+  .tier {
+    --tier-hue: var(--accent);
+    position: relative; display: grid; gap: var(--space-xs); align-content: start;
+    padding: var(--space-s) var(--space-s) var(--space-s) calc(var(--space-s) + var(--bracket-width));
+    background: color-mix(in oklch, var(--surface) 55%, transparent); border: var(--hairline) solid var(--line); border-radius: var(--radius-m);
+  }
+  .tier::before { content: ""; position: absolute; inset-block: var(--space-xs); inset-inline-start: 0; inline-size: var(--bracket-width); background: var(--tier-hue); box-shadow: 0 0 0.5rem var(--tier-hue); }
+  .tier[data-tier="long"] { --tier-hue: var(--second); }
+  .tier[data-tier="shared"] { --tier-hue: var(--series-4); }
+  .tier[data-silent] { --tier-hue: var(--ink-muted); }
+  .tier-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2xs) var(--space-s); }
+  .tier-name { margin: 0; font: var(--weight-bold) var(--step--1) var(--font-heading); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--tier-hue); }
+  .tier-asks { font-size: var(--step--1); color: var(--ink-muted); }
+  .tier-figure { font: var(--weight-bold) var(--step-3) / var(--leading-tight) var(--font-code); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .tier-figure small { margin-inline-start: var(--space-2xs); font: var(--step--1) var(--font-body); color: var(--ink-muted); }
+  .tier[data-silent] .tier-figure { color: var(--ink-muted); }
+  .tier-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-3xs) var(--space-s); margin: 0; font-size: var(--step--1); }
+  .tier-facts dt { color: var(--ink-muted); }
+  .tier-facts dd { margin: 0; font-family: var(--font-code); color: var(--ink); overflow-wrap: anywhere; }
+  .tier-facts dd[data-tone="warn"] { color: var(--warn); }
+  .tier-facts dd[data-tone="ok"] { color: var(--ok); }
+}

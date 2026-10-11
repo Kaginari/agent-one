@@ -85,58 +85,125 @@ func checkFrame(t *testing.T, m *Model, when string) {
 	if !strings.HasPrefix(strings.TrimLeft(string(cells[l.input.Y][l.input.X:l.input.X+l.input.W]), " "), "›") && m.choice == nil {
 		t.Fatalf("%s: the input's prompt is not at the input's origin: %q", when, strip[l.input.Y])
 	}
+	if m.theme.Depth {
+		checkDepth(t, m, when, cells, strip)
+	}
+}
+
+// checkDepth holds a depth frame to the depth's policies: the input's well closed on all four sides
+// (its top edge ▗▄…▄▖, its sides ▐ and ▌, its bottom edge ▝▀…▀▘) inside the main column; the
+// conversation's padding columns clear, so a slab's shadow never spills past its pane; the
+// sidebar's tiles inside the sidebar (the right border untouched, checked by checkFrame).
+func checkDepth(t *testing.T, m *Model, when string, cells [][]rune, strip []string) {
+	t.Helper()
+	l := m.lay
+	at := func(y, x int) rune { return cells[y][x] }
+	if l.well != 2 {
+		t.Fatalf("%s: the depth frame has no well (%d edge rows)", when, l.well)
+	}
+	top, bot := l.inputSepY+1, l.footerSepY-1
+	if at(top, 1) != '▗' || at(top, l.mc) != '▖' || at(bot, 1) != '▝' || at(bot, l.mc) != '▘' {
+		t.Fatalf("%s: the well's corners are open:\n%s\n%s", when, strip[top], strip[bot])
+	}
+	for x := 2; x < l.mc; x++ {
+		if at(top, x) != '▄' || at(bot, x) != '▀' {
+			t.Fatalf("%s: the well's edge breaks at col %d:\n%s\n%s", when, x, strip[top], strip[bot])
+		}
+	}
+	for y := l.input.Y; y < l.input.Y+l.input.H; y++ {
+		if at(y, 1) != '▐' || at(y, l.mc) != '▌' {
+			t.Fatalf("%s: the well's sides are open on row %d: %q", when, y, strip[y])
+		}
+	}
+	if top != l.input.Y-1 || bot != l.input.Y+l.input.H {
+		t.Fatalf("%s: the well's edges do not hug the input: top %d, input %d+%d, bottom %d", when, top, l.input.Y, l.input.H, bot)
+	}
+	if m.menu != nil || m.comp != nil || m.palette != nil {
+		return
+	}
+	for y := l.chat.Y; y < l.chat.Y+l.chat.H; y++ {
+		if at(y, 1) != ' ' || at(y, l.mc) != ' ' {
+			t.Fatalf("%s: a slab spilled into the conversation's padding on row %d: %q", when, y, strip[y])
+		}
+	}
 }
 
 // The size matrix: 60–200 columns × 26–60 rows (the frame's floor to a wide monitor), a first
 // screen and a busy turn (stream, tools, subagents, a grown draft, the slash menu, a toast, the
 // sidebar scrolled and hidden) — every frame keeps the policies.
 func TestFrameSizeMatrix(t *testing.T) {
-	for _, w := range []int{60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200} {
-		for _, h := range []int{26, 28, 30, 34, 40, 45, 50, 60} {
-			t.Run(fmt.Sprintf("%dx%d", w, h), func(t *testing.T) {
-				host := &fakeHost{plans: []RailPlan{{Agent: "coord-agent-one", Rank: "coord", Role: "drafter", Items: []RailPlanItem{{Text: "frame the window", Status: "done"}, {Text: "the welcome", Status: "in_progress"}}}}}
-				m := New(host, NewTheme(true), DefaultWords())
-				m.Update(tea.WindowSizeMsg{Width: w, Height: h})
-				m.Update(evBgWait{})
-				checkFrame(t, m, "first screen")
-
-				m.setPlans(host.Plans())
-				m.Update(EvTurnStart{Text: "redesign the frame"})
-				m.Update(EvDelta{Text: strings.Repeat("a streamed paragraph that wraps across the conversation pane. ", 6) + "\n\n"})
-				m.Update(EvToolEnd{Tool: ToolView{ID: "a", Name: "edit", Summary: "tui/frame.go", Class: "write", Status: "done", Ms: 3, Wrote: []string{"tui/frame.go", "tui/model.go"}}})
-				m.Update(EvSubagent{Subagent: SubagentView{Name: "domain-review", Rank: "domain", Role: "judge", State: "tool", Ask: "review"}})
-				m.Update(EvSubagent{Subagent: SubagentView{Name: "zone-auth", Rank: "zone", State: "thinking", Ask: "watch"}})
-				m.Update(EvToolStart{Tool: ToolView{ID: "b", Name: "bash", Summary: "go test ./tui/", Class: "read"}})
-				checkFrame(t, m, "mid-turn")
-
-				m.Toast("✓ zone-auth done", m.theme.pill("ok"))
-				m.toasts[0].x = 0
-				checkFrame(t, m, "toast")
-
-				m.input.SetValue("one\ntwo\nthree\nfour")
-				m.input.SetHeight(4)
-				checkFrame(t, m, "grown draft")
-				m.input.Reset()
-				m.input.SetHeight(1)
-
-				m.setInput("/")
-				m.menu = &menuState{items: []MenuItem{{Name: "status", Description: "the workspace"}, {Name: "agents", Description: "who"}}}
-				checkFrame(t, m, "slash menu")
-				m.menu = nil
-				m.setInput("")
-
-				m.railScroll = 3
-				checkFrame(t, m, "rail scrolled")
-
-				m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModAlt})
-				checkFrame(t, m, "sidebar hidden")
-				m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModAlt})
-
-				m.choice = &EvChoice{View: ChoiceView{Title: "Question", Why: "wait, or new work?", Options: []string{"wait", "new work"}}}
-				m.choiceAt = time.Now().Add(-time.Second)
-				checkFrame(t, m, "ask card")
-				m.choice = nil
-			})
+	// flat (the 256-colour and colourless fallback), then the depth on a dark and a light ground
+	type look struct {
+		name        string
+		dark, depth bool
+	}
+	for _, lk := range []look{{"flat", true, false}, {"depth-dark", true, true}, {"depth-light", false, true}} {
+		for _, w := range []int{60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200} {
+			for _, h := range []int{26, 28, 30, 34, 40, 45, 50, 60} {
+				if lk.name == "depth-light" && w%20 != 0 {
+					continue // the light ground shares the dark's geometry: every other width
+				}
+				t.Run(fmt.Sprintf("%s/%dx%d", lk.name, w, h), func(t *testing.T) { frameMatrixCase(t, w, h, lk.dark, lk.depth) })
+			}
 		}
 	}
+}
+
+// depthTheme is a theme as a truecolor terminal sees it: the depth turns on under the frame.
+func depthTheme(dark bool) Theme {
+	th := NewTheme(dark)
+	th.Color, th.TrueColor = true, true
+	return th
+}
+
+func frameMatrixCase(t *testing.T, w, h int, dark, depth bool) {
+	host := &fakeHost{plans: []RailPlan{{Agent: "coord-agent-one", Rank: "coord", Role: "drafter", Items: []RailPlanItem{{Text: "frame the window", Status: "done"}, {Text: "the welcome", Status: "in_progress"}}}}}
+	th := NewTheme(dark)
+	if depth {
+		th = depthTheme(dark)
+	}
+	m := New(host, th, DefaultWords())
+	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m.Update(evBgWait{})
+	if depth != m.theme.Depth {
+		t.Fatalf("depth %v, want %v", m.theme.Depth, depth)
+	}
+	checkFrame(t, m, "first screen")
+
+	m.setPlans(host.Plans())
+	m.Update(EvTurnStart{Text: "redesign the frame"})
+	m.Update(EvDelta{Text: strings.Repeat("a streamed paragraph that wraps across the conversation pane. ", 6) + "\n\n"})
+	m.Update(EvToolEnd{Tool: ToolView{ID: "a", Name: "edit", Summary: "tui/frame.go", Class: "write", Status: "done", Ms: 3, Wrote: []string{"tui/frame.go", "tui/model.go"}}})
+	m.Update(EvSubagent{Subagent: SubagentView{Name: "domain-review", Rank: "domain", Role: "judge", State: "tool", Ask: "review"}})
+	m.Update(EvSubagent{Subagent: SubagentView{Name: "zone-auth", Rank: "zone", State: "thinking", Ask: "watch"}})
+	m.Update(EvToolStart{Tool: ToolView{ID: "b", Name: "bash", Summary: "go test ./tui/", Class: "read"}})
+	checkFrame(t, m, "mid-turn")
+
+	m.Toast("✓ zone-auth done", m.theme.pill("ok"))
+	m.toasts[0].x = 0
+	checkFrame(t, m, "toast")
+
+	m.input.SetValue("one\ntwo\nthree\nfour")
+	m.input.SetHeight(4)
+	checkFrame(t, m, "grown draft")
+	m.input.Reset()
+	m.input.SetHeight(1)
+
+	m.setInput("/")
+	m.menu = &menuState{items: []MenuItem{{Name: "status", Description: "the workspace"}, {Name: "agents", Description: "who"}}}
+	checkFrame(t, m, "slash menu")
+	m.menu = nil
+	m.setInput("")
+
+	m.railScroll = 3
+	checkFrame(t, m, "rail scrolled")
+
+	m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModAlt})
+	checkFrame(t, m, "sidebar hidden")
+	m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModAlt})
+
+	m.choice = &EvChoice{View: ChoiceView{Title: "Question", Why: "wait, or new work?", Options: []string{"wait", "new work"}}}
+	m.choiceAt = time.Now().Add(-time.Second)
+	checkFrame(t, m, "ask card")
+	m.choice = nil
 }

@@ -1,4 +1,4 @@
-/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --ok, --warn, --danger, --focus, --focus-width, --weight-medium, --weight-bold, --font-code, --font-body, --step--2, --step--1, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --radius-m, --radius-l, --radius-pill, --hairline, --time, --time-slow, --ease, --font-heading, --tracking-label, --radius-s. The workspace as a neural net: the hierarchy as layers (the orchestrator, then each rank, skills beside), every neuron a rank-coloured tile whose cells are its last four weeks of work, tree bonds weighted by the commissions they carried; hover or focus lights a neuron's path to the orchestrator and its subtree; a Subagent's dispatch travels down as a pulse and its report returns up. A 3D stage (WebGL2) draws the same tree as glowing planes. */
+/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --ok, --warn, --danger, --focus, --focus-width, --weight-medium, --weight-bold, --font-code, --font-body, --step--2, --step--1, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --radius-m, --radius-l, --radius-pill, --hairline, --time, --time-slow, --ease, --font-heading, --tracking-label, --radius-s. The workspace as a neural net: the hierarchy as layers (the orchestrator, then each rank, skills beside), every neuron a rank-coloured tile whose cells are its last four weeks of work, tree bonds weighted by the commissions they carried; hover or focus lights a neuron's path to the orchestrator and its subtree; a Subagent's dispatch travels down as a pulse and its report returns up. A 3D stage (WebGL2) draws the same tree as a brain: the orchestrator at the centre, each rank a shell further out, each lane a tinted region, the skills a crown above, every rank its own lit solid. */
 @layer components {
   .net { position: relative; inline-size: 100%; --net-node: var(--ink-muted); }
   .net-frame { container-type: inline-size; min-inline-size: 0; }
@@ -21,11 +21,30 @@
   .net-canvas[data-drag] { cursor: grabbing; }
   .net-canvas[data-hot] { cursor: pointer; }
   .net-overlay { pointer-events: none; }
-  .net-3d-tools { position: absolute; z-index: 1; inset-block-start: var(--space-xs); inset-inline-end: var(--space-xs); display: flex; gap: var(--space-2xs); }
+  .net-3d-tools { position: absolute; z-index: 1; inset-block-start: var(--space-xs); inset-inline-end: var(--space-xs); display: flex; align-items: center; gap: var(--space-2xs); }
   .net-3d-hint { position: absolute; z-index: 1; inset-block-end: var(--space-xs); inset-inline-start: 50%; transform: translateX(-50%); margin: 0; max-inline-size: calc(100% - 2 * var(--space-s));
     padding: var(--space-3xs) var(--space-s); border: var(--hairline) solid var(--line); border-radius: var(--radius-s); background: color-mix(in oklch, var(--surface) 82%, transparent);
     color: var(--ink-muted); font-size: var(--step--1); text-align: center; pointer-events: none; }
   .net-3d-hint[hidden] { display: none; }
+  /* the regions' colouring (lane · heat · health), a small segmented switch */
+  .net-3d-tint { display: inline-flex; border: var(--hairline) solid var(--line); border-radius: var(--radius-pill); overflow: hidden; background: color-mix(in oklch, var(--surface) 70%, transparent); }
+  .net-3d-tint button { appearance: none; border: 0; background: transparent; color: var(--ink-muted); font: var(--weight-medium) var(--step--2) var(--font-body); padding: var(--space-3xs) var(--space-xs); cursor: pointer; }
+  .net-3d-tint button[aria-pressed="true"] { background: color-mix(in oklch, var(--accent) 16%, transparent); color: var(--ink); }
+  .net-3d-tint button:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
+  /* the key: each rank's solid as a flat glyph in its colour, in the lexicon's words */
+  .net-3d-key { position: absolute; z-index: 1; inset-block-start: var(--space-xs); inset-inline-start: var(--space-s); display: grid; gap: var(--space-3xs); pointer-events: none;
+    font: var(--weight-medium) var(--step--2) var(--font-body); color: var(--ink-muted); text-transform: lowercase; }
+  .net-3d-key span { display: flex; align-items: center; gap: var(--space-2xs); }
+  .net-3d-key svg { inline-size: 1.1em; block-size: 1.1em; color: var(--net-node); fill: color-mix(in oklch, var(--net-node) 55%, transparent); stroke: var(--net-node); stroke-width: 1.4; }
+  .net-3d-key ellipse { fill: none; }
+  .net-3d-key b { font: var(--step--2) var(--font-code); color: var(--ink); }
+  /* the replay: play, a scrubber over the last turn, its clock, back to live */
+  .net-3d-replay { position: absolute; z-index: 2; inset-block-end: var(--space-xs); inset-inline: var(--space-s); display: flex; align-items: center; gap: var(--space-xs);
+    padding: var(--space-3xs) var(--space-xs); border: var(--hairline) solid var(--line); border-radius: var(--radius-m); background: color-mix(in oklch, var(--surface) 86%, transparent); }
+  .net-3d-replay[hidden] { display: none; }
+  .net-3d-replay input { flex: 1; min-inline-size: 0; accent-color: var(--accent); }
+  .net-3d-clock { font: var(--step--2) var(--font-code); color: var(--ink-muted); min-inline-size: 4.5em; text-align: end; }
+  @container (max-width: 40rem) { .net-3d-key, .net-3d-tint { display: none; } }
 
   /* the 2D / 3D switch */
   .net-mode { display: inline-flex; border: var(--hairline) solid var(--line); border-radius: var(--radius-pill); overflow: hidden; }
@@ -54,6 +73,12 @@
   .net-probe[data-tone="warn"] { color: var(--warn); }
   .net-probe[data-tone="danger"] { color: var(--danger); }
   .net-probe[data-tone="accent"] { color: var(--accent); }
+  .net-probe[data-tone="s1"] { color: var(--series-1); }
+  .net-probe[data-tone="s2"] { color: var(--series-2); }
+  .net-probe[data-tone="s3"] { color: var(--series-3); }
+  .net-probe[data-tone="s4"] { color: var(--series-4); }
+  .net-probe[data-tone="s5"] { color: var(--series-5); }
+  .net-probe[data-tone="s6"] { color: var(--series-6); }
 
   /* layers: a faint column band per layer, its name and count on top */
   .net-col { fill: color-mix(in oklch, var(--net-node) 5%, transparent); stroke: color-mix(in oklch, var(--net-node) 14%, transparent); stroke-width: 1; }

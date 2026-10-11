@@ -30,9 +30,16 @@
 <link rel="stylesheet" href="web/components/matrix/matrix.css">
 <link rel="stylesheet" href="web/components/kcard/kcard.css">
 <link rel="stylesheet" href="web/components/button/button.css">
+<link rel="stylesheet" href="web/components/ledger/ledger.css">
+<link rel="stylesheet" href="web/components/tier/tier.css">
+<link rel="stylesheet" href="web/components/hits/hits.css">
+<link rel="stylesheet" href="web/components/feed/feed.css">
+<link rel="stylesheet" href="web/components/filter/filter.css">
+<link rel="stylesheet" href="web/components/cfgtree/cfgtree.css">
 <script src="web/components/net/net.js" defer></script>
 <script src="web/components/net/net3d.js" defer></script>
 <script src="web/dash.js" defer></script>
+<script src="web/workspace.js" defer></script>
 </head>
 <body data-words="{{WORDS}}">
 <div class="shell">
@@ -50,16 +57,25 @@
     </div>
     <div class="topbar-tools">
       <button class="button" data-size="s" data-variant="quiet" type="button" id="theme" aria-label="theme: dark — change">theme · dark</button>
-      <a class="topbar-link" href="./">board pages</a>
     </div>
   </header>
-  <nav class="tabs" role="tablist" aria-label="views">
-    <button class="tab" role="tab" data-view="overview" aria-selected="true" type="button">Overview</button>
-    <button class="tab" role="tab" data-view="console" aria-selected="false" type="button">Console</button>
-    <button class="tab" role="tab" data-view="net" aria-selected="false" type="button">Neural net</button>
-    <button class="tab" role="tab" data-view="metrics" aria-selected="false" type="button">Metrics</button>
-    <button class="tab" role="tab" data-view="relations" aria-selected="false" type="button">Relations</button>
-    <button class="tab" role="tab" data-view="tree" aria-selected="false" type="button">Tree</button>
+  <nav class="tabs" id="tabs" aria-label="views">
+    <div class="tabs-list" id="tablist" role="tablist" aria-label="views">
+      <button class="tab" role="tab" id="tab-overview" data-view="overview" aria-controls="main" aria-selected="true" type="button">Overview</button>
+      <button class="tab" role="tab" id="tab-console" data-view="console" aria-controls="main" aria-selected="false" type="button">Console</button>
+      <button class="tab" role="tab" id="tab-net" data-view="net" aria-controls="main" aria-selected="false" type="button">Neural net</button>
+      <button class="tab" role="tab" id="tab-metrics" data-view="metrics" aria-controls="main" aria-selected="false" type="button">Metrics</button>
+      <button class="tab" role="tab" id="tab-subagent" data-view="subagent" aria-controls="main" aria-selected="false" type="button" data-word="page.subagent">Subagent</button>
+      <button class="tab" role="tab" id="tab-memory" data-view="memory" aria-controls="main" aria-selected="false" type="button" data-word="page.memory" data-group-start>Memory</button>
+      <button class="tab" role="tab" id="tab-toolbox" data-view="toolbox" aria-controls="main" aria-selected="false" type="button" data-word="page.toolbox">Toolbox</button>
+      <button class="tab" role="tab" id="tab-relations" data-view="relations" aria-controls="main" aria-selected="false" type="button">Relations</button>
+      <button class="tab" role="tab" id="tab-tree" data-view="tree" aria-controls="main" aria-selected="false" type="button">Tree</button>
+      <button class="tab" role="tab" id="tab-config" data-view="config" aria-controls="main" aria-selected="false" type="button" data-word="page.config">Config</button>
+    </div>
+    <div class="tabs-more" id="tabs-more" hidden>
+      <button class="tab" type="button" id="tabs-more-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="tabs-menu">More<span class="tabs-more-count" id="tabs-more-count"></span></button>
+      <div class="tabs-menu" id="tabs-menu" role="menu" aria-labelledby="tabs-more-btn" hidden></div>
+    </div>
     <button class="button tabs-end" data-size="s" data-variant="quiet" type="button" id="drawer-open" aria-controls="tree-panel" aria-expanded="false" title="the folder tree as a drawer (t, or Alt+T from the prompt)">files <kbd class="shell-key">t</kbd></button>
   </nav>
   <main class="shell-main" id="main" data-view="overview">
@@ -111,7 +127,7 @@
             <div class="stack" data-gap="s"><h3 class="panel-note">by model</h3><div class="bars" id="by-model"></div></div>
           </div>
           <div class="switcher">
-            <div class="stack" data-gap="s"><h3 class="panel-note" data-word="bodies">by body</h3><div class="bars" id="by-body"></div></div>
+            <div class="stack" data-gap="s"><h3 class="panel-note" data-word="agents">by agent</h3><div class="bars" id="by-body"></div></div>
             <div class="stack" data-gap="s"><h3 class="panel-note">live now</h3><div class="bars" id="live-bodies"></div></div>
           </div>
         </div>
@@ -125,6 +141,22 @@
           <div class="matrix-wrap" id="matrix"></div>
         </div>
       </div>
+    </section>
+    <section class="panel" data-panel="subagent" aria-labelledby="h-subagent">
+      <header class="panel-head"><h2 class="panel-title" id="h-subagent" data-word="page.subagent">Subagent</h2><span class="panel-note" id="subagent-note">every journaled run, newest first</span></header>
+      <div class="panel-body"><div class="stack" id="subagent-view"><p class="panel-note">reading the journals…</p></div></div>
+    </section>
+    <section class="panel" data-panel="memory" aria-labelledby="h-memory">
+      <header class="panel-head"><h2 class="panel-title" id="h-memory" data-word="page.memory">Memory</h2><span class="panel-note" id="memory-note">—</span></header>
+      <div class="panel-body"><div class="stack" id="memory-view"><p class="panel-note">reading the tiers…</p></div></div>
+    </section>
+    <section class="panel" data-panel="toolbox" aria-labelledby="h-toolbox">
+      <header class="panel-head"><h2 class="panel-title" id="h-toolbox" data-word="page.toolbox">Toolbox</h2><span class="panel-note" id="toolbox-note">—</span></header>
+      <div class="panel-body"><div class="stack" id="toolbox-view"><p class="panel-note">reading the registry…</p></div></div>
+    </section>
+    <section class="panel" data-panel="config" aria-labelledby="h-config">
+      <header class="panel-head"><h2 class="panel-title" id="h-config" data-word="page.config">Config</h2><span class="panel-note" id="config-note">—</span></header>
+      <div class="panel-body"><div class="stack" id="config-view"><p class="panel-note">reading the config…</p></div></div>
     </section>
     <section class="panel" data-panel="tree" id="tree-panel" aria-labelledby="h-tree">
       <header class="panel-head"><h2 class="panel-title" id="h-tree">Folder tree</h2><span class="panel-note" data-note="tree">workspace ownership — files light as tools touch them</span>

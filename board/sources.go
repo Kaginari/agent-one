@@ -315,14 +315,15 @@ func BuildActivity(runs []Run, recs []UsageRecord, now time.Time, days int) Acti
 
 // Run is one loop journal, as the board shows it.
 type Run struct {
-	ID     string
-	As     string
-	Ask    string
-	Status string
-	At     string
-	Turns  int
-	Steps  int
-	Failed int
+	ID       string
+	As       string
+	Ask      string
+	Status   string
+	At       string
+	Turns    int
+	Steps    int
+	Failed   int
+	Provider string
 }
 
 // LogEntry is one dated `### [...]` entry of log.md.
@@ -404,7 +405,24 @@ type ToolboxView struct {
 	Entries []*toolbox.Entry
 	Offered map[string]bool
 	Loaded  map[string]bool
+	Offers  map[string]int // how many briefs offered the entry
+	Loads   map[string]int // how many times an agent loaded it whole
+	Recent  []LoadEvent    // the loads journal's newest lines, newest first
 }
+
+// LoadEvent is one line of the toolbox's loads journal: a brief that offered entries, or an agent
+// that loaded one whole.
+type LoadEvent struct {
+	At     string   `json:"at,omitempty"`
+	By     string   `json:"by,omitempty"`
+	Ev     string   `json:"ev"` // offer | load
+	Cmd    string   `json:"cmd,omitempty"`
+	Names  []string `json:"names"`
+	Tokens float64  `json:"tokens"`
+}
+
+// RecentLoads is how many loads-journal lines the toolbox view carries.
+const RecentLoads = 40
 
 // Sources is every feed the board reads. Nil fields are filled from FileSources by New.
 // Subagent, Config, Off and Session come from the integrator: files do not know what is live.
@@ -427,6 +445,12 @@ type Sources struct {
 	Tree      func(string) ([]TreeEntry, bool) // one level of the workspace tree ("" = root): entries, truncated; nil means unwired (integrator decides); consumers must nil-guard, never panic
 	Subagents func() (any, error)              // subagents strip: every entity's open hand (queued cards, presence from hearts, plan stats); agent fields stay local; nil = offline
 	Plan      func(deck string) (any, error)   // THE deck: the workspace's plan.json Parsed + hearts; deck selects tmp/plans/<deck>.json ("" = the workspace deck); nil = offline
+	// RunDetail is one journaled run read back whole (its steps, holes, length); an unknown id
+	// is an error. Recall searches the memory tiers read-only (no cache line is written);
+	// Review is the memory's three-tier review (read-only by policy).
+	RunDetail func(id string) (*RunDetail, error)
+	Recall    func(q, tier, kind string) (*memory.RecallResult, error)
+	Review    func() (*memory.ReviewResult, error)
 }
 
 // AgentInfo is one minted agent: the vessel a ranked member rides.
@@ -481,6 +505,9 @@ func FileSources(root, workspaceDir string, layout onto.Layout, now func() time.
 			}
 			return e, trunc
 		},
+		RunDetail: f.runDetail,
+		Recall:    f.recall,
+		Review:    f.review,
 		Plan: func(deck string) (any, error) {
 			// deck == the agent name; "" reads the workspace's own deck
 			// (.agent-one/tmp/plans/<deck>.json, "" → plan.json like the tool).
@@ -558,6 +585,15 @@ func (s Sources) withDefaults(d Sources) Sources {
 	}
 	if s.Plan == nil {
 		s.Plan = d.Plan
+	}
+	if s.RunDetail == nil {
+		s.RunDetail = d.RunDetail
+	}
+	if s.Recall == nil {
+		s.Recall = d.Recall
+	}
+	if s.Review == nil {
+		s.Review = d.Review
 	}
 	return s
 }
@@ -658,7 +694,7 @@ func (f *fileSources) loop() ([]Run, Reading) {
 	var out []Run
 	var latest time.Time
 	for _, s := range states {
-		r := Run{ID: s.ID, As: s.As, Ask: s.Ask, Status: s.Status, At: s.At, Turns: s.Turns, Steps: len(s.Steps)}
+		r := Run{ID: s.ID, As: s.As, Ask: s.Ask, Status: s.Status, At: s.At, Turns: s.Turns, Steps: len(s.Steps), Provider: s.Provider}
 		for _, st := range s.Steps {
 			if st.Status != "done" && st.Status != "pending" {
 				r.Failed++
@@ -1023,31 +1059,49 @@ func (f *fileSources) toolbox() *ToolboxView {
 	}
 	w.Now = f.now
 	st := w.Status(math.NaN())
-	v := &ToolboxView{Status: st, Offered: map[string]bool{}, Loaded: map[string]bool{}}
+	v := &ToolboxView{Status: st, Offered: map[string]bool{}, Loaded: map[string]bool{}, Offers: map[string]int{}, Loads: map[string]int{}}
 	if st.Loaded.Reg != nil {
 		v.Entries = st.Loaded.Reg.Entries
 	}
 	for _, raw := range memory.ReadJSONL(w.LoadsPath()) {
 		var x struct {
-			Ev    string `json:"ev"`
-			Names []any  `json:"names"`
-			Name  any    `json:"name"`
+			At     string  `json:"at"`
+			By     string  `json:"by"`
+			Ev     string  `json:"ev"`
+			Cmd    string  `json:"cmd"`
+			Names  []any   `json:"names"`
+			Name   any     `json:"name"`
+			Tokens float64 `json:"tokens"`
 		}
 		if json.Unmarshal(raw, &x) != nil {
 			continue
 		}
+		e := LoadEvent{At: x.At, By: x.By, Ev: x.Ev, Cmd: x.Cmd, Names: []string{}, Tokens: x.Tokens}
 		switch x.Ev {
 		case "offer":
 			for _, n := range x.Names {
 				if s, ok := n.(string); ok {
 					v.Offered[s] = true
+					v.Offers[s]++
+					e.Names = append(e.Names, s)
 				}
 			}
 		case "load":
 			if s, ok := x.Name.(string); ok {
 				v.Loaded[s] = true
+				v.Loads[s]++
+				e.Names = append(e.Names, s)
 			}
+		default:
+			continue
 		}
+		v.Recent = append(v.Recent, e)
+	}
+	for i, j := 0, len(v.Recent)-1; i < j; i, j = i+1, j-1 {
+		v.Recent[i], v.Recent[j] = v.Recent[j], v.Recent[i]
+	}
+	if len(v.Recent) > RecentLoads {
+		v.Recent = v.Recent[:RecentLoads]
 	}
 	var at time.Time
 	if info, err := os.Stat(w.LoadsPath()); err == nil {

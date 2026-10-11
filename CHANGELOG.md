@@ -8,6 +8,47 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **The 3D net is a brain.** The orchestrator sits at the centre and each rank is a shell further out
+  (coordinators inner, domain owners middle, zone workers on the outer cortex); each lane is a region of the brain, tinted
+  by a faint glow and switchable to its four weeks of work (heat) or its runs' pass rate (health).
+  A seeded force layout on two hemispheres keeps a member near its parent and pulls related
+  members together: the team's new `relates` (code coupling between ownerships from their
+  imports — Go, Python, JS/TS — and skills both hold, in `board/relate.go`), days worked together and
+  runs commissioned together. The skills are a crown above the orchestrator, their `holds` filaments
+  falling in the skill's colour, glowing, with particles travelling down while the holder works.
+  Every rank is a lit solid, one instanced draw per shape — a star crystal in orbit rings for the
+  orchestrator, slender bipyramids for coordinators, hexagonal prisms for domain owners, soft wobbling blobs for zone workers, a
+  tetrahedron for the service owner, a crown ring on a promoted rank, a torus for a skill — with a key in
+  the lexicon's words. Synapses taper from the parent; a dispatch lights each synapse it crosses
+  as a pulse with a trail and the report comes back, a firing neuron flashes and rings; dendrites,
+  slow motes and a bloom pass give depth. Hovering a relates bond says why it holds, and "replay"
+  scrubs through the last turn's signals. Still under reduced motion, and the idle frame budget
+  holds.
+
+- **The terminal UI has depth.** On a truecolor terminal the frame is layered planes drawn with
+  colour and the block elements: the borders on the terminal's own ground; the conversation, the
+  sidebar and the status bar each a plane of their own tint; the ask and each answer raised as
+  slabs with a spine (magenta, the primary), a lit top face, a shaded edge and a soft drop shadow;
+  tools and Subagents as smaller chips in their class's or rank's hue; the welcome as the hero slab on
+  a primary → magenta gradient; the sidebar's sections as stacked tiles; the input sunk in a well;
+  toasts, the ask card and the palette floating highest. One tonal scale stepped from the
+  terminal's background, inverted on a light theme (white slabs on a grey ground, soft grey
+  shadows); every text role holds 4.5:1 on every tint. A selection copies text, never the
+  drawing. 256-colour and colourless terminals keep the flat frame.
+
+- **The dashboard is the board's one page, at the root.** `http://127.0.0.1:<port>/` opens the
+  cockpit; the tabs are Overview · Console · Neural net · Metrics · Subagent · Memory · Toolbox ·
+  Relations · Tree · Config, and a deep link opens one (`/#memory`, `/#config`, `/#subagent/<run>`).
+  Four tabs are new, in the realm HUD: **Subagent** — every journaled run, filtered by agent, outcome
+  or words, and one run whole (the commission, each step with the gate's class and reason, the
+  holes); **Memory** — the three tiers as instruments, a read-only recall, the working notes and notes, the
+  memory's review on demand; **Toolbox** — the registry by kind and state with costs, offers and
+  loads, the skills the session can hold, the registered agents, the loads journal; **Config** — the
+  resolved config as a tree with each value's layer, credentials shown as set but never their
+  value, and the off-list. Ten tabs fit any width: what does not fit folds into a "more" menu,
+  arrows walk the tabs. New read-only APIs: `/api/runs`, `/api/run`, `/api/memory`,
+  `/api/memory/recall`, `/api/memory/review`, `/api/toolbox`, `/api/config` (loopback Host only).
+
 - **A native sandbox on macOS: Seatbelt.** On a Mac every shell command, verify line, hook,
   custom tool and stdio MCP server now runs under `/usr/bin/sandbox-exec` with a profile that
   mirrors bwrap's fence: writes only to the workspace, its read-write paths and the temp dirs; no
@@ -325,6 +366,14 @@ All notable changes to Agent-One are recorded here. The format follows
   deck, map lines to owning domains, dispatch — domain owners in parallel (`background: true`) when the
   slices are independent; the domain owner's text codes the verify-first: the slice's checks are written
   before its zone worker is ordered.
+
+### Removed
+
+- **The board pages and Bootstrap.** The server-rendered pages (Overview, Subagent, Usage, Team,
+  Memory, Toolbox, Log, Config), their templates, `static/` and the embedded Bootstrap are gone,
+  and with them the dashboard's "board pages" link. `/dash` redirects to `/` (301); `/subagent`,
+  `/memory`, `/toolbox`, `/config`, `/usage` and `/team` redirect to their tab; `/log` is gone
+  (the log stays in `log.md` and the memory's episodic tier).
 
 ## [0.3.0] - 2026-09-28
 

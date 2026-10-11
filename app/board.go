@@ -195,7 +195,8 @@ func (a *App) serveBoard(ctx context.Context) {
 	// dashboard-only run prints its own address. The quiet serves /status and `boardLine`.
 }
 
-// cmdBoard serves the board alone, without a session, until interrupted.
+// cmdBoard serves the board (the dashboard at the root, read-only) alone, without a session,
+// until interrupted.
 func (a *App) cmdBoard(ctx context.Context, io IO) int {
 	lg := newLogger(io.Err, a.Cfg.Dist.Name+" board")
 	if a.Workspace == nil {
@@ -217,7 +218,7 @@ func (a *App) cmdBoard(ctx context.Context, io IO) int {
 	opt.Logger = lg.StandardLog(stdLogWarn)
 	errc := make(chan error, 1)
 	go func() { errc <- board.Serve(ctx, addr, opt) }()
-	lg.Info("serving", "board", "http://"+addr+"/", "dashboard", "http://"+addr+"/dash", "stop", "ctrl+c")
+	lg.Info("serving", "dashboard", "http://"+addr+"/", "stop", "ctrl+c")
 	select {
 	case <-ctx.Done():
 		lg.Info("stopped")

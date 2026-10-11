@@ -44,10 +44,17 @@ func (m *Model) ensureVP(cw, paneH int) bool {
 func (m *Model) feedVP(live []string, cw, paneH int) []string {
 	resized := m.ensureVP(cw, paneH)
 	lines := m.paneChat(cw)
-	if resized || m.vpVer != m.paneVer || !slices.Equal(m.vpLive, live) {
-		if len(live) > 0 {
-			lines = append(lines[:len(lines):len(lines)], live...) // a copy: the cache stays whole
+	if resized || m.vpVer != m.paneVer || m.vpTrim != m.liveTrim || !slices.Equal(m.vpLive, live) {
+		if trim := min(m.liveTrim, len(lines)); trim > 0 {
+			lines = lines[: len(lines)-trim : len(lines)-trim]
 		}
+		if len(live) > 0 {
+			lines = lines[:len(lines):len(lines)] // a copy: the cache stays whole
+			for _, l := range live {
+				lines = append(lines, strings.Split(l, "\n")...) // one content line a row
+			}
+		}
+		m.vpTrim = m.liveTrim
 		atBottom := m.vp.AtBottom()
 		m.vpLines = lines
 		m.vp.SetContentLines(lines)
@@ -56,7 +63,15 @@ func (m *Model) feedVP(live []string, cw, paneH int) []string {
 		}
 		m.vpVer, m.vpLive = m.paneVer, append(m.vpLive[:0], live...)
 	}
-	return strings.Split(m.vp.View(), "\n")
+	// the visible window, read straight off the content: the viewport would wrap and pad every
+	// row through a style on each frame, and the pane's rows are already cut to its width
+	off := min(max(m.vp.YOffset(), 0), len(m.vpLines))
+	rows := make([]string, 0, paneH)
+	rows = append(rows, m.vpLines[off:min(off+paneH, len(m.vpLines))]...)
+	for len(rows) < paneH {
+		rows = append(rows, "")
+	}
+	return rows
 }
 
 // vpKey routes the pane-scroll keys into the chat viewport while the panes hold and no menu,

@@ -1,19 +1,16 @@
 // Package board is the workspace, seen: an http.Handler the binary serves on 127.0.0.1 that reads
-// the same instruments the session writes and shows them one question per page (binary.md
-// §The board, design/ui.md). Everything it serves is embedded; a page works offline.
+// the same instruments the session writes and shows them in one page at the root — the
+// dashboard (web/dash.html): the cockpit, then a tab per question (binary.md §The board,
+// design/ui.md). Everything it serves is embedded; the page works offline.
 package board
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
-	"io/fs"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"path"
@@ -25,10 +22,10 @@ import (
 	"github.com/Kaginari/agent-one/onto"
 )
 
-//go:embed assets/bootstrap.min.css assets/bootstrap.bundle.min.js static/* templates/* all:web
+//go:embed all:web
 var content embed.FS
 
-// Names are the lexicon labels every template reads: no agent-one term is hard-coded in a page.
+// Names are the lexicon labels the page reads: no agent-one term is hard-coded in it.
 // Missing keys fall back to DefaultNames; a distribution passes its own (Subagent → Subagents).
 type Names map[string]string
 
@@ -115,8 +112,6 @@ type Board struct {
 	opt     Options
 	src     Sources
 	names   Names
-	pages   map[string]*template.Template
-	static  http.Handler
 	mux     *http.ServeMux
 	hub     *hub
 	stop    chan struct{}
@@ -177,9 +172,6 @@ func New(o Options) *Board {
 	for k, v := range o.Names {
 		b.names[k] = v
 	}
-	b.pages = parsePages(b.funcs())
-	sub, _ := fs.Sub(content, ".")
-	b.static = http.FileServer(http.FS(sub))
 	b.mux = http.NewServeMux()
 	b.routes()
 	go b.watch()
@@ -239,69 +231,29 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Board) routes() {
-	b.mux.HandleFunc("/", b.page("overview", b.overview))
-	b.mux.HandleFunc("/subagent", b.page("subagent", b.subagent))
-	b.mux.HandleFunc("/usage", b.page("usage", b.usage))
-	b.mux.HandleFunc("/team", b.page("team", b.team))
-	b.mux.HandleFunc("/memory", b.page("memory", b.memory))
-	b.mux.HandleFunc("/toolbox", b.page("toolbox", b.toolbox))
-	b.mux.HandleFunc("/log", b.page("log", b.logPage))
-	b.mux.HandleFunc("/config", b.page("config", b.config))
-	b.mux.HandleFunc("/events", b.events)
-	b.mux.HandleFunc("/api/doc", b.apiDoc)
-	b.mux.HandleFunc("/api/subagent", b.apiSubagent)
-	b.mux.HandleFunc("/api/usage", b.apiUsage)
-	b.mux.HandleFunc("/api/team", b.apiTeam)
-	b.mux.HandleFunc("/api/activity", b.apiActivity)
-	b.mux.HandleFunc("/api/tree", b.apiTree)
-	b.mux.HandleFunc("/api/tree/children", b.apiTreeChildren)
-	b.mux.HandleFunc("/api/subagents", b.apiSubagents)
-	b.mux.HandleFunc("/api/plan", b.apiPlan)
-	b.mux.Handle("/assets/", b.static)
-	b.mux.Handle("/static/", b.static)
-	b.liveRoutes()
-}
-
-// ---- pages
-
-type view struct {
-	Page      string
-	Title     string
-	Prefix    string
-	Workspace string
-	Root      string
-	Dir       string
-	Now       time.Time
-	Partial   bool
-	Live      string // SSE event names this page patches on
-	Data      any
-	Query     string
-}
-
-func (b *Board) page(name string, fill func(r *http.Request) (any, string)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if name == "overview" && r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		data, live := fill(r)
-		v := view{Page: name, Title: b.names["page."+name], Prefix: b.opt.Prefix, Workspace: b.workspaceName(), Root: b.opt.WorkspaceRoot, Dir: b.opt.WorkspaceDir, Now: b.opt.Now(), Data: data, Live: live, Query: r.URL.RawQuery}
-		v.Partial = r.URL.Query().Get("partial") == "1"
-		t := b.pages[name]
-		var buf bytes.Buffer
-		which := "page"
-		if v.Partial {
-			which = "live"
-		}
-		if err := t.ExecuteTemplate(&buf, which, v); err != nil {
-			b.opt.Logger.Printf("board: %s: %v", name, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(buf.Bytes())
+	// one page, at the root: the dashboard. Every other path is an API, the event stream, or
+	// an asset under /web/.
+	b.mux.HandleFunc("/", b.root)
+	// the old addresses keep working: /dash was the dashboard's own path; the pages that became
+	// tabs open their tab
+	b.mux.HandleFunc("/dash", b.moved(""))
+	for page, tab := range movedPages {
+		b.mux.HandleFunc("/"+page, b.moved(tab))
 	}
+	// every read of the workspace's records answers a loopback Host only: a rebound DNS name
+	// (a page on the open web pointed at 127.0.0.1) reads nothing
+	b.mux.HandleFunc("/events", guarded(b.events))
+	b.mux.HandleFunc("/api/doc", guarded(b.apiDoc))
+	b.mux.HandleFunc("/api/subagent", guarded(b.apiSubagent))
+	b.mux.HandleFunc("/api/usage", guarded(b.apiUsage))
+	b.mux.HandleFunc("/api/team", guarded(b.apiTeam))
+	b.mux.HandleFunc("/api/activity", guarded(b.apiActivity))
+	b.mux.HandleFunc("/api/tree", guarded(b.apiTree))
+	b.mux.HandleFunc("/api/tree/children", guarded(b.apiTreeChildren))
+	b.mux.HandleFunc("/api/subagents", guarded(b.apiSubagents))
+	b.mux.HandleFunc("/api/plan", guarded(b.apiPlan))
+	b.liveRoutes()
+	b.workspaceRoutes()
 }
 
 func (b *Board) workspaceName() string {
@@ -312,89 +264,32 @@ func (b *Board) workspaceName() string {
 	return name
 }
 
-type overviewData struct {
-	Session      Session
-	SessionSeen  bool
-	Off          []Off
-	OffLive      bool
-	Agents       []Agent
-	SubagentLive bool
-	MaxCtx       int
-	Today        UsageReport
-	Usage        Reading
-	Memory       *MemoryView
-	Team         *Team
-	Members      int
-	Skills       int
-	Runs         []Run
-	Loop         Reading
-	Log          []LogEntry
-	LogReading   Reading
+// movedPages are the old board pages that live on as the dashboard's tabs, by path.
+var movedPages = map[string]string{"subagent": "subagent", "memory": "memory", "toolbox": "toolbox", "config": "config", "usage": "metrics", "team": "net"}
+
+// root serves the dashboard at "/" and nothing else there.
+func (b *Board) root(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	b.dash(w, r)
 }
 
-func (b *Board) overview(r *http.Request) (any, string) {
-	d := overviewData{Session: b.src.Session(), Off: b.src.Off(), OffLive: b.liveCfg, Agents: b.src.Subagent(), SubagentLive: b.liveCrt}
-	d.SessionSeen = d.Session.ID != "" || !d.Session.Started.IsZero()
-	for _, x := range d.Agents {
-		if p := x.ContextPct(); p > d.MaxCtx {
-			d.MaxCtx = p
+// moved answers an old address with a permanent redirect to the root, opening tab when given.
+func (b *Board) moved(tab string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		to := b.opt.Prefix + "/"
+		if tab != "" {
+			to += "#" + tab
 		}
+		http.Redirect(w, r, to, http.StatusMovedPermanently)
 	}
-	recs, rd := b.src.Usage()
-	d.Usage = rd
-	now := b.opt.Now()
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	d.Today = Rollup(recs, day, "today")
-	d.Today.Reading = rd
-	if !d.SessionSeen && len(recs) > 0 {
-		last := recs[len(recs)-1]
-		d.Session = Session{ID: last.Session, Model: last.Model, Provider: last.Provider, Started: last.TS, State: "last seen in the usage journal"}
-		d.SessionSeen = true
-	}
-	d.Memory = b.src.Memory()
-	d.Team = b.src.Team()
-	for _, n := range d.Team.Nodes {
-		switch n.Kind {
-		case "member":
-			if n.ID != "orchestrator" {
-				d.Members++
-			}
-		case "skill":
-			d.Skills++
-		}
-	}
-	d.Runs, d.Loop = b.src.Loop()
-	if len(d.Runs) > 5 {
-		d.Runs = d.Runs[:5]
-	}
-	d.Log, d.LogReading = b.src.Log()
-	if len(d.Log) > 3 {
-		d.Log = d.Log[:3]
-	}
-	return d, "subagent,usage,loop,log"
-}
-
-type subagentData struct {
-	Agents  []Agent
-	Live    bool
-	Reading Reading
-}
-
-func (b *Board) subagent(r *http.Request) (any, string) {
-	agents := b.src.Subagent()
-	sort.SliceStable(agents, func(i, j int) bool { return agents[i].Started.Before(agents[j].Started) })
-	rd := Reading{Src: "live subagent feed", Lit: b.liveCrt, Read: b.opt.Now()}
-	if !b.liveCrt {
-		rd.Why = "no live subagent feed wired — the integrator supplies Sources.Subagent"
-	}
-	return subagentData{Agents: agents, Live: b.liveCrt, Reading: rd}, "subagent"
 }
 
 type usageData struct {
 	UsageReport
-	Ranges  []string
 	Session string
-	Chart   template.JS
 }
 
 func (b *Board) usageReport(r *http.Request) usageData {
@@ -415,7 +310,7 @@ func (b *Board) usageReport(r *http.Request) usageData {
 	if session != "" {
 		rep.Sessions = sessionsOf(recs)
 	}
-	return usageData{UsageReport: rep, Ranges: Ranges, Session: session, Chart: jsonJS(chartOf(rep))}
+	return usageData{UsageReport: rep, Session: session}
 }
 
 func sessionsOf(recs []UsageRecord) []string {
@@ -458,14 +353,7 @@ func chartOf(r UsageReport) chartData {
 	return c
 }
 
-func (b *Board) usage(r *http.Request) (any, string) { return b.usageReport(r), "usage" }
-
-type teamData struct {
-	*Team
-	JSON  template.JS
-	Lanes []laneLabel
-}
-
+// laneLabel is one lane of the team under the lexicon's word.
 type laneLabel struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
@@ -505,72 +393,6 @@ func (b *Board) teamNamed() *Team {
 		}
 	}
 	return c
-}
-
-func (b *Board) team(r *http.Request) (any, string) {
-	c := b.teamNamed()
-	labels := b.laneLabels(c)
-	payload := struct {
-		*Team
-		Labels []laneLabel `json:"labels"`
-	}{c, labels}
-	return teamData{Team: c, JSON: jsonJS(payload), Lanes: labels}, ""
-}
-
-func (b *Board) memory(r *http.Request) (any, string) { return b.src.Memory(), "" }
-
-type toolboxData struct {
-	*ToolboxView
-	Kinds []string
-}
-
-func (b *Board) toolbox(r *http.Request) (any, string) {
-	v := b.src.Toolbox()
-	set := map[string]bool{}
-	for _, e := range v.Entries {
-		set[e.Kind] = true
-	}
-	var kinds []string
-	for k := range set {
-		kinds = append(kinds, k)
-	}
-	sort.Strings(kinds)
-	return toolboxData{ToolboxView: v, Kinds: kinds}, "loop"
-}
-
-type logData struct {
-	Entries []LogEntry
-	Reading Reading
-	Q       string
-	Total   int
-}
-
-func (b *Board) logPage(r *http.Request) (any, string) {
-	entries, rd := b.src.Log()
-	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	d := logData{Reading: rd, Q: q, Total: len(entries)}
-	for _, e := range entries {
-		if q == "" || strings.Contains(strings.ToLower(e.At+" "+e.Who+" "+e.Title+" "+e.Body), q) {
-			d.Entries = append(d.Entries, e)
-		}
-	}
-	return d, "log"
-}
-
-type configData struct {
-	Tree    template.HTML
-	Live    bool
-	Off     []Off
-	Reading Reading
-}
-
-func (b *Board) config(r *http.Request) (any, string) {
-	cfg := b.src.Config()
-	rd := Reading{Src: "effective config (integrator)", Lit: b.liveCfg && cfg != nil, Read: b.opt.Now()}
-	if !rd.Lit {
-		rd.Why = "no config feed wired — the integrator supplies Sources.Config"
-	}
-	return configData{Tree: renderTree(cfg), Live: rd.Lit, Off: b.src.Off(), Reading: rd}, ""
 }
 
 // ---- api
@@ -624,8 +446,9 @@ func (b *Board) apiTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, struct {
 		*Team
-		Labels []laneLabel `json:"labels"`
-	}{c, labels})
+		Labels  []laneLabel `json:"labels"`
+		Relates []Relate    `json:"relates"`
+	}{c, labels, RelatesFor(b.opt.WorkspaceRoot, c)})
 }
 
 // apiActivity is each agent's recent work, day by day, for the net's activity tiles and the
@@ -739,306 +562,11 @@ func (b *Board) apiPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, view)
 }
 
-// ---- templates
-
-func parsePages(funcs template.FuncMap) map[string]*template.Template {
-	pages := map[string]*template.Template{}
-	for _, name := range []string{"overview", "subagent", "usage", "team", "memory", "toolbox", "log", "config"} {
-		t := template.New("layout").Funcs(funcs)
-		t = template.Must(t.ParseFS(content, "templates/layout.html", "templates/"+name+".html"))
-		pages[name] = t
-	}
-	return pages
-}
-
 func (n Names) get(k string) string {
 	if v, ok := n[k]; ok {
 		return v
 	}
 	return k
-}
-
-func (b *Board) funcs() template.FuncMap {
-	return template.FuncMap{
-		"L":          b.names.get,
-		"n":          fmtInt,
-		"tok":        fmtCompact,
-		"usd":        fmtUSD,
-		"pct":        func(a, b int) int { return pctOf(a, b) },
-		"since":      fmtSince,
-		"when":       func(t time.Time) string { return whenOf(t) },
-		"lower":      strings.ToLower,
-		"add":        func(a, b int) int { return a + b },
-		"rankcls":    func(s string) string { return "rank-" + safeClass(s) },
-		"lanecls":    func(s string) string { return "lane-" + safeClass(s) },
-		"stateCls":   stateClass,
-		"stressCls":  stressClass,
-		"hasPrefix":  strings.HasPrefix,
-		"trimPrefix": strings.TrimPrefix,
-		"json":       func(v any) template.JS { return jsonJS(v) },
-		"join":       strings.Join,
-		"deref": func(p *int) int {
-			if p == nil {
-				return 0
-			}
-			return *p
-		},
-		"derefS": func(p *string) string {
-			if p == nil {
-				return ""
-			}
-			return *p
-		},
-		"derefF": func(p *float64) string {
-			if p == nil {
-				return "unpriced"
-			}
-			return fmtUSD(*p)
-		},
-		"reading": func(r Reading) string { return r.String() },
-		"litCls": func(r Reading) string {
-			if r.Lit {
-				return "text-bg-success"
-			}
-			return "text-bg-warning"
-		},
-		"dict": dict,
-	}
-}
-
-func dict(kv ...any) map[string]any {
-	m := map[string]any{}
-	for i := 0; i+1 < len(kv); i += 2 {
-		if k, ok := kv[i].(string); ok {
-			m[k] = kv[i+1]
-		}
-	}
-	return m
-}
-
-func safeClass(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('-')
-		}
-	}
-	if b.Len() == 0 {
-		return "none"
-	}
-	return b.String()
-}
-
-func stateClass(state string) string {
-	switch strings.ToLower(state) {
-	case "thinking":
-		return "text-bg-info"
-	case "tool":
-		return "text-bg-primary"
-	case "waiting on gate", "gate":
-		return "text-bg-warning"
-	case "done":
-		return "text-bg-secondary"
-	}
-	return "text-bg-light"
-}
-
-func stressClass(s string) string {
-	switch strings.ToUpper(s) {
-	case "STRESSED", "STRESS":
-		return "text-bg-danger"
-	case "AT LIMIT", "NEAR":
-		return "text-bg-warning"
-	}
-	return "text-bg-success"
-}
-
-func pctOf(a, b int) int {
-	if b <= 0 {
-		return 0
-	}
-	return int(math.Round(100 * float64(a) / float64(b)))
-}
-
-func fmtInt(n int) string {
-	s := fmt.Sprint(n)
-	neg := strings.HasPrefix(s, "-")
-	s = strings.TrimPrefix(s, "-")
-	var out []byte
-	for i, c := range []byte(s) {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			out = append(out, ',')
-		}
-		out = append(out, c)
-	}
-	if neg {
-		return "-" + string(out)
-	}
-	return string(out)
-}
-
-func fmtCompact(n int) string {
-	f := float64(n)
-	switch {
-	case f >= 1e9:
-		return fmt.Sprintf("%.1fB", f/1e9)
-	case f >= 1e6:
-		return fmt.Sprintf("%.1fM", f/1e6)
-	case f >= 1e4:
-		return fmt.Sprintf("%.1fK", f/1e3)
-	}
-	return fmtInt(n)
-}
-
-func fmtUSD(v float64) string {
-	if v == 0 {
-		return "$0.00"
-	}
-	if v < 0.01 {
-		return fmt.Sprintf("$%.4f", v)
-	}
-	return fmt.Sprintf("$%.2f", v)
-}
-
-func fmtSince(t, now time.Time) string {
-	if t.IsZero() {
-		return "—"
-	}
-	d := now.Sub(t)
-	if d < 0 {
-		d = 0
-	}
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
-	}
-	return fmt.Sprintf("%dd", int(d.Hours()/24))
-}
-
-func whenOf(t time.Time) string {
-	if t.IsZero() {
-		return "—"
-	}
-	return t.Format("2006-01-02 15:04:05")
-}
-
-func jsonJS(v any) template.JS {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "null"
-	}
-	s := string(b)
-	s = strings.ReplaceAll(s, "</", "<\\/")
-	return template.JS(s)
-}
-
-// renderTree renders any config value generically: maps and structs as nested lists, slices as
-// lists, scalars as text. A map holding exactly `value` and `origin` is a leaf with its origin.
-func renderTree(v any) template.HTML {
-	if v == nil {
-		return ""
-	}
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return template.HTML("<pre>" + template.HTMLEscapeString(fmt.Sprint(v)) + "</pre>")
-	}
-	var x any
-	if json.Unmarshal(raw, &x) != nil {
-		return ""
-	}
-	var sb strings.Builder
-	writeTree(&sb, x, 0)
-	return template.HTML(sb.String())
-}
-
-func writeTree(sb *strings.Builder, v any, depth int) {
-	esc := template.HTMLEscapeString
-	switch t := v.(type) {
-	case map[string]any:
-		if val, origin, ok := originLeaf(t); ok {
-			sb.WriteString(`<span class="cfg-val">`)
-			writeScalar(sb, val)
-			sb.WriteString(`</span> <span class="badge text-bg-secondary cfg-origin">` + esc(origin) + `</span>`)
-			return
-		}
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		sb.WriteString(`<ul class="cfg-tree list-unstyled">`)
-		for _, k := range keys {
-			sb.WriteString(`<li><span class="cfg-key">` + esc(k) + `</span> `)
-			writeTree(sb, t[k], depth+1)
-			sb.WriteString(`</li>`)
-		}
-		sb.WriteString(`</ul>`)
-	case []any:
-		if len(t) == 0 {
-			sb.WriteString(`<span class="cfg-val text-secondary">[]</span>`)
-			return
-		}
-		sb.WriteString(`<ol class="cfg-tree">`)
-		for _, e := range t {
-			sb.WriteString(`<li>`)
-			writeTree(sb, e, depth+1)
-			sb.WriteString(`</li>`)
-		}
-		sb.WriteString(`</ol>`)
-	default:
-		sb.WriteString(`<span class="cfg-val">`)
-		writeScalar(sb, t)
-		sb.WriteString(`</span>`)
-	}
-}
-
-func originLeaf(m map[string]any) (val any, origin string, ok bool) {
-	if len(m) != 2 {
-		return nil, "", false
-	}
-	var hasV, hasO bool
-	for k, v := range m {
-		switch strings.ToLower(k) {
-		case "value":
-			val, hasV = v, true
-		case "origin", "source", "from":
-			if s, isS := v.(string); isS {
-				origin, hasO = s, true
-			}
-		}
-	}
-	return val, origin, hasV && hasO
-}
-
-func writeScalar(sb *strings.Builder, v any) {
-	switch t := v.(type) {
-	case nil:
-		sb.WriteString(`<span class="text-secondary">null</span>`)
-	case string:
-		sb.WriteString(template.HTMLEscapeString(t))
-	case bool:
-		if t {
-			sb.WriteString(`<span class="text-success">on</span>`)
-		} else {
-			sb.WriteString(`<span class="text-warning">off</span>`)
-		}
-	case float64:
-		if t == math.Trunc(t) {
-			sb.WriteString(fmt.Sprintf("%d", int64(t)))
-		} else {
-			sb.WriteString(fmt.Sprint(t))
-		}
-	case map[string]any, []any:
-		writeTree(sb, t, 0)
-	default:
-		sb.WriteString(template.HTMLEscapeString(fmt.Sprint(t)))
-	}
 }
 
 type discard struct{}

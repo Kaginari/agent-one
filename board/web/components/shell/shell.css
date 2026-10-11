@@ -1,4 +1,4 @@
-/* @component shell — tokens: --surface, --surface-2, --ink, --ink-muted, --accent, --accent-hero, --second, --line, --shadow, --radius-pill, --space-2xs, --space-s, --space-m, --space-l, --step--1, --hairline, --time, --time-slow, --ease, --weight-medium. The dashboard's frame: header, view tabs, and the panel grid. The overview is a cockpit — the living net is the hero, the console docks beside it (a splitter resizes it, a button folds it to a rail), the timeline of subagents and verdicts sits under the net; narrow, they stack. The folder tree is a drawer over every view but its own (data-drawer on .shell opens it, a scrim closes it). .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
+/* @component shell — tokens: --ink, --weight-medium, --accent-hero, --second, --surface, --accent, --space-m, --space-s, --space-l, --space-2xs, --radius-pill, --line, --time, --ease, --surface-2, --shadow, --time-slow, --step--1, --ink-muted, --hairline. The dashboard's frame: header, view tabs, and the panel grid. The overview is a cockpit — the living net is the hero, the console docks beside it (a splitter resizes it, a button folds it to a rail), the timeline of subagents and verdicts sits under the net; narrow, they stack. The workspace's tabs (subagent, memory, toolbox, config, relations, metrics) each take the panel grid whole. The folder tree is a drawer over every view but its own (data-drawer on .shell opens it, a scrim closes it). .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
 @layer components {
   .shell {
     container-type: inline-size; display: grid; grid-template-rows: auto auto 1fr; min-block-size: 100vh; color: var(--ink); font-weight: var(--weight-medium);
@@ -29,12 +29,20 @@
   .shell-main > [data-panel="metrics"] { grid-area: metrics; }
   .shell-main > [data-panel="relations"] { grid-area: relations; }
   .shell-main > [data-panel="tree"] { grid-area: tree; }
+  .shell-main > [data-panel="subagent"] { grid-area: subagent; }
+  .shell-main > [data-panel="memory"] { grid-area: memory; }
+  .shell-main > [data-panel="toolbox"] { grid-area: toolbox; }
+  .shell-main > [data-panel="config"] { grid-area: config; }
   .shell-split { display: none; }
   .shell-dock { display: none; }
 
   /* the overview: the cockpit */
   .shell-main[data-view="overview"] > [data-panel="metrics"],
-  .shell-main[data-view="overview"] > [data-panel="relations"] { display: none; }
+  .shell-main[data-view="overview"] > [data-panel="relations"],
+  .shell-main[data-view="overview"] > [data-panel="subagent"],
+  .shell-main[data-view="overview"] > [data-panel="memory"],
+  .shell-main[data-view="overview"] > [data-panel="toolbox"],
+  .shell-main[data-view="overview"] > [data-panel="config"] { display: none; }
   .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body { max-block-size: 16rem; }
   /* stacked, a pinned neuron's card takes the band whole: never cut at its foot */
   .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body:has(.kcard) { max-block-size: none; }
@@ -84,7 +92,11 @@
   .shell-main[data-view="net"] > [data-panel="net"],
   .shell-main[data-view="metrics"] > [data-panel="metrics"],
   .shell-main[data-view="relations"] > [data-panel="relations"],
-  .shell-main[data-view="tree"] > [data-panel="tree"] { display: flex; }
+  .shell-main[data-view="tree"] > [data-panel="tree"],
+  .shell-main[data-view="subagent"] > [data-panel="subagent"],
+  .shell-main[data-view="memory"] > [data-panel="memory"],
+  .shell-main[data-view="toolbox"] > [data-panel="toolbox"],
+  .shell-main[data-view="config"] > [data-panel="config"] { display: flex; }
   .shell-main[data-view="console"] > [data-panel="console"] { block-size: calc(100vh - 9rem); }
 
   /* the tree as a drawer, over every view but its own */

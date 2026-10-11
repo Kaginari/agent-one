@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -605,7 +606,7 @@ func TestChoiceFloatsOverDarkenedBackdrop(t *testing.T) {
 			backdrop = l
 		}
 	}
-	if !strings.Contains(backdrop, "38;2;127;138;153") { // the dark theme's dim #7f8a99
+	if !strings.Contains(backdrop, "38;2;156;167;182") { // the dark theme's dim #9ca7b6
 		t.Fatalf("the backdrop must be darkened to dim, got: %q", backdrop)
 	}
 	// the card centres (geometry computed from the same inputs, not string archaeology — the
@@ -691,7 +692,8 @@ func TestVerdictBurstRainsOnce(t *testing.T) {
 	m.begin()
 	m.Update(EvTurnDone{Status: "FAIL", Verdict: "fail: outside ownership"})
 	m.burstAt = time.Now().Add(-time.Second / pulseFPS)
-	if out := m.Render(); !strings.Contains(out, "240;113;106") { // dark theme bad #f0716a
+	r, g, b, _ := m.theme.bad.GetForeground().RGBA()
+	if out := m.Render(); !strings.Contains(out, fmt.Sprintf("%d;%d;%d", r>>8, g>>8, b>>8)) { // the theme's bad colour
 		t.Fatalf("a failed verdict must rain bad-coloured: %q", out)
 	}
 }

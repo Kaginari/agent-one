@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 
 	"charm.land/lipgloss/v2"
 	"path/filepath"
@@ -46,6 +47,7 @@ type layout struct {
 	footerY, bottomY      int
 	chat, input, rail     rect // content rectangles (padding excluded)
 	inputN                int  // the input's rows
+	well                  int  // the input well's edge rows (2 under the depth, else 0)
 }
 
 // paneMode: the window is big enough for the frame (railSize's threshold); below it the
@@ -77,13 +79,22 @@ func (m *Model) layout() layout {
 	l.footerSepY = l.H - 3
 	l.inputN = max(m.input.Height(), 1)
 	chatY := l.sepY + 1
+	// the depth sinks the input into a well: its shadowed top edge and its lit bottom edge
+	// take a row each, its side edges a cell each
+	m.syncDepth()
+	if m.theme.Depth {
+		l.well = 2
+	}
 	// the conversation keeps at least four rows: a tall draft scrolls inside its box first
-	for l.inputN > 1 && l.footerSepY-l.inputN-1-chatY < 4 {
+	for l.inputN > 1 && l.footerSepY-l.inputN-l.well-1-chatY < 4 {
 		l.inputN--
 	}
-	l.inputSepY = l.footerSepY - l.inputN - 1
+	l.inputSepY = l.footerSepY - l.inputN - l.well - 1
 	l.chat = rect{X: 2, Y: chatY, W: l.mc - 2, H: max(l.inputSepY-chatY, 1)}
 	l.input = rect{X: 2, Y: l.inputSepY + 1, W: l.mc - 2, H: l.inputN}
+	if l.well > 0 {
+		l.input = rect{X: 3, Y: l.inputSepY + 2, W: l.mc - 4, H: l.inputN}
+	}
 	if l.rc > 0 {
 		l.rail = rect{X: l.divX + 2, Y: chatY, W: l.rc - 2, H: l.footerSepY - chatY}
 	}
@@ -171,17 +182,45 @@ type railRow struct {
 
 // frame draws the pane-mode window under the headroom: header, conversation │ sidebar, the
 // input in the main column, the status bar — exactly l.H-l.topY rows of exactly l.W cells.
+// Under the depth every region is painted on its own plane: the borders on the ground, the
+// header raised on a gradient, the conversation and the sidebar each a plane, the input sunk in
+// its well, the status bar a plane.
 func (m *Model) frame(l layout, header string, chat, input []string, rail []railRow, convAside, askTitle, askAside, status string) []string {
 	t := m.theme
 	b := t.border
 	g := func(s string) string { return b.Render(s) }
+	// the planes: identity when the depth is off
+	plane, sideP, headP := func(s string) string { return s }, func(s string) string { return s }, func(s string) string { return s }
+	if t.Depth {
+		d := t.dep
+		ground := d.ground.col()
+		g = func(s string) string { return gl(s, b.GetForeground(), ground) }
+		pc, sc := d.plane.col(), d.side.col()
+		plane = func(s string) string { return paintBg(s, pc) }
+		sideP = func(s string) string { return paintBg(s, sc) }
+		// the header: a raised bar, its face drifting from the primary's tint to the magenta's
+		from, to := t.headerTints()
+		hw := l.W - 2
+		ramp := make([]color.Color, hw)
+		for x := range ramp {
+			ramp[x] = from.mix(to, float64(x)/float64(max(hw-1, 1))).col()
+		}
+		headP = func(s string) string { return paint(s, func(x int) color.Color { return ramp[min(x, hw-1)] }) }
+	}
+	rule := func(w int, title, aside string) string {
+		r := t.rule(w, title, aside)
+		if t.Depth {
+			return paintBg(r, t.dep.ground.col())
+		}
+		return r
+	}
 	rows := make([]string, 0, l.H-l.topY)
-	rows = append(rows, g("╭")+t.rule(l.W-2, "", "")+g("╮"))
-	rows = append(rows, g("│")+" "+fit(header, l.W-4)+" "+g("│"))
+	rows = append(rows, g("╭")+rule(l.W-2, "", "")+g("╮"))
+	rows = append(rows, g("│")+headP(" "+fit(header, l.W-4)+" ")+g("│"))
 	if l.rc > 0 {
-		rows = append(rows, g("├")+t.rule(l.mc, t.title("conversation"), convAside)+g("┬")+t.rule(l.rc, t.title("session"), "")+g("┤"))
+		rows = append(rows, g("├")+rule(l.mc, t.title("conversation"), convAside)+g("┬")+rule(l.rc, t.title("session"), "")+g("┤"))
 	} else {
-		rows = append(rows, g("├")+t.rule(l.mc, t.title("conversation"), convAside)+g("┤"))
+		rows = append(rows, g("├")+rule(l.mc, t.title("conversation"), convAside)+g("┤"))
 	}
 	// the sidebar's part of a row y (content or rule), the divider glyph it asks for, and the
 	// right border
@@ -198,10 +237,16 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 			row = rail[r]
 		}
 		right := g("│")
+		arrow := func(a string) string {
+			if t.Depth {
+				return gl(a, t.dim.GetForeground(), t.dep.ground.col())
+			}
+			return t.dim.Render(a)
+		}
 		if r == 0 && m.railScroll > 0 {
-			right = t.dim.Render("▲")
+			right = arrow("▲")
 		} else if r == l.rail.H-1 && m.railMore {
-			right = t.dim.Render("▼")
+			right = arrow("▼")
 		}
 		if row.sep {
 			div := "├"
@@ -211,37 +256,66 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 			if right == g("│") {
 				right = g("┤")
 			}
-			return g(div) + fit(row.text, l.rc) + right
+			return g(div) + ruleText(t, row.text, l.rc) + right
 		}
 		div := "│"
 		if mainArm {
 			div = "┤"
 		}
-		return g(div) + " " + fit(row.text, l.rc-2) + " " + right
+		if t.Depth {
+			return g(div) + sideP(" "+fit(row.text, l.rc-1)) + right
+		}
+		return g(div) + sideP(" "+fit(row.text, l.rc-2)+" ") + right
 	}
 	for i := 0; i < l.chat.H; i++ {
 		c := ""
 		if i < len(chat) {
 			c = chat[i]
 		}
-		rows = append(rows, g("│")+" "+fit(c, l.chat.W)+" "+side(l.chat.Y+i, false))
+		rows = append(rows, g("│")+plane(" "+fit(c, l.chat.W)+" ")+side(l.chat.Y+i, false))
 	}
-	rows = append(rows, g("├")+t.rule(l.mc, askTitle, askAside)+side(l.inputSepY, true))
-	for i := 0; i < l.inputN; i++ {
-		c := ""
-		if i < len(input) {
-			c = input[i]
+	rows = append(rows, g("├")+rule(l.mc, askTitle, askAside)+side(l.inputSepY, true))
+	if l.well > 0 {
+		rs := make([]string, l.inputN)
+		for i := range rs {
+			if i < len(input) {
+				rs[i] = input[i]
+			}
 		}
-		rows = append(rows, g("│")+" "+fit(c, l.input.W)+" "+side(l.input.Y+i, false))
+		for i, w := range t.well(rs, l.mc) {
+			rows = append(rows, g("│")+plane(w)+side(l.inputSepY+1+i, false))
+		}
+	} else {
+		for i := 0; i < l.inputN; i++ {
+			c := ""
+			if i < len(input) {
+				c = input[i]
+			}
+			rows = append(rows, g("│")+" "+fit(c, l.input.W)+" "+side(l.input.Y+i, false))
+		}
 	}
 	if l.rc > 0 {
-		rows = append(rows, g("├")+t.rule(l.mc, "", "")+g("┴")+t.rule(l.rc, "", "")+g("┤"))
+		rows = append(rows, g("├")+rule(l.mc, "", "")+g("┴")+rule(l.rc, "", "")+g("┤"))
 	} else {
-		rows = append(rows, g("├")+t.rule(l.mc, "", "")+g("┤"))
+		rows = append(rows, g("├")+rule(l.mc, "", "")+g("┤"))
 	}
-	rows = append(rows, g("│")+" "+fit(status, l.W-4)+" "+g("│"))
-	rows = append(rows, g("╰")+t.rule(l.W-2, "", "")+g("╯"))
+	statusP := plane
+	if t.Depth {
+		sb := t.statusBg()
+		statusP = func(s string) string { return paintBg(s, sb) }
+	}
+	rows = append(rows, g("│")+statusP(" "+fit(status, l.W-4)+" ")+g("│"))
+	rows = append(rows, g("╰")+rule(l.W-2, "", "")+g("╯"))
 	return rows
+}
+
+// ruleText is a sidebar section rule as the frame draws it: on the ground under the depth.
+func ruleText(t Theme, text string, w int) string {
+	r := fit(text, w)
+	if t.Depth {
+		return paintBg(r, t.dep.ground.col())
+	}
+	return r
 }
 
 // header is the frame's top bar: the brand on its gradient, the version, the workspace and the
@@ -422,6 +496,22 @@ func (t Theme) panel(title string, rows []string, w int) string {
 // panelIn is panel with its edge in another tone: a floating focus (the palette) holds the
 // primary so it stands off the conversation it covers.
 func (t Theme) panelIn(edge lipgloss.Style, title string, rows []string, w int) string {
+	if t.Depth {
+		// a float: the title on the lit band (its edge's hue as a spine), the deepest shadow
+		s := t.surfFloat()
+		if edge.GetForeground() == t.accent.GetForeground() {
+			s.spine = t.accent.GetForeground()
+		}
+		var out []string
+		o := slabOpt{top: true}
+		if title != "" {
+			out, o.band = append(out, title), 1
+		}
+		for _, r := range rows {
+			out = append(out, strings.Split(r, "\n")...)
+		}
+		return t.slab(s, out, w, o)
+	}
 	b := edge
 	t.border = edge
 	out := []string{b.Render("╭") + t.rule(w-2, title, "") + b.Render("╮")}

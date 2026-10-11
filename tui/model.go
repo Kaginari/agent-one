@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"path/filepath"
 	"strings"
 	"time"
@@ -146,7 +147,12 @@ type Model struct {
 	paneVer   int // bumps whenever paneCache changes: the viewport's feed key
 	// renderGen bumps on a theme swap: every block's cached render is stale then
 	renderGen int
-	liveMemo  struct {
+	// paneTail is what the pane's transcript ends with: an answer piece of a turn joins it
+	paneTail paneTail
+	// ground is the terminal's own background, once it answered (nil before): every theme the
+	// session switches to steps its depth from it
+	ground   color.Color
+	liveMemo struct {
 		src    string
 		w, gen int
 		first  bool
@@ -161,7 +167,10 @@ type Model struct {
 	vpLines []string // what the viewport holds: the transcript, then the live rows
 	vpVer   int      // the paneVer and the live rows the viewport was last fed
 	vpLive  []string
-	inputW  int // the width the textarea was last sized to
+	vpTrim  int
+	// liveTrim: the transcript rows the live answer takes back (its slab's seam) this frame
+	liveTrim int
+	inputW   int // the width the textarea was last sized to
 	// the chat pane's drag selection (select.go); mouseTerm hands the mouse to the terminal
 	sel       *selection
 	clickAt   time.Time
@@ -176,6 +185,12 @@ type Model struct {
 	board    *boardState
 	sender   func(tea.Msg)
 	attached chan struct{}
+}
+
+// paneTail is the last block of the pane's transcript: an answer piece, and of which turn.
+type paneTail struct {
+	answer bool
+	turn   int
 }
 
 // block is one finished block of the transcript: its render at a width, and the source it
@@ -266,6 +281,7 @@ func New(host Host, theme Theme, words Words) *Model {
 	st.Focused.Prompt = theme.accent
 	st.Focused.Placeholder = theme.dim
 	st.Blurred = st.Focused
+	st.Cursor.Color = theme.accent.GetForeground()
 	ta.SetStyles(st)
 	ta.Focus()
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(theme.accent))
@@ -293,6 +309,8 @@ func (m *Model) Init() tea.Cmd {
 	if !m.theme.Forced {
 		cmds = append(cmds, tea.RequestBackgroundColor, tea.Tick(bgWait, func(time.Time) tea.Msg { return evBgWait{} }))
 	} else {
+		// a forced theme still asks: the depth's surfaces step from the real background
+		cmds = append(cmds, tea.RequestBackgroundColor)
 		m.bgKnown = true
 	}
 	return tea.Batch(cmds...)
@@ -320,6 +338,7 @@ func (m *Model) welcome() tea.Cmd {
 
 // setTheme switches the palette, the textarea's and the spinner's styles with it.
 func (m *Model) setTheme(t Theme) {
+	t = t.OnGround(m.ground)
 	m.theme = t
 	m.paneDirty = true
 	m.renderGen++
@@ -327,6 +346,8 @@ func (m *Model) setTheme(t Theme) {
 	st.Focused.Prompt = t.accent
 	st.Focused.Placeholder = t.dim
 	st.Blurred = st.Focused
+	// the cursor block in the primary: a palette white vanishes on a light well
+	st.Cursor.Color = t.accent.GetForeground()
 	m.input.SetStyles(st)
 	m.spin.Style = t.accent
 }
@@ -426,6 +447,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.theme.Forced && msg.IsDark() != m.theme.Dark {
 			m.setTheme(NewTheme(msg.IsDark()))
 		}
+		// the depth steps its surfaces from the terminal's own background
+		m.ground = msg.Color
+		m.setTheme(m.theme.OnGround(msg.Color))
 		m.bgKnown = true
 		return m, m.welcome()
 	case evBgWait:
@@ -803,7 +827,7 @@ func (m *Model) choiceFloat() bool {
 // Clipping happens in splitPanes.
 func (m *Model) paneChat(cw int) []string {
 	if m.paneDirty || m.paneW != cw || m.paneRef != m.reflowSeq || m.paneN > len(m.blocks) {
-		m.paneCache, m.paneN = nil, 0
+		m.paneCache, m.paneN, m.paneTail = nil, 0, paneTail{}
 		m.paneW, m.paneRef, m.paneDirty = cw, m.reflowSeq, false
 		m.paneVer++
 	}
@@ -811,10 +835,23 @@ func (m *Model) paneChat(cw int) []string {
 		return m.paneCache
 	}
 	for _, b := range m.blocks[m.paneN:] {
-		if ls := m.renderedLines(b, cw); len(ls) > 0 {
-			m.paneCache = append(m.paneCache, ls...)
-			m.paneCache = append(m.paneCache, "")
+		ls := m.renderedLines(b, cw)
+		if len(ls) == 0 {
+			continue
 		}
+		if m.theme.Depth && b.answer && m.paneTail.answer && m.paneTail.turn == b.turn && len(m.paneCache) >= 2 && len(ls) > 1 {
+			// a turn's next answer piece continues the same slab: the seam's bottom edge, the gap
+			// and the new piece's top face go
+			m.paneCache = append(append(m.paneCache[:len(m.paneCache)-2], m.theme.answerSeam(cw)), ls[1:]...)
+		} else {
+			if n := len(m.paneCache); m.theme.Depth && n >= 2 && m.paneCache[n-1] == "" && isDecorRow(m.paneCache[n-2]) && isDecorRow(ls[0]) {
+				// two slabs meet: the one's shadow and the other's lit top face part them
+				m.paneCache = m.paneCache[:n-1]
+			}
+			m.paneCache = append(m.paneCache, ls...)
+		}
+		m.paneCache = append(m.paneCache, "")
+		m.paneTail.answer, m.paneTail.turn = b.answer, b.turn
 	}
 	if m.paneCache == nil {
 		m.paneCache = []string{}
@@ -862,7 +899,7 @@ func (m *Model) railRowsAt(l layout) []railRow {
 	if m.bview == nil && m.board == nil {
 		for i, r := range rows {
 			y := l.rail.Y + i
-			if r.sep && r.key != "" {
+			if r.key != "" {
 				m.railCardRows[r.key] = y
 			}
 			if r.subagent != "" {
@@ -1068,6 +1105,7 @@ func (m *Model) firstPiece() bool {
 }
 
 func (m *Model) push(b *block) tea.Cmd {
+	m.syncDepth()
 	if m.paneMode() {
 		// the pane draws it at the chat's width: render there once, never at the full width too
 		if m.rendered(b, m.chatW()) == "" {
@@ -1092,6 +1130,7 @@ func (m *Model) push(b *block) tea.Cmd {
 // reflow clears the terminal and prints the whole transcript again at the current width. Under
 // panes the transcript never left — this just dirties the viewport cache and the frame follows.
 func (m *Model) reflow() tea.Cmd {
+	m.syncDepth()
 	m.lastWidth = m.width
 	m.sel = nil // the transcript rewraps: content coordinates move
 	if m.paneMode() {
@@ -1116,6 +1155,7 @@ func (m *Model) reflow() tea.Cmd {
 func (m *Model) leave() tea.Cmd {
 	m.quit = true
 	m.board, m.bview = nil, nil // the alternate screen keeps no print: leave it first
+	m.syncDepth()               // the scrollback is drawn flat
 	var parts []string
 	for _, r := range m.blocks[min(m.printedIdx, len(m.blocks)):] {
 		if b := m.rendered(r, m.width); b != "" {
@@ -1132,6 +1172,7 @@ func (m *Model) leave() tea.Cmd {
 // catchUp prints the blocks the scrollback has not seen (held under the board or the agents
 // view, or kept by the panes) — every block exactly once.
 func (m *Model) catchUp() {
+	m.syncDepth()
 	if m.printedIdx >= len(m.blocks) {
 		return
 	}
@@ -1298,12 +1339,24 @@ func (m *Model) Render() string {
 	if l.pane {
 		cw = l.chat.W
 	}
+	var tail []string
+	if l.pane {
+		tail = m.paneChat(cw) // the transcript's tail, current before the live rows join it
+	}
 	var live []string
+	m.liveTrim = 0
 	if s := m.stream.String(); m.busy && strings.TrimSpace(s) != "" {
-		live = append(live, m.liveAnswer(s, cw), "")
+		a := m.liveAnswer(s, cw)
+		if m.theme.Depth && l.pane && !m.firstPiece() && m.paneTail.answer && m.paneTail.turn == m.turnSeq && len(m.paneCache) >= 2 {
+			// the paragraph being written continues the slab its turn's pieces already raised
+			if _, rest, ok := strings.Cut(a, "\n"); ok {
+				a, m.liveTrim = m.theme.answerSeam(cw)+"\n"+rest, 2
+			}
+		}
+		live = m.stack(live, a)
 	}
 	for _, t := range m.tools {
-		live = append(live, m.theme.Tool(*t, cw), "")
+		live = m.stack(live, m.theme.Tool(*t, cw))
 	}
 	for _, n := range m.subagentSeq {
 		if c := m.subagents[n]; c != nil {
@@ -1312,7 +1365,7 @@ func (m *Model) Render() string {
 			if c.State != "done" {
 				c.Elapsed = time.Since(m.subagentStart(c))
 			}
-			live = append(live, m.theme.Subagent(*c, cw, m.pulseFor(c)), "")
+			live = m.stack(live, m.theme.Subagent(*c, cw, m.pulseFor(c)))
 		}
 	}
 	if m.choice == nil && m.busy {
@@ -1336,7 +1389,11 @@ func (m *Model) Render() string {
 	if l.pane {
 		// an inline ask (window under the modal tripwire) belongs to the conversation pane
 		if m.choice != nil && !m.choiceFloat() {
-			live = append(live, m.theme.Choice(m.view, cw), "")
+			live = m.stack(live, m.theme.Choice(m.view, cw))
+		}
+		if m.liveTrim == 0 && m.theme.Depth && len(live) > 0 && len(tail) >= 2 && tail[len(tail)-1] == "" &&
+			isDecorRow(tail[len(tail)-2]) && isDecorRow(firstLine(live[0])) {
+			m.liveTrim = 1 // a raised live card stacks on the transcript's last slab
 		}
 		chat := m.chatRows(live, l)
 		input := strings.Split(m.input.View(), "\n")
@@ -1484,4 +1541,36 @@ func (m *Model) flushThinking() tea.Cmd {
 	th := thought{text: text, took: time.Since(m.thinkStart)}
 	m.lastBlock = &collapsed{thought: &th}
 	return m.print(func(w int) string { return m.theme.Thought(th, w) })
+}
+
+// syncDepth turns the depth on while the frame owns the window on a truecolor terminal (the
+// scrollback a narrow window prints into stays flat); a change re-renders every cached block.
+func (m *Model) syncDepth() {
+	on := m.theme.TrueColor && m.theme.Color && !m.quit && m.paneMode()
+	if on != m.theme.Depth {
+		m.theme.Depth = on
+		m.renderGen++
+		m.paneDirty = true
+	}
+}
+
+// stack adds a block to the live rows, a blank row after it — the blank between two raised
+// slabs goes: the one's shadow and the other's lit top face already part them.
+func (m *Model) stack(live []string, block string) []string {
+	if m.theme.Depth && len(live) >= 2 && live[len(live)-1] == "" && isDecorRow(lastLine(live[len(live)-2])) && isDecorRow(firstLine(block)) {
+		live = live[:len(live)-1]
+	}
+	return append(live, block, "")
+}
+
+func firstLine(s string) string {
+	l, _, _ := strings.Cut(s, "\n")
+	return l
+}
+
+func lastLine(s string) string {
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[i+1:]
+	}
+	return s
 }

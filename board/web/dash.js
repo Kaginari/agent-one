@@ -64,10 +64,36 @@
 
   // ---------- views ----------
   const main = $('#main');
-  function view(v) {
+  // the views: the tabs name them; a deep link (/#memory, /#subagent/<run>) opens one; the root opens
+  // the cockpit. Listeners (workspace.js) hear every change through the page's bus.
+  const tabs = [...document.querySelectorAll('#tablist .tab')];
+  const VIEWS = tabs.map(t => t.dataset.view);
+  const bus = new EventTarget();
+  // the hash: "#memory", "#subagent/<id>", or the older "#view=memory&theme=light" — a bare word is
+  // the view, its tail after "/" the view's own argument, key=value pairs are settings
+  function parseHash() {
+    const out = { view: '', arg: '', params: new URLSearchParams() };
+    for (const part of decodeURIComponent(location.hash.slice(1)).split('&')) {
+      if (!part) continue;
+      if (part.includes('=')) { const [k, ...v] = part.split('='); out.params.set(k, v.join('=')); continue; }
+      const [vw, ...rest] = part.split('/');
+      out.view = vw; out.arg = rest.join('/');
+    }
+    if (!out.view && out.params.get('view')) out.view = out.params.get('view');
+    return out;
+  }
+  function setHash(v, arg) {
+    const want = v === 'overview' && !arg ? '' : '#' + v + (arg ? '/' + encodeURIComponent(arg) : '');
+    if (location.hash !== want) window.history.replaceState(null, '', want || location.pathname + location.search);
+  }
+  function view(v, arg) {
+    if (!VIEWS.includes(v)) v = 'overview';
+    const changed = main.dataset.view !== v;
     main.dataset.view = v;
-    for (const t of document.querySelectorAll('.tab')) t.setAttribute('aria-selected', String(t.dataset.view === v));
-    store.set('view', v);
+    for (const t of tabs) { const on = t.dataset.view === v; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; }
+    setHash(v, arg);
+    fitTabs();
+    bus.dispatchEvent(new CustomEvent('view', { detail: { view: v, arg: arg || '', changed } }));
     // in the cockpit the focused neuron's card sits in the band under the net, compact; on the
     // net's own page it takes the side column
     const kc = document.getElementById('kcard'), slot = document.getElementById('timeline-slot'), side = document.querySelector('.net-side');
@@ -85,7 +111,64 @@
     requestAnimationFrame(() => netDraw());
     try { leaderboard(); } catch (_) { /* booting: the board's state is not declared yet */ }
   }
-  for (const t of document.querySelectorAll('.tab')) t.addEventListener('click', () => view(t.dataset.view));
+  for (const t of tabs) t.addEventListener('click', () => view(t.dataset.view));
+  // the tablist's keys: arrows walk the tabs in the row (Home, End), Enter or Space opens one
+  $('#tablist').addEventListener('keydown', ev => {
+    const shown = tabs.filter(t => !t.hidden);
+    const i = shown.indexOf(document.activeElement);
+    if (i < 0) return;
+    let to = -1;
+    if (ev.key === 'ArrowRight') to = (i + 1) % shown.length;
+    else if (ev.key === 'ArrowLeft') to = (i - 1 + shown.length) % shown.length;
+    else if (ev.key === 'Home') to = 0;
+    else if (ev.key === 'End') to = shown.length - 1;
+    if (to < 0) return;
+    ev.preventDefault();
+    for (const t of shown) t.tabIndex = -1;
+    shown[to].tabIndex = 0; shown[to].focus();
+  });
+  // ten views do not fit every row: what does not fit folds, last first, into "more" — the
+  // chosen view always stays in the row; the menu is a menu (arrows, Home, End, Esc)
+  const moreBox = $('#tabs-more'), moreBtn = $('#tabs-more-btn'), moreMenu = $('#tabs-menu'), tabsNav = $('#tabs'), tablist = $('#tablist');
+  function fitTabs() {
+    for (const t of tabs) t.hidden = false;
+    moreBox.hidden = true;
+    const room = () => tablist.clientWidth;
+    const need = () => { let w = 0; for (const t of tabs) if (!t.hidden) w += t.offsetWidth + (parseFloat(getComputedStyle(t).marginInlineStart) || 0) + 4; return w; };
+    if (need() <= room() + 1) { moreMenu.hidden = true; moreBtn.setAttribute('aria-expanded', 'false'); return; }
+    moreBox.hidden = false;
+    const folded = [];
+    for (let i = tabs.length - 1; i >= 0 && need() > room() + 1; i--) {
+      if (tabs[i].getAttribute('aria-selected') === 'true') continue;
+      tabs[i].hidden = true; folded.unshift(tabs[i]);
+    }
+    $('#tabs-more-count').textContent = String(folded.length);
+    moreBtn.setAttribute('aria-label', 'more views: ' + folded.map(t => t.textContent).join(', '));
+    moreMenu.replaceChildren(...folded.map(t => el('button', { class: 'tabs-menu-item', role: 'menuitemradio', type: 'button', tabindex: -1, 'aria-checked': String(t.getAttribute('aria-selected') === 'true'), 'data-view': t.dataset.view, text: t.textContent,
+      onclick: () => { menu(false); view(t.dataset.view); const back = tabs.find(x => x.dataset.view === t.dataset.view); (back && !back.hidden ? back : moreBtn).focus(); } })));
+  }
+  function menu(open) {
+    moreMenu.hidden = !open;
+    moreBtn.setAttribute('aria-expanded', String(open));
+    if (open) { const items = [...moreMenu.children]; (items.find(x => x.getAttribute('aria-checked') === 'true') || items[0])?.focus(); }
+  }
+  moreBtn.addEventListener('click', () => menu(moreMenu.hidden));
+  moreBtn.addEventListener('keydown', ev => { if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); menu(true); } });
+  moreMenu.addEventListener('keydown', ev => {
+    const items = [...moreMenu.children], i = items.indexOf(document.activeElement);
+    let to = -1;
+    if (ev.key === 'ArrowDown') to = (i + 1) % items.length;
+    else if (ev.key === 'ArrowUp') to = (i - 1 + items.length) % items.length;
+    else if (ev.key === 'Home') to = 0;
+    else if (ev.key === 'End') to = items.length - 1;
+    else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); menu(false); moreBtn.focus(); return; }
+    else if (ev.key === 'Tab') { menu(false); return; }
+    if (to < 0) return;
+    ev.preventDefault(); items[to].focus();
+  });
+  document.addEventListener('pointerdown', ev => { if (!moreMenu.hidden && !moreBox.contains(ev.target)) menu(false); });
+  new ResizeObserver(() => fitTabs()).observe(tabsNav);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitTabs());
   // the cockpit fills the window under the header and the tabs, whatever height they wrap to
   const chrome = () => { const h = ($('.topbar').offsetHeight || 0) + ($('.tabs').offsetHeight || 0); document.querySelector('.shell').style.setProperty('--shell-chrome', h + 'px'); };
   new ResizeObserver(chrome).observe($('.topbar'));
@@ -99,11 +182,13 @@
     f();
     return f;
   }
-  edgeFade($('.tabs'));
   const metaFade = edgeFade($('.topbar-meta'));
-  const HASH = new URLSearchParams(location.hash.slice(1));
+  const HASH0 = parseHash(), HASH = HASH0.params;
   if (HASH.get('theme')) theme(HASH.get('theme'));
-  view(HASH.get('view') || store.get('view') || 'overview');
+  // the page the workspace exposes to its other scripts (workspace.js): the helpers and the bus
+  window.agentOneDash = { el, getJSON, word, pill, esc, num, store, bus, view: (v, arg) => view(v, arg), current: () => main.dataset.view, hashArg: () => parseHash().arg, setArg: arg => setHash(main.dataset.view, arg) };
+  view(HASH0.view || 'overview', HASH0.arg);
+  addEventListener('hashchange', () => { const h = parseHash(); view(h.view || 'overview', h.arg); });
 
   // ---------- markdown, safely: escape first, then a small grammar ----------
   function inline(s) {
@@ -580,7 +665,7 @@
     }
     const bonds = team.edges.filter(e => (e.from === id || e.to === id) && e.bond !== 'holds').map(e => (e.from === id ? word('bond.' + e.bond, e.bond) + ' → ' + nameOf(e.to) : nameOf(e.from) + ' → ' + word('bond.' + e.bond, e.bond)) + (e.implied ? ' (implied)' : ''));
     row('bonds', bonds.join(' · ') || '—');
-    const docPath = n.doc || (n.desk && n.desk.src) || '';
+    const docPath = n.doc || (n.workingNotes && n.workingNotes.src) || '';
     const doc = el('pre', { class: 'kcard-doc', text: docPath ? 'reading ' + docPath + '…' : 'no doc — the ontology notes it' });
     const plan = el('pre', { class: 'kcard-doc', text: '' });
     box.append(el('article', { class: 'kcard', 'data-compact': main.dataset.view === 'overview' },
@@ -983,6 +1068,8 @@
     on('subagent', () => { subagentPoll(); refreshActivity(); });
     on('team', loadTeam);
     on('onto', loadTeam);
+    // the workspace's tabs refresh on their own instruments
+    for (const name of ['loop', 'subagent', 'memory', 'toolbox']) on(name, () => bus.dispatchEvent(new CustomEvent('board', { detail: name })));
   }
 
   // ────────── the folder tree: the workspace's ownership, live heat ──────────

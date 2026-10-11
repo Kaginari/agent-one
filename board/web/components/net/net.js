@@ -81,7 +81,7 @@
       cells.set(n.id, v);
       for (const x of v) peak = Math.max(peak, x);
     }
-    return { byId, orchestrator, members, skills, kids, parent, depth, order, tree, holds, maxDepth, cells, peak, act, days: (activity && activity.days) || [], word };
+    return { byId, orchestrator, members, skills, kids, parent, depth, order, tree, holds, maxDepth, cells, peak, act, days: (activity && activity.days) || [], word, relates: team.relates || [], recent: (activity && activity.recent) || [] };
   }
 
   // ancestors (the path to the orchestrator) and descendants (the subtree) of a node

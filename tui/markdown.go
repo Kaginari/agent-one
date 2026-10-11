@@ -146,7 +146,7 @@ func autolink(s string) bool {
 }
 
 func (t Theme) renderer(width int) (*glamour.TermRenderer, error) {
-	key := t.styleName() + ":" + itoa(width)
+	key := t.styleName() + ":" + itoa(width) + ":" + hexOf(t.codeBg())
 	mdMu.Lock()
 	r, ok := mdCache[key]
 	mdMu.Unlock()
@@ -203,7 +203,7 @@ func (t Theme) brandStyleConfig(sc ansi.StyleConfig) ansi.StyleConfig {
 	primary := hexOf(t.accent.GetForeground())
 	code := hexOf(t.magenta.GetForeground())
 	dimC := hexOf(t.dim.GetForeground())
-	paneBgHex := hexOf(t.paneBg())
+	paneBgHex := hexOf(t.codeBg())
 	yes := true
 
 	sc.Heading.Color = &primary

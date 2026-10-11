@@ -40,7 +40,7 @@ const webReplay = 4000
 
 func newWebBus() *webBus {
 	// answerable from provisioning (the human's decree: approvals answered from the web in every run
-	// mode — dash-only, TUI with the board up, containered); the terminal keeps its own answer
+	// mode — dash-only, TUI with the board up, docker-agent); the terminal keeps its own answer
 	// path and Answer resolves the rank first-wins ("answered elsewhere" for the loser).
 	return &webBus{subs: map[chan []byte]struct{}{}, choices: map[string]chan<- tui.ChoiceAnswer{}, choiceAt: map[string]int64{}, answerable: true}
 }

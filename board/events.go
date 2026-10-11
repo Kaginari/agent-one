@@ -133,6 +133,9 @@ func (b *Board) watch() {
 			"loop":     dirSig(filepath.Join(dir, "instruments", "loop")),
 			"log":      fileSig(filepath.Join(dir, "log.md")),
 			"subagent": subagentSig(b.src.Subagent),
+			// the Memory and Toolbox tabs follow their own instruments
+			"memory":  dirSig(filepath.Join(dir, "memory", "shared")) + fileSig(filepath.Join(dir, "memory", "long", "index.json")),
+			"toolbox": dirSig(filepath.Join(dir, "instruments", "toolbox")) + fileSig(filepath.Join(dir, "toolbox", "registry.json")),
 		}
 		for name, sig := range cur {
 			if !first && sigs[name] != sig {

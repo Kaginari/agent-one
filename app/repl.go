@@ -285,7 +285,7 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 			fmt.Fprintln(errw, a.boardLine())
 			return false
 		}
-		url := "http://" + addr + "/dash"
+		url := "http://" + addr + "/"
 		openBrowser(url)
 		fmt.Fprintln(out, "dashboard: "+url+" — the session mirrors there; ask from either side, approve here")
 	case "agents", "subagents":

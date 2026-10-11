@@ -1,4 +1,4 @@
-/* @component timeline — tokens: --ink, --ink-muted, --line, --accent, --ok, --warn, --danger, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --radius-s, --space-3xs, --space-2xs, --space-xs, --step--2, --step--1, --font-code, --hairline, --time, --time-slow, --ease, --focus, --focus-width, --weight-bold, --font-body, --tracking-caps. What the workspace did, newest first: each row a Subagent or a verdict — when, who (a dot in its rank's colour, breathing while it runs), the commission, how it ended. A row is a button that focuses its neuron. */
+/* @component timeline — tokens: --space-3xs, --step--1, --ink-muted, --space-xs, --space-2xs, --radius-s, --time, --ease, --ink, --accent-wash, --bracket-width, --accent, --focus-width, --focus, --series-6, --series-1, --series-2, --series-3, --series-4, --series-5, --step--2, --font-code, --time-slow, --weight-bold, --font-body, --tracking-caps, --hairline, --line, --ok, --warn, --danger. What the workspace did, newest first: each row a Subagent or a verdict — when, who (a dot in its rank's colour, breathing while it runs), the commission, how it ended. A row is a button that focuses its neuron (or, in the Subagent's history, opens the run: aria-current marks it). */
 @layer components {
   .timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3xs); font-size: var(--step--1); }
   .timeline-item {
@@ -8,6 +8,7 @@
     transition: background-color var(--time) var(--ease);
   }
   .timeline-item:hover { background: color-mix(in oklch, var(--ink) 5%, transparent); }
+  .timeline-item[aria-current="true"] { background: var(--accent-wash); box-shadow: inset var(--bracket-width) 0 0 var(--accent); }
   .timeline-item:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: -1px; }
   .timeline-item[data-rank="orchestrator"] { --timeline-rank: var(--series-6); }
   .timeline-item[data-rank="zone"] { --timeline-rank: var(--series-1); }

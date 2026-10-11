@@ -254,7 +254,7 @@ func (h *tuiHost) Welcome() tui.Welcome {
 	w.Holes = a.Holes()
 	a.mu.Lock()
 	if a.boardAddr != "" {
-		w.Dash = "http://" + a.boardAddr + "/dash"
+		w.Dash = "http://" + a.boardAddr + "/"
 	}
 	a.mu.Unlock()
 	return w
@@ -288,7 +288,7 @@ func (h *tuiHost) Footer() tui.FooterView {
 	fv := tui.FooterView{Model: a.mountModel.Ref.Model, Ctx: ctx, Cost: cost, Live: a.Subagent.Live(), Workspace: tilde(a.Root, a.Opt.Home), Subagents: h.words.Subagents, Tokens: tot.Tokens(), CtxPct: pct, CtxKnown: known, Zone: zone, CtxMax: ctxMax, CtxTokens: ctxTokens, CtxLimit: ctxLimit}
 	a.mu.Lock()
 	if a.boardAddr != "" {
-		fv.Dash = "http://" + a.boardAddr + "/dash"
+		fv.Dash = "http://" + a.boardAddr + "/"
 	}
 	a.mu.Unlock()
 	ranks := a.Journal.Ranks()

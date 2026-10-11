@@ -1,7 +1,13 @@
-<nav class="tabs" role="tablist" aria-label="views">
-  <button class="tab" role="tab" aria-selected="true" type="button">Overview</button>
-  <button class="tab" role="tab" aria-selected="false" type="button">Console</button>
-  <button class="tab" role="tab" aria-selected="false" type="button">Neural net</button>
-  <button class="tab" role="tab" aria-selected="false" type="button">Metrics</button>
-  <button class="tab" role="tab" aria-selected="false" type="button">Relations</button>
+<nav class="tabs" aria-label="views">
+  <div class="tabs-list" role="tablist" aria-label="views">
+    <button class="tab" role="tab" aria-selected="true" type="button">Overview</button>
+    <button class="tab" role="tab" aria-selected="false" type="button">Console</button>
+    <button class="tab" role="tab" aria-selected="false" type="button" data-group-start>Memory</button>
+    <button class="tab" role="tab" aria-selected="false" type="button" hidden>Config</button>
+  </div>
+  <div class="tabs-more">
+    <button class="tab" type="button" aria-haspopup="menu" aria-expanded="true">More<span class="tabs-more-count">1</span></button>
+    <div class="tabs-menu" role="menu"><button class="tabs-menu-item" role="menuitemradio" aria-checked="false" type="button">Config</button></div>
+  </div>
+  <button class="tabs-end" type="button">files</button>
 </nav>

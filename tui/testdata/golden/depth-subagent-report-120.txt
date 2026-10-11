@@ -1,0 +1,6 @@
+▌ ◆ subagent zone-auth · zone · analyst · gemini/gemini-3.8-flash                                         DONE · 9s   ▕▄
+▌   └ findings on the login zone                                                                                      ▕ 
+▌   ⎿ PASS                                                                                                            ▕ 
+▌     ● src/auth/token.go:1 token ttl is 15m                                                                          ▕ 
+▌     ? src/auth/refresh.go: no test covers the refresh path                                                          ▕ 
+▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 

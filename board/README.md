@@ -1,17 +1,38 @@
 # board — the workspace, seen
 
 `board.New(Options{WorkspaceRoot, WorkspaceDir, Names, Sources})` is an `http.Handler`; `board.Serve(ctx,
-addr, opts)` listens until the context ends. Everything a page needs is embedded (Bootstrap
-5.3.8 under `assets/`, the theme in `static/board.css`, the page script in `static/board.js`,
-`html/template` pages under `templates/`), so a page works offline.
+addr, opts)` listens until the context ends. It serves one page — the dashboard, `web/dash.html`,
+at `/` — and everything it needs is embedded under `web/` (the ui system's tokens, palettes,
+layout and components, the realm theme, the vendored faces), so the page works offline.
 
 `Board.Token()` returns the per-session token that authorizes dashboard acts
 (`/api/ask`, `/api/answer`, `/api/interrupt`). The token is registered in `New` and embedded in the
-dashboard page (`{{TOKEN}}`); `dash.js` sends it as `X-Board-Token`. Exposed for tests that need
+page (`{{TOKEN}}`); `dash.js` sends it as `X-Board-Token`. Exposed for tests that need
 to act as the page (e.g., `TestDashGateAnswerOverHTTP`).
 
-Pages, one question each: Overview · Subagent · Usage · Team · Memory · Toolbox · Log · Config.
-Labels come from `Options.Names` (keys in `DefaultNames`); a distribution passes its own words.
+Tabs, one question each: Overview (the cockpit) · Console · Neural net · Metrics · Subagent · Memory ·
+Toolbox · Relations · Tree · Config. `dash.js` draws the cockpit and the session's views;
+`workspace.js` draws the workspace's tabs (Subagent, Memory, Toolbox, Config) from the JSON below. A deep
+link opens a tab (`/#memory`, `/#subagent/<run id>`). Labels come from `Options.Names` (keys in
+`DefaultNames`); a distribution passes its own words.
+
+Old addresses: `/dash` → `/` (301); `/subagent`, `/memory`, `/toolbox`, `/config`, `/usage`,
+`/team` → their tab (301). Anything else that is not an API, `/events`, `/dash/stream` or
+`/web/…` is a 404.
+
+## The workspace's JSON
+
+Read-only, and answered only to a loopback Host (a rebound DNS name cannot read them):
+
+| path | answers |
+|---|---|
+| `/api/runs[?as=agent]` | every journaled run, newest first: id, as, ask (words, no wire header), status, at, turns, steps, failed, provider; and the reading |
+| `/api/run?id=` | one run whole: the commission verbatim, each step (tool, gate class, decision and why, summary, status, attempts, ms), the end's holes and length, the context reading; 404 for an unknown id |
+| `/api/memory` | the tiers (`status.short/long/shared`), the working notes, the shared notes newest first, notes by kind, the holes |
+| `/api/memory/recall?q=&tier=&kind=` | `memory.Recall` with `NoCache` — the twelve best memories, never a cache line written |
+| `/api/memory/review` | `memory.Review` — each tier's facts and routed findings |
+| `/api/toolbox` | the registry's entries with their state (loaded · offered · idle), offers and loads; the instrument; the loads journal's newest 40 lines |
+| `/api/config` | the integrator's config tree (`{value, origin}` leaves), credentials redacted, and the off-list |
 
 ## Feeds
 
@@ -57,15 +78,12 @@ day) treat `null` as unpriced: the USD column is a floor and says how many calls
 
 ## Live
 
-`/events` is server-sent events: `usage`, `loop`, `log` (a file changed under the workspace dir)
-and `subagent` (the live feed's JSON changed; the payload carries the agents). A page declares
-which events it patches on (`data-live`) and refetches itself with `?partial=1`.
+`/events` is server-sent events: `usage`, `loop`, `log`, `memory`, `toolbox` (a file changed
+under the workspace dir) and `subagent` (the live feed's JSON changed; the payload carries the agents).
+The page refetches the JSON a tab reads when its instrument moves.
 
 ## Theme
 
-`static/board.css` layers CSS custom properties over `--bs-*`: rank tokens (`--r-zone`,
-`--r-domain`, `--r-coord`, `--r-auditor`, `--r-principal`, `--r-service`), lane tints (`--l-zone`,
-`--l-review`, `--l-global`, `--l-shared`) and chart series (`--c-1..4`), dark and light each
-re-stepped, `data-bs-theme` following the system unless the reader picks. The rank and lane
-hexes are board.js's audited tokens carried over; `--c-2` (dark) is re-stepped to `#b3841f`
-so the four chart series pass every palette-audit gate in both modes.
+`web/theme.css` is the realm theme over the foundation (`tokens.css`, `palettes.css`,
+`layout.css`); components read only the meaning tier, each declaring what it reads in its header
+(`ui check` holds them to it — `TestDashboardHoldsTheUISystem`).

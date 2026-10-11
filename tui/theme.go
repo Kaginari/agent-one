@@ -40,6 +40,14 @@ type Theme struct {
 	lanes                     map[string]color.Color
 	add, del, ctxLine, lineNo lipgloss.Style
 	sel                       lipgloss.Style // a drag selection in the chat pane
+
+	// TrueColor: the terminal draws 24-bit colour — the depth's tonal steps need it; a
+	// 256-colour terminal would band them, so it keeps the flat frame.
+	TrueColor bool
+	// Depth: the surfaces are drawn as raised and sunken planes (depth.go). The model turns it
+	// on while the frame owns the window on a truecolor terminal; the scrollback stays flat.
+	Depth bool
+	dep   depthScale
 }
 
 // Words are the labels a distribution renames (agent-one says Subagent, Operator, Workspace).
@@ -64,7 +72,8 @@ func DefaultWords() Words {
 // NewTheme builds the palette for a dark or light background.
 func NewTheme(dark bool) Theme {
 	p := colorprofile.Detect(os.Stdout, os.Environ())
-	t := Theme{Dark: dark, Color: p != colorprofile.Ascii && p != colorprofile.NoTTY}
+	t := Theme{Dark: dark, Color: p != colorprofile.Ascii && p != colorprofile.NoTTY, TrueColor: p == colorprofile.TrueColor}
+	t.dep = newDepthScale(dark, defaultGround(dark))
 	c := func(dark, light string) color.Color {
 		if t.Dark {
 			return lipgloss.Color(dark)
@@ -76,14 +85,14 @@ func NewTheme(dark bool) Theme {
 	// the hierarchy; cyan is the primary (brand, focus, the live state), magenta the human's
 	// accent; ok/warn/bad say verdicts. Dark holds the neons softened to read as text; light
 	// holds their deep-ink twins (every text role ≥ 4.5:1 on its ground).
-	t.dim = lipgloss.NewStyle().Foreground(c("#7f8a99", "#5c6672"))
-	t.label = lipgloss.NewStyle().Foreground(c("#b4bfcc", "#36404b"))
+	t.dim = lipgloss.NewStyle().Foreground(c("#9ca7b6", "#56606c"))
+	t.label = lipgloss.NewStyle().Foreground(c("#bcc6d2", "#36404b"))
 	t.text = lipgloss.NewStyle()
 	t.accent = lipgloss.NewStyle().Foreground(c("#4fe3ee", "#00707c"))  // neon cyan, softened / deep teal
-	t.magenta = lipgloss.NewStyle().Foreground(c("#ef6fe6", "#a0168f")) // neon magenta, softened / deep plum
+	t.magenta = lipgloss.NewStyle().Foreground(c("#f67fee", "#a0168f")) // neon magenta, softened / deep plum
 	t.user = lipgloss.NewStyle().Foreground(c("#d5dde6", "#1f2730"))
-	t.ok = lipgloss.NewStyle().Foreground(c("#5fcf86", "#1f7a3a"))
-	t.bad = lipgloss.NewStyle().Foreground(c("#f0716a", "#b8341f"))
+	t.ok = lipgloss.NewStyle().Foreground(c("#5fcf86", "#1b7034"))
+	t.bad = lipgloss.NewStyle().Foreground(c("#fe877f", "#a82e1b"))
 	t.warn = lipgloss.NewStyle().Foreground(c("#e8b955", "#8a5a00"))
 	t.border = lipgloss.NewStyle().Foreground(c("#3d4a5a", "#b3bdc8"))
 	t.tag = lipgloss.NewStyle().Bold(true)
@@ -128,6 +137,23 @@ func NewTheme(dark bool) Theme {
 	}
 	return t
 }
+
+// OnGround re-steps the depth's surfaces from the terminal's own background (its answer to the
+// background query); a background that contradicts the theme's darkness keeps the default.
+func (t Theme) OnGround(bg color.Color) Theme {
+	if bg == nil {
+		return t
+	}
+	g := toRGB(bg)
+	if (g.lum() < 0.25) != t.Dark {
+		return t
+	}
+	t.dep = newDepthScale(t.Dark, g)
+	return t
+}
+
+// Ground is the background the depth's scale was stepped from.
+func (t Theme) Ground() color.Color { return t.dep.ground.col() }
 
 // lane is a rank's pulse colour; nil when the rank is unknown (callers fall back to the accent).
 func (t Theme) lane(rank string) color.Color {
@@ -179,7 +205,11 @@ func (t Theme) chip(hue color.Color, text string) string {
 	if !t.Color {
 		return text
 	}
-	bg := lipgloss.Blend1D(5, t.paneBg(), hue)[1]
+	base := t.paneBg()
+	if t.Depth {
+		base = t.dep.card.col() // a chip on a raised tile tints the tile's own tone
+	}
+	bg := lipgloss.Blend1D(5, base, hue)[1]
 	fg := hue
 	if !t.Dark {
 		// a lane's light-theme hue is a mid tone: its chip face sinks a third toward ink so the

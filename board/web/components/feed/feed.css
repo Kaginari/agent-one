@@ -1,0 +1,21 @@
+/* @component feed — tokens: --space-3xs, --line, --space-2xs, --space-s, --bracket-width, --surface, --radius-s, --step--1, --warn, --danger, --ok, --accent, --space-xs, --ink-muted, --step--2, --font-code, --ink, --weight-bold, --font-body, --tracking-caps, --hairline. A dated list of short records — notes, loads, holes, review signals: a mono time, who, tags, then the text; data-tone (warn|danger|ok) colours the edge. Newest first; the list scrolls inside its panel. */
+@layer components {
+  .feed { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3xs); max-block-size: var(--feed-max, none); overflow: auto; }
+  .feed-item {
+    --feed-edge: var(--line);
+    display: grid; gap: var(--space-3xs); padding: var(--space-2xs) var(--space-s);
+    border-inline-start: var(--bracket-width) solid var(--feed-edge); background: color-mix(in oklch, var(--surface) 55%, transparent); border-radius: var(--radius-s);
+    font-size: var(--step--1);
+  }
+  .feed-item[data-tone="warn"] { --feed-edge: var(--warn); }
+  .feed-item[data-tone="danger"] { --feed-edge: var(--danger); }
+  .feed-item[data-tone="ok"] { --feed-edge: var(--ok); }
+  .feed-item[data-tone="info"] { --feed-edge: var(--accent); }
+  .feed-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3xs) var(--space-xs); color: var(--ink-muted); font: var(--step--2) var(--font-code); }
+  .feed-who { color: var(--ink); }
+  .feed-tag { font: var(--weight-bold) var(--step--2) var(--font-body); letter-spacing: var(--tracking-caps); text-transform: uppercase; border: var(--hairline) solid var(--line); border-radius: var(--radius-s); padding: 0 var(--space-2xs); }
+  .feed-text { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+  .feed-item[data-tone="warn"] .feed-text { color: var(--warn); }
+  .feed-sub { margin: 0; color: var(--ink-muted); font: var(--step--2) var(--font-code); overflow-wrap: anywhere; }
+  .feed-empty { margin: 0; color: var(--ink-muted); font-size: var(--step--1); }
+}

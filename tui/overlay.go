@@ -261,13 +261,31 @@ func (m *Model) overlay(base string) string {
 	if l.pane {
 		right, y0 = l.chat.X+l.chat.W, l.chat.Y-l.topY
 	}
-	for i, tt := range m.toasts {
+	ty := y0
+	for _, tt := range m.toasts {
+		if m.theme.Depth && l.pane {
+			// the toast floats highest: a slab in its verdict's hue, the deepest shadow, over
+			// the conversation's top-right corner
+			card := m.theme.toastCard(tt)
+			cw := lipgloss.Width(card)
+			x := right - cw + int(tt.x)
+			if x >= right {
+				continue
+			}
+			for i, row := range strings.Split(card, "\n") {
+				layers = append(layers, lipgloss.NewLayer(ansi.Truncate(row, right-x, "")).X(max(x, 0)).Y(ty+i).Z(5))
+			}
+			ty += strings.Count(card, "\n") + 1
+			continue
+		}
 		pill := tt.style.Padding(0, 1).Render(tt.text)
 		x := right - lipgloss.Width(pill) + int(tt.x)
 		if x >= right {
+			ty++
 			continue
 		}
-		layers = append(layers, lipgloss.NewLayer(ansi.Truncate(pill, right-x, "")).X(max(x, 0)).Y(y0+i).Z(2))
+		layers = append(layers, lipgloss.NewLayer(ansi.Truncate(pill, right-x, "")).X(max(x, 0)).Y(ty).Z(2))
+		ty++
 	}
 	if popup {
 		// the slash menu, the @completions and the keys sheet rise from the input's top edge,
@@ -293,14 +311,22 @@ func (m *Model) overlay(base string) string {
 		// the darkened backdrop: the frame, stripped and held again in dim — an honest
 		// darkening of real text, not a transparency trick
 		dl := strings.Split(base, "\n")
+		veil := m.theme.dim
+		if m.theme.Depth {
+			// under the depth the veil is the ground itself, a step deeper: every plane sinks
+			// flat beneath the float
+			veil = veil.Background(m.theme.veil())
+		}
 		for i, l := range dl {
-			dl[i] = m.theme.dim.Render(ansi.Strip(l))
+			dl[i] = veil.Render(stripDecor(ansi.Strip(l)))
 		}
 		base = strings.Join(dl, "\n")
 		box := m.theme.Choice(m.view, min(m.width*3/5, 100))
-		// elevation cue: the card's top edge gradients accent → border
-		first, rest, _ := strings.Cut(box, "\n")
-		box = Gradient(ansi.Strip(first), false, m.theme.accent.GetForeground(), m.theme.border.GetForeground()) + "\n" + rest
+		if !m.theme.Depth {
+			// elevation cue: the card's top edge gradients accent → border
+			first, rest, _ := strings.Cut(box, "\n")
+			box = Gradient(ansi.Strip(first), false, m.theme.accent.GetForeground(), m.theme.border.GetForeground()) + "\n" + rest
+		}
 		box = m.pinChoice(box) // growth-only pin: the card never reflows as the cursor moves
 		bw, bh := lipgloss.Width(box), strings.Count(box, "\n")+1
 		fh := m.frameH()
@@ -412,4 +438,19 @@ func (t Theme) pill(kind string) lipgloss.Style {
 		fg = lipgloss.Color("#ffffff")
 	}
 	return lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true)
+}
+
+// toastCard is a toast under the depth: a float slab, its verdict's hue as the spine and the
+// tint, the text bold in the hue's own face.
+func (t Theme) toastCard(tt toast) string {
+	hue := tt.style.GetBackground()
+	if hue == nil {
+		hue = t.accent.GetForeground()
+	}
+	fg := toRGB(hue)
+	if !t.Dark {
+		fg = fg.mix(hexRGB("#000000"), 0.25)
+	}
+	text := lipgloss.NewStyle().Foreground(fg.col()).Bold(true).Render(tt.text)
+	return t.slab(t.surfToast(hue), []string{" " + text}, lipgloss.Width(tt.text)+8, slabOpt{top: true, padR: 2})
 }

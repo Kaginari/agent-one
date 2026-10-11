@@ -80,7 +80,7 @@ func (b *Board) liveRoutes() {
 		}
 		files.ServeHTTP(w, r)
 	}))
-	b.mux.HandleFunc("/dash", b.dash)
+	// the session's stream keeps its path: the page at the root reads it as dash/stream
 	b.mux.HandleFunc("/dash/stream", b.dashStream)
 	// the workspace's two planes beside the ontology: the minted agents, every wearable skill, and
 	// the desks (thoughts live in the worn skill)
@@ -150,7 +150,8 @@ func (b *Board) liveRoutes() {
 	})
 }
 
-// dash is the dashboard page: the static shell with this board's token and words.
+// dash is the dashboard page, served at the root: the static shell with this board's token and
+// words.
 func (b *Board) dash(w http.ResponseWriter, r *http.Request) {
 	page, err := content.ReadFile("web/dash.html")
 	if err != nil {

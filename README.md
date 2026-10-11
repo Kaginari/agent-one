@@ -62,7 +62,7 @@ sandboxed shell has no network unless an `outward` act was approved.
 cd your-project
 export ANTHROPIC_API_KEY=…        # or any OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter)
 agent-one init --level complex      # found a workspace here — light: the policy only · medium: a team read from the tree, no model · complex: the model reads all the code and hires the team
-agent-one                           # the live session — the dashboard opens at http://127.0.0.1:7411
+agent-one                           # the live session — the dashboard opens at http://127.0.0.1:7411/
 agent-one run "add a health check endpoint and its test"
 ```
 
@@ -240,8 +240,8 @@ reviews the change before the turn is done:
 | `install --claude [--global] [--yes]` · `hook <event>` | run the policy inside Claude Code through its hooks (§Inside Claude Code) |
 | `guard check\|test\|show\|export\|hook\|install` | the global dangerous-command guard; `install --yes` wires it into Claude Code and OpenCode |
 | `ui init\|scan\|check` | web pages built from one token system: lay the foundation, regenerate the legend, lint and screenshot at 360/768/1280 in both themes |
-| `dash [--open]` | the session in the browser: the console, the neural net, metrics, relations; approvals answered there |
-| `board` | the board and a read-only dashboard without a session, on 127.0.0.1 |
+| `dash [--open]` | the session in the browser, at the board's root: the cockpit, the console, the neural net, metrics, the Subagent's history, memory, toolbox, relations, the tree, config; approvals answered there |
+| `board` | the dashboard, read-only, without a session, on 127.0.0.1 |
 | `--docker-agent` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
 | `init [--level light\|medium\|complex]` | found a workspace: the policy only; a team read from the tree with no model — the build files (go.mod, package.json workspaces, pyproject, Cargo, Maven, Gradle), sizes and imports give a zone worker per package or module dir, domain owners over related zone workers, a coordinator per three domain owners (lane coordinators and a design coordinator on a large project), a service owner for CI and infra, verify lines only where tests exist, existing docs kept; or a founding session that reads all the code and decides the coordinators, domain owners, zone workers, service owner, skills, agents and relations |
 | `selftest` · `version` | |
@@ -546,5 +546,5 @@ and the per-step value sense (`policy.guts`) they motivated.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Role badges use [Tabler Icons](https://tabler.io/icons) (MIT);
-the dashboard embeds Bootstrap 5 (MIT).
+MIT — see [LICENSE](LICENSE). Role badges use [Tabler Icons](https://tabler.io/icons) (MIT); the dashboard's
+faces (Orbitron, Rajdhani, JetBrains Mono, embedded in the board) are SIL OFL.

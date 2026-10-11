@@ -236,7 +236,28 @@ func (m *Model) selText() string {
 			out = append(out, "")
 			continue
 		}
-		out = append(out, strings.TrimRight(ansi.Cut(ansi.Strip(m.vpLines[l]), c0, c1), " "))
+		// the depth's glyphs (a spine, a bevel, a shadow) are drawing, not text: they copy as
+		// nothing
+		out = append(out, strings.TrimRight(stripDecor(ansi.Cut(ansi.Strip(m.vpLines[l]), c0, c1)), " "))
+	}
+	if m.theme.Depth {
+		// a slab's padding indents every row it holds: the copy keeps only the relative indent
+		pre := -1
+		for _, l := range out {
+			if strings.TrimSpace(l) == "" {
+				continue
+			}
+			if n := len(l) - len(strings.TrimLeft(l, " ")); pre < 0 || n < pre {
+				pre = n
+			}
+		}
+		for i, l := range out {
+			if len(l) >= pre && pre > 0 {
+				out[i] = l[pre:]
+			} else if strings.TrimSpace(l) == "" {
+				out[i] = ""
+			}
+		}
 	}
 	return strings.Trim(strings.Join(out, "\n"), "\n")
 }

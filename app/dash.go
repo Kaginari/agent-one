@@ -48,7 +48,7 @@ func (a *App) Dash(ctx context.Context, open bool) int {
 	h.attach(w)
 	w.attach(h)
 	defer w.close()
-	url := "http://" + addr + "/dash"
+	url := "http://" + addr + "/"
 	fmt.Fprintf(errw, "%s dashboard: %s\n  the session runs here; ask and approve in the browser · ctrl+c ends it\n", a.Cfg.Dist.Name, url)
 	if open {
 		openBrowser(url)

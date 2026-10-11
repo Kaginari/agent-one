@@ -48,6 +48,10 @@ func (t Theme) Welcome(w Welcome, width int) string {
 	}
 	cw := min(width, 84)
 	inner := cw - 4
+	if t.Depth {
+		h, _ := t.surfHero()
+		inner = slabInner(h, cw, slabOpt{top: true})
+	}
 	art, tag := Mascot(w.Dist)
 	artW := 0
 	for _, l := range art {
@@ -117,6 +121,11 @@ func (t Theme) Welcome(w Welcome, width int) string {
 		}
 	}
 	rows = append(rows, "", t.startHere(inner))
+	if t.Depth {
+		// the hero slab: its face drifts from the primary's tint to the magenta's, row by row
+		h, end := t.surfHero()
+		return t.slab(h, rows, cw, slabOpt{top: true, grad: end})
+	}
 	return t.panel("", rows, cw)
 }
 
@@ -211,6 +220,15 @@ func roleSummary(roles []string) string {
 // bright text tone beside it.
 func (t Theme) User(text string, width int) string {
 	text = strings.TrimSpace(text)
+	if t.Depth {
+		// the ask as its own slab: magenta-tinted, the human's spine down its left edge
+		s, o := t.surfUser(), slabOpt{top: true}
+		lines := strings.Split(wrap(text, slabInner(s, width, o)), "\n")
+		for i, l := range lines {
+			lines[i] = t.user.Render(l)
+		}
+		return t.slab(s, lines, width, o)
+	}
 	lines := strings.Split(wrap(text, width-2), "\n")
 	bar := t.magenta.Render("▌")
 	for i, l := range lines {
@@ -226,11 +244,32 @@ func (t Theme) Assistant(md string, width int) string {
 }
 
 func (t Theme) answer(md string, width int, first bool) string {
-	out := t.Markdown(md, width-2)
+	s, o, full := t.surfAnswer(), slabOpt{top: true}, width
+	if t.Depth {
+		width = slabInner(s, width, o)
+	}
+	out := ""
+	if t.Depth {
+		out = t.insetCode(md, width-2)
+	} else {
+		out = t.Markdown(md, width-2)
+	}
 	if out == "" {
 		return ""
 	}
 	lines := strings.Split(out, "\n")
+	if t.Depth {
+		// the answer as a slab with the primary's spine: a turn's pieces join into one (the
+		// pane joins them, dropping the seam's edges)
+		for i, l := range lines {
+			g := "  "
+			if i == 0 && first {
+				g = t.accent.Render("✦") + " "
+			}
+			lines[i] = g + l
+		}
+		return t.slab(s, lines, full, o)
+	}
 	for i, l := range lines {
 		g := "  "
 		if i == 0 && first {
@@ -264,6 +303,11 @@ type ToolView struct {
 // Tool renders a tool block as a card: an edge in the class's colour down its left side, the
 // header line, the status line, the output or the diff.
 func (t Theme) Tool(v ToolView, width int) string {
+	if t.Depth {
+		// a raised chip in its class's hue: the header on the lit band, the status under it
+		s, o := t.surfTool(v.Class), slabOpt{band: 1}
+		return t.slab(s, strings.Split(t.toolBody(v, slabInner(s, width, o)), "\n"), width, o)
+	}
 	edge := t.class(v.Class).Render("▎")
 	lines := strings.Split(t.toolBody(v, width-2), "\n")
 	for i, l := range lines {
@@ -465,6 +509,15 @@ func (t Theme) Subagent(v SubagentView, width int, pulses ...Pulse) string {
 			principles, cw = false, width
 		}
 	}
+	// under the depth the card is a raised chip in the rank's lane: its text sits inside the
+	// chip's padding, the principles stays on the plane beside it
+	tw := cw
+	var cs surf
+	co := slabOpt{band: 1}
+	if t.Depth {
+		cs = t.surfSubagent(v.Rank, p.Lane)
+		tw = slabInner(cs, cw, co)
+	}
 	word := v.Word
 	if word == "" {
 		word = "subagent"
@@ -563,9 +616,9 @@ func (t Theme) Subagent(v SubagentView, width int, pulses ...Pulse) string {
 			}
 		}
 	}
-	gap := cw - ansi.StringWidth(head) - ansi.StringWidth(stS) - 2 - bob
+	gap := tw - ansi.StringWidth(head) - ansi.StringWidth(stS) - 2 - bob
 	if gap < 2 {
-		b.WriteString(ansi.Truncate(head, cw-ansi.StringWidth(stS)-3, "…") + "  " + stS)
+		b.WriteString(ansi.Truncate(head, tw-ansi.StringWidth(stS)-3, "…") + "  " + stS)
 	} else {
 		b.WriteString(head + strings.Repeat(" ", gap) + stS + strings.Repeat(" ", bob))
 	}
@@ -573,7 +626,7 @@ func (t Theme) Subagent(v SubagentView, width int, pulses ...Pulse) string {
 		if v.Exit != "" && v.Exit != v.State && v.State != "" {
 			a += " · " + v.State // lifecycle, demoted
 		}
-		b.WriteString("\n" + indent + t.dim.Render("└ ") + ansi.Truncate(t.dim.Render(a), cw-4, "…"))
+		b.WriteString("\n" + indent + t.dim.Render("└ ") + ansi.Truncate(t.dim.Render(a), tw-4, "…"))
 	}
 	// the landing flash: for its first beat the just-done row reads as a lane (fail: bad)
 	// silhouette — every glyph one colour — then settles to the natural verdict colours.
@@ -604,6 +657,21 @@ func (t Theme) Subagent(v SubagentView, width int, pulses ...Pulse) string {
 	// dress: the principles beside the live card, then the flash over the whole dressed card — the
 	// land beat silhouettes the sprite with its row.
 	dress := func(s string) string {
+		if t.Depth {
+			s = t.slab(cs, strings.Split(flash(s), "\n"), cw, co)
+			if principles {
+				lines := strings.Split(s, "\n")
+				for i, l := range lines {
+					mark := strings.Repeat(" ", 8)
+					if i < 2 {
+						mark = flash(p.Principles[i]) + "  "
+					}
+					lines[i] = mark + l
+				}
+				s = strings.Join(lines, "\n")
+			}
+			return s
+		}
 		if principles {
 			lines := strings.Split(s, "\n")
 			pad := indent + indent + indent + indent
@@ -641,7 +709,7 @@ func (t Theme) Subagent(v SubagentView, width int, pulses ...Pulse) string {
 			return
 		}
 		lines++
-		b.WriteString("\n" + indent + indent + mark.Render(sym) + " " + ansi.Truncate(text, cw-6, "…"))
+		b.WriteString("\n" + indent + indent + mark.Render(sym) + " " + ansi.Truncate(text, tw-6, "…"))
 	}
 	for _, f := range r.Findings {
 		add(t.ok, "●", f)
@@ -863,9 +931,12 @@ func (t Theme) Rail(v RailView, widths ...int) string {
 	}
 	var out []string
 	for _, r := range t.railRows(v, rw) {
-		if r.sep {
+		switch {
+		case r.sep:
 			out = append(out, fit(r.text, rw))
-		} else {
+		case t.Depth:
+			out = append(out, " "+fit(r.text, rw-1))
+		default:
 			out = append(out, " "+fit(r.text, rw-2)+" ")
 		}
 	}
@@ -878,8 +949,23 @@ func (t Theme) Rail(v RailView, widths ...int) string {
 // count; a folded section is its rule alone (alt+c/p/f, or a click on the rule).
 func (t Theme) railRows(v RailView, rw int) []railRow {
 	inner := rw - 2
+	tileW := inner
+	if t.Depth {
+		// a tile spans the column but its left margin: its shadow falls on the last cell
+		tileW = rw - 1
+		inner = slabInner(t.surfTile(nil), tileW, slabOpt{band: 1})
+	}
+	// the sections as they are built: the vitals (no header), then one per section — flat they
+	// read as rules between rows, under the depth as stacked raised tiles
+	type section struct {
+		key, head string
+		hue       color.Color
+		rows      []railRow
+	}
+	secs := []*section{{}}
+	cur := secs[0]
 	var out []railRow
-	line := func(s string) { out = append(out, railRow{text: s}) }
+	line := func(s string) { cur.rows = append(cur.rows, railRow{text: s}) }
 	rule := func(key, title string, hue lipgloss.Style, count int) {
 		fold := "▾"
 		if v.Collapsed[key] {
@@ -889,7 +975,51 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 		if count >= 0 {
 			head += t.dim.Render(fmt.Sprintf(" · %d", count))
 		}
-		out = append(out, railRow{text: t.rule(rw, head, ""), sep: true, key: key})
+		cur = &section{key: key, head: head, hue: hue.GetForeground()}
+		secs = append(secs, cur)
+	}
+	assemble := func() []railRow {
+		if !t.Depth {
+			for _, sc := range secs {
+				if sc.key != "" {
+					out = append(out, railRow{text: t.rule(rw, sc.head, ""), sep: true, key: sc.key})
+				}
+				out = append(out, sc.rows...)
+			}
+			return out
+		}
+		for i, sc := range secs {
+			hue := sc.hue
+			if hue == t.label.GetForeground() {
+				hue = nil
+			}
+			if i == 0 {
+				hue = t.accent.GetForeground()
+			}
+			ts, o := t.surfTile(hue), slabOpt{band: 1}
+			var texts []string
+			var meta []railRow
+			if sc.key != "" {
+				texts, meta = append(texts, sc.head), append(meta, railRow{key: sc.key})
+			} else {
+				o = slabOpt{top: true}
+			}
+			for _, r := range sc.rows {
+				texts, meta = append(texts, r.text), append(meta, r)
+			}
+			lines := strings.Split(t.slab(ts, texts, tileW, o), "\n")
+			k := 0
+			if o.top {
+				out = append(out, railRow{text: lines[0]})
+				k = 1
+			}
+			for j, m := range meta {
+				m.text = lines[k+j]
+				out = append(out, m)
+			}
+			out = append(out, railRow{text: lines[len(lines)-1]})
+		}
+		return out
 	}
 
 	// vitals: who and where, the context, the spend
@@ -902,7 +1032,16 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 	}
 	ctx := t.dim.Render("ctx —")
 	if v.CtxKnown {
-		ctx = t.Meter(v.CtxPct, 8) + " " + t.text.Render(fmt.Sprintf("%d%%", v.CtxPct))
+		cellsN := 8
+		if t.Depth {
+			// the tile's padding narrows the facts' column: the meter yields before the cap does
+			factsW := inner
+			if len(v.Mascot) > 0 {
+				factsW = inner - ansi.StringWidth(v.Mascot[0]) - 2
+			}
+			cellsN = min(max(factsW-12, 4), 8)
+		}
+		ctx = t.Meter(v.CtxPct, cellsN) + " " + t.text.Render(fmt.Sprintf("%d%%", v.CtxPct))
 		if v.Stress {
 			ctx += " " + t.bad.Render("stress")
 		}
@@ -922,7 +1061,7 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 		artW = max(artW, ansi.StringWidth(l))
 	}
 	switch {
-	case len(art) > 0 && inner >= artW+2+18:
+	case len(art) > 0 && (inner >= artW+2+18 || t.Depth && inner >= artW+2+14):
 		// the sprite beside the facts: a portrait and its caption
 		for i := 0; i < max(len(art), len(id)); i++ {
 			a := strings.Repeat(" ", artW)
@@ -1021,7 +1160,7 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 			name := ansi.Truncate(c.Name, nameW, "…")
 			row := dot + " " + t.text.Render(name)
 			row += strings.Repeat(" ", max(inner-ansi.StringWidth(row)-ansi.StringWidth(state), 1)) + state
-			out = append(out, railRow{text: row, subagent: c.Name})
+			cur.rows = append(cur.rows, railRow{text: row, subagent: c.Name})
 		}
 	}
 
@@ -1064,7 +1203,7 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 	// files: the touch ledger as a tree, latest last
 	rule("files", "files", t.label, len(v.Files))
 	if v.Collapsed["files"] {
-		return out
+		return assemble()
 	}
 	files := append([]RailFile(nil), v.Files...)
 	maxFiles := v.MaxFiles
@@ -1086,7 +1225,7 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 	if hidden > 0 {
 		line(t.dim.Render(fmt.Sprintf("… +%d more", hidden)))
 	}
-	return out
+	return assemble()
 }
 
 // Gate is the one quiet line after a turn that wrote.
@@ -1101,7 +1240,7 @@ func (t Theme) Gate(verdict, logRel string, width int, word string) string {
 	if strings.HasPrefix(strings.ToLower(verdict), "fail") {
 		mark, hue = "✗", t.bad
 	}
-	line := t.chip(hue.GetForeground(), mark+" "+word+" · "+verdict)
+	line := t.pillChip(hue.GetForeground(), mark+" "+word+" · "+verdict)
 	if logRel != "" {
 		line += t.dim.Render(" · " + logRel)
 	}
@@ -1164,6 +1303,9 @@ type ChoiceView struct {
 // Choice renders the choice block.
 func (t Theme) Choice(v ChoiceView, width int) string {
 	inner := min(width-4, 96)
+	if t.Depth {
+		inner = min(width-5, 96) // the float's shadow takes a column
+	}
 	var rows []string
 	title := t.accent.Bold(true).Render(v.Title)
 	if v.Agent != "" {
@@ -1224,6 +1366,16 @@ func (t Theme) Choice(v ChoiceView, width int) string {
 		rows = append(rows, "", t.dim.Render(v.Prompt+" ")+v.Typed+t.accent.Render("▏"), t.dim.Render("enter sends · esc goes back"))
 	default:
 		rows = append(rows, "", t.dim.Render("↑↓ or a digit picks · enter confirms"))
+	}
+	if t.Depth {
+		// a float: the title on its lit band, the primary's spine, the deepest shadow
+		s := t.surfFloat()
+		s.spine = t.accent.GetForeground()
+		var out []string
+		for _, r := range rows {
+			out = append(out, strings.Split(r, "\n")...)
+		}
+		return t.slab(s, out, inner+5, slabOpt{top: true, band: 1})
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.accent.GetForeground()).Padding(0, 1).Width(inner + 4)
 	return box.Render(strings.Join(rows, "\n"))

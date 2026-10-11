@@ -1,0 +1,24 @@
+/* @component filter — tokens: --space-2xs, --space-xs, --space-3xs, --step--1, --font-code, --ink, --surface-sunken, --hairline, --line-strong, --radius-s, --ink-muted, --focus-width, --focus, --accent, --weight-bold, --step--2, --font-heading, --tracking-caps, --line, --time-fast, --ease, --accent-wash, --glow-primary. The row above a list that narrows it: a search field, a select, and toggle chips (aria-pressed) with their counts; it wraps when narrow. */
+@layer components {
+  .filter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-xs); }
+  .filter-field, .filter-select {
+    padding: var(--space-3xs) var(--space-xs); font: var(--step--1) var(--font-code); color: var(--ink);
+    background: var(--surface-sunken); border: var(--hairline) solid var(--line-strong); border-radius: var(--radius-s);
+  }
+  .filter-field { flex: 1 1 14rem; min-inline-size: 0; }
+  .filter-field::placeholder { color: var(--ink-muted); }
+  .filter-field:focus-visible, .filter-select:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: 1px; border-color: var(--accent); }
+  .filter-select { font: var(--weight-bold) var(--step--2) var(--font-heading); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+  .filter-chips { display: flex; flex-wrap: wrap; gap: var(--space-3xs); }
+  .filter-chip {
+    display: inline-flex; align-items: center; gap: var(--space-2xs); padding: var(--space-3xs) var(--space-xs); cursor: pointer;
+    font: var(--weight-bold) var(--step--2) var(--font-heading); letter-spacing: var(--tracking-caps); text-transform: uppercase;
+    color: var(--ink-muted); background: transparent; border: var(--hairline) solid var(--line); border-radius: var(--radius-s);
+    transition: color var(--time-fast) var(--ease), border-color var(--time-fast) var(--ease);
+  }
+  .filter-chip:hover { color: var(--ink); border-color: var(--line-strong); }
+  .filter-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-wash); text-shadow: var(--glow-primary); }
+  .filter-chip:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: 1px; }
+  .filter-count { font: var(--step--2) var(--font-code); color: var(--ink-muted); }
+  .filter-note { margin-inline-start: auto; font-size: var(--step--1); color: var(--ink-muted); }
+}

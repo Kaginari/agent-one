@@ -182,6 +182,48 @@ func TestBlocksGolden(t *testing.T) {
 		{"queued", func(w int) string { return th.Queued("also check the api zone", w) }},
 		{"input", func(w int) string { return th.InputBox("› write a test for the login zone\n  ", w, false) }},
 	}
+	// the depth (a truecolor frame): the same blocks raised — their bevels, spines and shadows
+	// in the block elements, pinned like the flat ones
+	thD := NewTheme(true)
+	thD.Color, thD.TrueColor, thD.Depth = true, true, true
+	ic := thD.Icon("agent-one", "domain", 0)
+	cases = append(cases, []struct {
+		name string
+		f    func(width int) string
+	}{
+		{"depth-welcome", func(w int) string {
+			return thD.Welcome(Welcome{Dist: "agent-one", Version: "v0.1.5", Workspace: "/home/monta/kaginari/pfcli", Model: "gemini/gemini-3.8-flash",
+				Roles: []string{"analyst → gemini/gemini-3.8-flash"}, Session: "20260926-171200-a1b2c3", Holes: []string{"GEMINI_API_KEY is not set — the mount has no key"}}, w)
+		}},
+		{"depth-user", func(w int) string {
+			return thD.User("explain the gate in this workspace and then run the tests under src/auth — take your time, I want the full picture of what the verify beat reads", w)
+		}},
+		{"depth-assistant", func(w int) string {
+			return thD.Assistant("The gate has **four checks** (Policy 3):\n\n1. Right zone worker authored\n2. Invariants hold\n\n```go\nfunc Gate(w *Workspace) Verdict {\n\treturn w.Check(4)\n}\n```\n\nRun `go test ./...` to see the verify beat read the exit codes.", w)
+		}},
+		{"depth-tool", func(w int) string {
+			return thD.Tool(ToolView{ID: "s1", Name: "bash", Summary: "go test ./...", Class: "read", Status: "done", Ms: 1234, Output: "ok  \tgithub.com/x/y\t0.512s\n"}, w)
+		}},
+		{"depth-subagent-report", func(w int) string {
+			return thD.Subagent(SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Model: "gemini/gemini-3.8-flash", State: "done", Elapsed: 9 * time.Second, Ask: "findings on the login zone",
+				Report: &ReportView{Status: "PASS", Findings: []string{"src/auth/token.go:1 token ttl is 15m"}, Holes: []string{"src/auth/refresh.go: no test covers the refresh path"}}}, w)
+		}},
+		{"depth-subagent-principles", func(w int) string {
+			return thD.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "mock/m", State: "thinking", Elapsed: 8 * time.Second, Ask: "verdict on the import: is the payload lawful"}, w,
+				Pulse{Lane: thD.lane("domain"), Phase: 4, Principles: [2]string{ic[0], ic[1]}})
+		}},
+		{"depth-gate", func(w int) string { return thD.Gate("n/a (no domain owners)", ".agent-one/log.md", w, "") }},
+		{"depth-approval", func(w int) string {
+			return thD.Choice(ChoiceView{Title: "Approval", Class: "outward", Tool: "bash", Summary: "git push origin main", Why: "git push reaches beyond the workspace (outward): it needs your word",
+				Options: []string{"Yes", "Yes, and don't ask again for bash:git push*", "No, and tell the model why"}, Cursor: 0}, w)
+		}},
+		{"depth-rail", func(w int) string {
+			return thD.Rail(RailView{Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 42, CtxKnown: true, CtxMax: "128k", Tokens: 15420, Cost: "$0.0123",
+				Plan:      &RailPlan{Agent: "coord-agent-one", Rank: "coord", Lane: thD.lane("coord"), Items: []RailPlanItem{{Text: "Coordinate the files-panel slices", Status: "in_progress"}, {Text: "Land the token file", Status: "done"}}},
+				Files:     []RailFile{{Path: "tui/blocks.go", Lane: thD.lane("zone")}},
+				Subagents: []RailSubagent{{Name: "coord-agent-one", State: "thinking", Aged: "1m12s", Lane: thD.lane("coord")}, {Name: "zone-auth", State: "done", Done: true, Lane: thD.lane("zone")}}}, 36)
+		}},
+	}...)
 	dir := filepath.Join("testdata", "golden")
 	if *update {
 		_ = os.MkdirAll(dir, 0o755)

@@ -1,0 +1,18 @@
+ ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖ 
+ ▏ agent-one                      ▕ 
+ ▏ kimi-3-conduit                 ▕ 
+ ▏ ▌▌▌░░░░░ 42% / 128k            ▕ 
+ ▏ 15k tok · $0.0123              ▕ 
+ ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
+ ▏ ▾ subagents · 2                ▕▄
+ ▏ ● coord-agent-one     THINKING ▕ 
+ ▏ ● zone-auth             ✓ DONE ▕ 
+ ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
+ ▏ ▾ plan ▸ coord-agent-one · 2   ▕▄
+ ▏ ▸ Coordinate the files-panel … ▕ 
+ ▏ ✓ Land the token file          ▕ 
+ ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
+ ▏ ▾ files · 1                    ▕▄
+ ▏ ╰── tui/                       ▕ 
+ ▏     ╰── blocks.go              ▕ 
+ ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
