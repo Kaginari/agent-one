@@ -250,8 +250,8 @@ func (w *webBus) Status() map[string]any {
 	// the exposure flag: workspaces may lawfully pin budgets off (-1, this workspace's 2026-09-28
 	// decree) — the schema default stays armed, so an uncapped session declares itself
 	// instead of hiding inside "running"
-	if h.s != nil {
-		st["budgetsOff"] = h.s.Engine.Budget.Steps < 0 && h.s.Engine.Budget.Minutes < 0
+	if s := h.session(); s != nil {
+		st["budgetsOff"] = s.Engine.Budget.Steps < 0 && s.Engine.Budget.Minutes < 0
 	}
 	st["queued"] = h.a.Subagent.QueueDepth(workspace.Orchestrator)
 	// the wedge meter: how long the oldest open card has waited for a human — the one spell

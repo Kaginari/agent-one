@@ -60,7 +60,7 @@ func (a *App) TUI(ctx context.Context) int {
 	code := h.run(ui.Run)
 	// veil-exit: the human's stop is its own chronicle row — an end with no cause could read
 	// earned DONE either way; this one names the hand (Operator 2026-10-03)
-	a.logExit(h.s)
+	a.logExit(h.session())
 	return code
 }
 
@@ -291,7 +291,7 @@ func (h *tuiHost) Footer() tui.FooterView {
 	ctx, pct, known, zone := "ctx —", 0, false, ""
 	ctxMax := "∞"
 	var ctxTokens, ctxLimit int
-	if r := readingOf(h.s); r.Available {
+	if r := readingOf(h.session()); r.Available {
 		pct, known = r.Percent(), true
 		ctx = fmt.Sprintf("ctx %d%%", r.Percent())
 		if r.Stressed() {
@@ -400,7 +400,7 @@ func (h *tuiHost) Slash(line string) ([]string, bool) {
 	h.mu.Lock()
 	busy := h.running
 	h.mu.Unlock()
-	quit := h.a.slash(h.ctx, line, h.s, busy)
+	quit := h.a.slash(h.ctx, line, h.session(), busy)
 	return h.drain(), quit
 }
 
@@ -557,7 +557,7 @@ func (h *tuiHost) start(text string, auto bool) {
 		if ps != nil {
 			ask := "the human answered your parked card " + ps.CardID + ": " + text + " — continue from where the run stopped"
 			var s2 *loop.Session
-			r, s2, err = h.s.Engine.ResumeWithSession(tctx, ps.RunID, ask)
+			r, s2, err = h.session().Engine.ResumeWithSession(tctx, ps.RunID, ask)
 			if err == nil && s2 != nil {
 				h.mu.Lock()
 				h.s = s2 // the resumed session owns the thread now
@@ -567,7 +567,7 @@ func (h *tuiHost) start(text string, auto bool) {
 			if auto {
 				h.send(tui.EvTurnStart{Text: text, Auto: true})
 			}
-			r, err = h.s.Turn(tctx, text)
+			r, err = h.session().Turn(tctx, text)
 		}
 		if err != nil {
 			r = &loop.Result{Status: loop.Fail, Holes: []string{err.Error()}}
@@ -588,9 +588,10 @@ func (h *tuiHost) finish(r *loop.Result, interrupted bool) {
 	if cancel != nil {
 		cancel()
 	}
-	a.Sessions.Sync(a.SessionID, h.s, a.mountModel.Ref.Model)
+	sess := h.session()
+	a.Sessions.Sync(a.SessionID, sess, a.mountModel.Ref.Model)
 	if r.Verdict != "" {
-		a.record(h.s, "verdict", map[string]interface{}{"verdict": r.Verdict, "wrote": h.s.Wrote})
+		a.record(sess, "verdict", map[string]interface{}{"verdict": r.Verdict, "wrote": sess.Wrote})
 	}
 	ev := tui.EvTurnDone{Status: r.Status, Text: r.Text, Streamed: streamed, Verdict: r.Verdict, Interrupted: interrupted}
 	if r.Verdict != "" {
@@ -1255,4 +1256,12 @@ func fileLink(root string, raw json.RawMessage) string {
 		return ""
 	}
 	return (&url.URL{Scheme: "file", Path: p}).String()
+}
+
+// session is the session the host drives, read under mu: a resumed run swaps it from the turn's
+// goroutine while the terminal's goroutine draws the footer from it.
+func (h *tuiHost) session() *loop.Session {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.s
 }

@@ -177,6 +177,7 @@ func tuiSessionHost(t *testing.T, w *testWorkspace) (*tuiHost, *teatest.TestMode
 	t.Cleanup(func() {
 		tm.Send(tui.EvQuit{})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+		settle(h) // a turn still running writes into the workspace: let it end before the temp dir goes
 	})
 	return h, tm, sc
 }
@@ -201,6 +202,7 @@ func tuiSession(t *testing.T, w *testWorkspace) (*App, *teatest.TestModel, *scre
 	t.Cleanup(func() {
 		tm.Send(tui.EvQuit{})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+		settle(h) // a turn still running writes into the workspace: let it end before the temp dir goes
 	})
 	return a, tm, sc
 }
@@ -743,6 +745,19 @@ func TestTUISubagentCardRendersExitVerdict(t *testing.T) {
 	for status, expect := range verdicts {
 		if got := exitVerdict(wire.Report{Status: status}); got != expect {
 			t.Fatalf("exitVerdict(%q) = %q, want %q", status, got, expect)
+		}
+	}
+}
+
+// settle interrupts the host's turn, if one runs, and waits for it to end (bounded).
+func settle(h *tuiHost) {
+	h.Interrupt()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		h.mu.Lock()
+		running := h.running
+		h.mu.Unlock()
+		if !running {
+			return
 		}
 	}
 }

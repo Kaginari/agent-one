@@ -55,8 +55,8 @@ func (h *tuiHost) Suspend() {
 // boundary and finds its own transcript.
 func (h *tuiHost) parkCard(r gate.Request, view tui.ChoiceView) string {
 	runID := ""
-	if h.s != nil {
-		runID = h.s.RunID
+	if s := h.session(); s != nil {
+		runID = s.RunID
 	}
 	id := runID + "-" + r.ID
 	h.mu.Lock()
@@ -85,8 +85,8 @@ func (h *tuiHost) parkCard(r gate.Request, view tui.ChoiceView) string {
 // session boundary AND finds its transcript.
 func (h *tuiHost) shelfCard(r gate.Request, view tui.ChoiceView) string {
 	runID := ""
-	if h.s != nil {
-		runID = h.s.RunID
+	if s := h.session(); s != nil {
+		runID = s.RunID
 	}
 	id := runID + "-" + r.ID
 	dir := filepath.Join(h.a.Root, h.a.Cfg.Dist.WorkspaceDir, "instruments", "cards")
@@ -162,8 +162,9 @@ func (h *tuiHost) watchdog(tctx context.Context) {
 }
 
 func (h *tuiHost) journalWatchdog(act string, silence time.Duration) {
-	if h.s == nil || h.s.Journal == nil {
+	sess := h.session()
+	if sess == nil || sess.Journal == nil {
 		return
 	}
-	h.s.Journal.Log(loop.Event{"t": "watchdog", "act": act, "silentMs": silence.Milliseconds(), "openCards": 1})
+	sess.Journal.Log(loop.Event{"t": "watchdog", "act": act, "silentMs": silence.Milliseconds(), "openCards": 1})
 }
