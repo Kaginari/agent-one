@@ -47,7 +47,7 @@ func Init(dist, root string) ([]string, error) {
 		"name":                      filepath.Base(root) + "\n",
 		"memory/shared/notes.jsonl": "",
 		"ontology/schema.ttl":       onto.DefaultSchema,
-		".gitignore":                "instruments/loop/\ninstruments/usage/\ninstruments/working-notes/\ninstruments/toolbox/\nmemory/short/\nmemory/long/\ntoolbox/registry.json\ntmp/\nconfig.local.*\n",
+		".gitignore":                "instruments/loop/\ninstruments/usage/\ninstruments/working-notes/\ninstruments/toolbox/\nmemory/short/\nmemory/long/\ntoolbox/registry.json\ntmp/\nconfig.local.*\n*.local.yaml\ninstruments/stream/\n",
 	}
 	for name, agent := range files {
 		p := filepath.Join(base, name)

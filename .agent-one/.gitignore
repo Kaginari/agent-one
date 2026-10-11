@@ -8,3 +8,4 @@ toolbox/registry.json
 tmp/
 config.local.*
 *.local.yaml
+instruments/stream/
