@@ -170,7 +170,7 @@ func (t Theme) startHere(w int) string {
 // Roles is /roles: every role and the model it runs on, a label/value grid in a card.
 func (t Theme) Roles(roles []string, width int) string {
 	if len(roles) == 0 {
-		return t.dim.Render("no roles configured — every hat runs on the session's model")
+		return t.dim.Render("no roles configured — every role runs on the session's model")
 	}
 	lw := 0
 	for _, o := range roles {

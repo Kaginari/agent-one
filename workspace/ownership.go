@@ -64,7 +64,7 @@ func (w *Workspace) ToolPolicy(agent string, opt OwnershipOptions) tool.Policy {
 					if first != "" {
 						childHint = first
 					}
-					return fmt.Errorf("ownership: %s — Policy 7 + Operator decree 2026-10-01: the orchestrator authors nothing but the policy (.agent-one/AGENT-ONE.md); dispatch the chain (coordinator -> first layer: `%s`)", rel, childHint)
+					return fmt.Errorf("ownership: %s — Policy 7 and the operator's decision of 2026-10-01: the orchestrator authors nothing but the policy (.agent-one/AGENT-ONE.md); dispatch the chain (coordinator -> first layer: `%s`)", rel, childHint)
 				}
 				owner := w.Owner(rel)
 				if owner == nil {
@@ -78,7 +78,7 @@ func (w *Workspace) ToolPolicy(agent string, opt OwnershipOptions) tool.Policy {
 				if first != "" {
 					childHint = first
 				}
-				return fmt.Errorf("ownership: %s belongs to %s — Policy 2 plus the hard-policy decree: orchestrator does not author another member's soil; dispatch the chain (coordinator -> domain owner -> zone worker; first layer: `%s`), or patch the config's policy.ownership to loosen this",
+				return fmt.Errorf("ownership: %s belongs to %s — Policy 2 plus the hard policy: orchestrator does not author another member's soil; dispatch the chain (coordinator -> domain owner -> zone worker; first layer: `%s`), or patch the config's policy.ownership to loosen this",
 					rel, owner.Name, childHint)
 			}
 			return nil

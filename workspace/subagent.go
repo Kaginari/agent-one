@@ -364,7 +364,7 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 			targetRank, _ := w.Ranks.Get(cr.Rank)
 			meRank, _ := w.Ranks.Get(me.Name)
 			if targetRank.Authors && meRank.HoldsGate && !w.verifyCodedNow(cr) {
-				return tool.DispatchReport{}, fmt.Errorf("%s (%s) has no Verify line coded — the domain owner writes the zone worker's verdict BEFORE the order (TDD per Policy 3, Operator decree 2026-09-30). Add a non-trivial line in %s (front-matter verify:, or a `- `<cmd>`` bullet under ## Verify), then dispatch again", cr.Name, cr.Rank, cr.Doc)
+				return tool.DispatchReport{}, fmt.Errorf("%s (%s) has no Verify line coded — the domain owner writes the zone worker's verdict BEFORE the order (TDD per Policy 3, the operator's decision of 2026-09-30). Add a non-trivial line in %s (front-matter verify:, or a `- `<cmd>`` bullet under ## Verify), then dispatch again", cr.Name, cr.Rank, cr.Doc)
 			}
 		}
 		child := b
