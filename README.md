@@ -213,7 +213,7 @@ can read `score` and every signal. The terminal's sidebar holds them too: each r
 label, its reading, a bar in its band; a short record dimmed and unranked), each Subagent's reading
 beside its state, the orchestrator's own score and the agent nearest its promotion (`domain-engine · reports
 17/20 to promote`); its context and plan gauges band by the same meters (`ui.meters`). `agent-one config explain value` prints each rank's resolved policy
-and where each part came from; the full policy is [`docs/canon/ranks.md`](docs/canon/ranks.md) §Value.
+and where each part came from.
 
 **Evolution.** A member that reads stressed (council strain, a streak of failed gates, a doom
 checkpoint) while its `## Working notes` buffer holds more than seven entries heals itself in the same
