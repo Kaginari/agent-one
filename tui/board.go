@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
@@ -218,17 +219,24 @@ func (m *Model) boardUpdate(msg tea.Msg) (tea.Cmd, bool) {
 
 // boardView draws the whole screen: tabs, the page, the key line.
 func (m *Model) boardView() string {
-	b, t, w, h := m.board, m.theme, m.width, m.height
-	if h < 8 {
-		h = 8
+	b, t, w, h := m.board, m.theme, m.width, m.height-paneTop
+	if h < 9 {
+		h = 9
 	}
+	// the board holds the session's frame: the rounded border on the ground, the raised header
+	// with the page tabs as chips, a region rule naming the page, the page on the plane, the keys
+	// in the status bar — the same look, palette and depth as the conversation it replaces
+	accentHue := t.accent.GetForeground()
 	var tabs []string
 	for i, p := range boardPages {
 		label := fmt.Sprintf(" %d %s ", i+1, p)
-		if i == b.page {
+		switch {
+		case i == b.page && t.Depth:
+			tabs = append(tabs, t.pillChip(accentHue, label))
+		case i == b.page:
 			tabs = append(tabs, t.accent.Bold(true).Underline(true).Render(label))
-		} else {
-			tabs = append(tabs, t.dim.Render(label))
+		default:
+			tabs = append(tabs, " "+t.dim.Render(label)+" ")
 		}
 	}
 	title := Title(m.words.Dist) + t.tag.Render(" board")
@@ -236,16 +244,17 @@ func (m *Model) boardView() string {
 	if b.loaded {
 		status = t.ok.Render("●") + t.dim.Render(" live · "+b.view.At.Format("15:04:05"))
 	}
-	head := title + "  " + strings.Join(tabs, t.border.Render("│"))
+	inner := w - 4 // between "│ " and " │"
+	head := title + "   " + strings.Join(tabs, "")
+	// the tabs' click spans, in screen columns: the frame's "│ " comes first
 	b.tabX = b.tabX[:0]
-	x := lipgloss.Width(title) + 2
-	for i, p := range boardPages {
-		w := lipgloss.Width(fmt.Sprintf(" %d %s ", i+1, p))
-		b.tabX = append(b.tabX, [2]int{x, x + w})
-		x += w + 1
+	x := 2 + lipgloss.Width(title) + 3
+	for _, tb := range tabs {
+		tw := lipgloss.Width(tb)
+		b.tabX = append(b.tabX, [2]int{x, x + tw})
+		x += tw
 	}
-	head = padBetween(head, status, w)
-	rule := t.border.Render(strings.Repeat("─", w))
+	head = padBetween(head, status, inner)
 
 	var lines []string
 	cur := -1
@@ -260,7 +269,18 @@ func (m *Model) boardView() string {
 	case pageUsage:
 		lines, cur = m.boardUsage()
 	}
-	agent := h - 4
+	agent := h - 6 // top border, header, rule · rule, status, bottom border
+	// a short window tightens Usage before it scrolls: its spacer rows go (it has no click
+	// targets, so no hit moves)
+	if b.page == pageUsage && len(lines) > agent {
+		kept := lines[:0:0]
+		for _, l := range lines {
+			if strings.TrimSpace(ansi.Strip(l)) != "" {
+				kept = append(kept, l)
+			}
+		}
+		lines = kept
+	}
 	// the cursor: clamped to the page, and kept in view
 	if len(lines) == 0 {
 		lines = []string{""}
@@ -298,9 +318,6 @@ func (m *Model) boardView() string {
 	for len(view) < agent {
 		view = append(view, "")
 	}
-	for i, l := range view {
-		view[i] = ansi.Truncate(l, w, "…")
-	}
 	keys := "tab page · ↑↓ select · enter detail · esc back"
 	if b.page == pageGraph {
 		keys = "tab page · ←↑↓→ walk the graph · esc back"
@@ -312,8 +329,48 @@ func (m *Model) boardView() string {
 	if len(lines) > agent {
 		more = fmt.Sprintf("%d–%d of %d", off+1, end, len(lines))
 	}
-	foot := padBetween(t.dim.Render(" "+keys), t.dim.Render(more+" "), w)
-	return strings.Join(append(append([]string{head, rule}, view...), rule, foot), "\n")
+
+	// the frame's paints: identity when the depth is off
+	g := func(s string) string { return t.border.Render(s) }
+	plane, headP, statusP := func(s string) string { return s }, func(s string) string { return s }, func(s string) string { return s }
+	ruleP := func(s string) string { return s }
+	if t.Depth {
+		d := t.dep
+		ground := d.ground.col()
+		bf := t.border.GetForeground()
+		g = func(s string) string { return gl(s, bf, ground) }
+		pc := d.plane.col()
+		plane = func(s string) string { return paintBg(s, pc) }
+		from, to := t.headerTints()
+		hw := w - 2
+		ramp := make([]color.Color, hw)
+		for x := range ramp {
+			ramp[x] = from.mix(to, float64(x)/float64(max(hw-1, 1))).col()
+		}
+		headP = func(s string) string { return paint(s, func(x int) color.Color { return ramp[min(x, hw-1)] }) }
+		sb := t.statusBg()
+		statusP = func(s string) string { return paintBg(s, sb) }
+		ruleP = func(s string) string { return paintBg(s, ground) }
+	}
+	pageTitle := t.regionTitle(strings.ToLower(boardPages[b.page]))
+	out := make([]string, 0, h+paneTop)
+	for i := 0; i < paneTop; i++ {
+		out = append(out, strings.Repeat(" ", w))
+	}
+	out = append(out, g("╭")+ruleP(t.rule(w-2, "", ""))+g("╮"))
+	out = append(out, g("│")+headP(" "+fit(head, inner)+" ")+g("│"))
+	aside := ""
+	if more != "" {
+		aside = t.dim.Render(more)
+	}
+	out = append(out, g("├")+ruleP(t.rule(w-2, pageTitle, aside))+g("┤"))
+	for _, l := range view {
+		out = append(out, g("│")+plane(" "+fit(ansi.Truncate(l, inner, "…"), inner)+" ")+g("│"))
+	}
+	out = append(out, g("├")+ruleP(t.rule(w-2, "", ""))+g("┤"))
+	out = append(out, g("│")+statusP(" "+fit(t.keys(keys), inner)+" ")+g("│"))
+	out = append(out, g("╰")+ruleP(t.rule(w-2, "", ""))+g("╯"))
+	return strings.Join(out, "\n")
 }
 
 // padBetween puts left and right on one line of width w.
@@ -326,7 +383,7 @@ func padBetween(left, right string, w int) string {
 }
 
 func (m *Model) boardAgents() ([]string, int) {
-	b, t, w := m.board, m.theme, m.width
+	b, t, w := m.board, m.theme, m.boardInner()
 	rows := b.view.Agents
 	if !b.loaded {
 		return []string{"", t.dim.Render("  reading the subagent…")}, -1
@@ -352,9 +409,10 @@ func (m *Model) boardAgents() ([]string, int) {
 		nameW = 24
 	}
 	// columns by priority: the narrow screen keeps state, context and spend
-	showRank, showOffice, showAge, showModel := w >= 72, w >= 92, w >= 84, w >= 120
+	// the thresholds are the window's less the frame's four columns
+	showRank, showOffice, showAge, showModel := w >= 68, w >= 88, w >= 80, w >= 116
 	stateW := 16
-	if w < 80 {
+	if w < 76 {
 		stateW = 12
 	}
 	now := b.view.At
@@ -440,7 +498,7 @@ func (m *Model) boardAgents() ([]string, int) {
 }
 
 func (m *Model) boardOffices() ([]string, int) {
-	b, t, w := m.board, m.theme, m.width
+	b, t, w := m.board, m.theme, m.boardInner()
 	if !b.loaded {
 		return []string{"", t.dim.Render("  reading the roles…")}, -1
 	}
@@ -474,7 +532,7 @@ func (m *Model) boardOffices() ([]string, int) {
 			mark, name = t.accent.Render("›")+" ", t.tag.Render(name)
 		}
 		model := r.Model
-		if r.Fallback != "" && w >= 120 {
+		if r.Fallback != "" && w >= 116 {
 			model += t.dim.Render("  ↳ " + r.Fallback)
 		}
 		cells = append(cells, []string{mark + t.accent.Render("◆"), name, r.Role, live, humanTokens(spent[r.Name].Tokens), model})
@@ -511,7 +569,7 @@ func (m *Model) boardOffices() ([]string, int) {
 }
 
 func (m *Model) boardUsage() ([]string, int) {
-	b, t, w := m.board, m.theme, m.width
+	b, t, w := m.board, m.theme, m.boardInner()
 	u := b.view.Usage
 	if !b.loaded {
 		return []string{"", t.dim.Render("  reading the usage journal…")}, -1
@@ -694,7 +752,7 @@ func (m *Model) boardClick(ms tea.Mouse) {
 	if ms.Button != tea.MouseLeft {
 		return
 	}
-	if ms.Y == 0 {
+	if ms.Y == paneTop+1 { // the header row inside the frame
 		for i, r := range b.tabX {
 			if ms.X >= r[0] && ms.X < r[1] {
 				b.page, b.detail = i, false
@@ -702,9 +760,10 @@ func (m *Model) boardClick(ms tea.Mouse) {
 		}
 		return
 	}
-	line := ms.Y - 2 + b.lastOff
+	line := ms.Y - (paneTop + 3) + b.lastOff
+	mx := ms.X - 2 // the frame's "│ " gutter
 	for _, h := range b.hits {
-		if h.line != line || ms.X < h.x0 || ms.X >= h.x1 {
+		if h.line != line || mx < h.x0 || mx >= h.x1 {
 			continue
 		}
 		if h.id != "" {
@@ -737,3 +796,7 @@ func (m *Model) boardTable(headers []string, rows [][]string, right map[int]bool
 		})
 	return strings.Split(tb.Render(), "\n")
 }
+
+// boardInner is the width a board page lays itself out in: the window less the frame's
+// "│ " and " │".
+func (m *Model) boardInner() int { return max(m.width-4, 20) }

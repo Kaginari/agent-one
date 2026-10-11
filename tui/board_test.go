@@ -135,7 +135,7 @@ func TestBoardMouse(t *testing.T) {
 	screen(m)
 	// a click on the third tab
 	x := m.board.tabX[2][0] + 1
-	m.Update(tea.MouseClickMsg{X: x, Y: 0, Button: tea.MouseLeft})
+	m.Update(tea.MouseClickMsg{X: x, Y: paneTop + 1, Button: tea.MouseLeft}) // the header row inside the frame
 	if m.board.page != pageOffices {
 		t.Fatalf("tab click: page %d", m.board.page)
 	}
@@ -151,7 +151,7 @@ func TestBoardMouse(t *testing.T) {
 	if target.id == "" {
 		t.Fatal("domain-db drew no hit")
 	}
-	m.Update(tea.MouseClickMsg{X: target.x0 + 1, Y: target.line - m.board.lastOff + 2, Button: tea.MouseLeft})
+	m.Update(tea.MouseClickMsg{X: target.x0 + 1 + 2, Y: target.line - m.board.lastOff + paneTop + 3, Button: tea.MouseLeft})
 	if m.board.sel != "domain-db" {
 		t.Fatalf("node click selected %q", m.board.sel)
 	}
@@ -159,7 +159,7 @@ func TestBoardMouse(t *testing.T) {
 	m.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
 	screen(m)
 	row := m.board.hits[2]
-	click := tea.MouseClickMsg{X: 4, Y: row.line - m.board.lastOff + 2, Button: tea.MouseLeft}
+	click := tea.MouseClickMsg{X: 4 + 2, Y: row.line - m.board.lastOff + paneTop + 3, Button: tea.MouseLeft}
 	m.Update(click)
 	m.Update(click)
 	if m.board.cursor[pageAgents] != 2 || !m.board.detail {

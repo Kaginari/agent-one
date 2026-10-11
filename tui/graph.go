@@ -316,7 +316,7 @@ func abs(n int) int {
 }
 
 func (m *Model) boardGraph() ([]string, int) {
-	b, t, w := m.board, m.theme, m.width
+	b, t, w := m.board, m.theme, m.boardInner()
 	gv := b.view.Graph
 	if !b.loaded {
 		return []string{"", t.dim.Render("  reasoning over the ontology…")}, -1
@@ -348,7 +348,7 @@ func (m *Model) boardGraph() ([]string, int) {
 	sel := g.nodes[b.sel]
 	lines = append(lines, "")
 	cardW := 0
-	if w >= 100 {
+	if w >= 96 {
 		cardW = min(46, w/3)
 	}
 	viewW := w - 2
