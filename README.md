@@ -655,8 +655,8 @@ ruff, pytest and a headless Chromium — use the prebuilt image, or build it fro
 [`docker/runtime/`](docker/runtime/Dockerfile):
 
 ```bash
-agent-one --docker-agent --image montabouagina/kagirinai:v0.3.0
-# or keep it in config:  registry: { containers: { image: montabouagina/kagirinai:v0.3.0 } }
+agent-one --docker-agent --image montabouagina/kaginari:v0.3.0
+# or keep it in config:  registry: { containers: { image: montabouagina/kaginari:v0.3.0 } }
 ```
 
 The session runs as your uid with a fresh tmpfs home, so tools keep their caches and global installs

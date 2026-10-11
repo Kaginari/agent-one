@@ -33,7 +33,7 @@ doc rule and polices non-orchestrator agents exactly as before.
 - **A full runtime image for `--docker-agent`.** `docker/runtime/` builds the machine the agent works
   in: Go, Node.js LTS with npm, pnpm and yarn, Python with pip and uv, build essentials, gopls,
   staticcheck, ruff, pytest and a headless Chromium, every cache and global install under `/tmp` for
-  the session's uid; published as `montabouagina/kagirinai:v0.3.0` (`--image`, or
+  the session's uid; published as `montabouagina/kaginari:v0.3.0` (`--image`, or
   `registry.containers.image`). The README's terminal screens are the current TUI's, written by
   `README_SHOTS`.
 
