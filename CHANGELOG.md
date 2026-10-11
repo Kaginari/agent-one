@@ -6,6 +6,8 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-11
+
 ### Added
 
 - **The workspace's memory over MCP.** `agent-one mcp serve` is an MCP server on stdio — `recall`,
@@ -15,6 +17,18 @@ All notable changes to Agent-One are recorded here. The format follows
   header with the page tabs as chips, the page on the plane, the keys in the status bar.
 - **The pinned neuron's card is an ID block** on the dashboard's net, with ✕ to put it away while
   the neuron stays selected.
+
+### Fixed
+
+- **`--docker-agent` builds a working runtime.** The image is built on the host network (a bridge
+  that cannot resolve failed every apt step) and is the full one — Go, Node.js, Python, build tools,
+  Chromium — the same as `docker/runtime/`.
+- **The scratch redirect leaves the workspace's own paths alone** wherever the workspace lives: a workspace at
+  `/app` (a benchmark container) or under `/tmp` had its own files herded into scratch.
+- **Two data races:** a background subagent's spend landing on its parent's session, and the terminal
+  reading its session while a resumed run swapped it — both under a lock now.
+- **The bench images default to Docker Hub**, a private mirror by `REGISTRY`.
+- **The dashboard's console shows the session again**: a half-renamed poll threw at load.
 
 ## [0.3.0] - 2026-10-11
 
