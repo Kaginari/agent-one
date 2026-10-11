@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Kaginari/agent-one/sandbox"
 )
 
 // A handoff is what a fresh session needs to continue without re-asking, re-discovering or
@@ -117,7 +119,7 @@ func handoffRead(path, text string) string {
 func gitLines(ctx context.Context, root string, args ...string) []string {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	cmd := sandbox.Contain(exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...))
 	out, err := cmd.Output()
 	if err != nil {
 		return nil

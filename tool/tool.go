@@ -316,7 +316,7 @@ func (e Env) insideLiteral(abs string) bool {
 
 // Rel renders an absolute path relative to the root when it is inside it.
 func (e Env) Rel(abs string) string {
-	if r, err := filepath.Rel(e.Root, abs); err == nil && !strings.HasPrefix(r, "..") {
+	if r, err := filepath.Rel(e.Root, abs); err == nil && r != ".." && !strings.HasPrefix(r, "../") {
 		return r
 	}
 	return abs

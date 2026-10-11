@@ -48,6 +48,7 @@ binary alone on Debian slim (no bubblewrap, git or toolchains); for real work in
 
 **Requirements.** Linux or macOS. `bubblewrap` (`bwrap`) for the sandboxed shell on Linux — without it
 the shell runs unsandboxed and `status` says so; macOS has no bwrap. Docker for `--containered`.
+Chromium or Chrome for `ui check`'s screenshots.
 
 **Data boundary.** No telemetry. The binary contacts only the providers you configure (and the
 package or container registries you name); any other network act is `outward` and asks you, and the
@@ -57,11 +58,31 @@ sandboxed shell has no network unless an `outward` act was approved.
 
 ```sh
 cd your-project
-agent-one init --level complex   # found a workspace — light: the policy only · medium: a team sketched from the tree · complex: the model reads all the code and hires the team
-export ANTHROPIC_API_KEY=…         # or any OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter)
-agent-one                         # the live session — the dashboard opens at http://127.0.0.1:7411
+export ANTHROPIC_API_KEY=…        # or any OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter)
+agent-one init --level complex      # found a workspace here — light: the policy only · medium: a team sketched from the tree · complex: the model reads all the code and hires the team
+agent-one                           # the live session — the dashboard opens at http://127.0.0.1:7411
 agent-one run "add a health check endpoint and its test"
 ```
+
+## Inside Claude Code
+
+You can keep Claude Code as the agent and let agent-one hold the policy. Claude Code runs the model, the
+tools and the session on your own plan; the binary runs from Claude Code's hooks, where the model
+cannot skip it. It never calls a model itself, so it needs no API key.
+
+```sh
+cd your-project && agent-one init   # found the workspace, if it is not one yet
+agent-one install --claude          # shows the hooks; --yes writes .claude/settings.local.json
+agent-one install --claude --global --yes   # or for every workspace on this machine (silent elsewhere)
+```
+
+| Claude Code event | What the policy does |
+|---|---|
+| `SessionStart` (also after `/clear` and compaction) | the principles, the log's last entries and how the policy runs here, as context |
+| `UserPromptSubmit` | the turn's baseline, and recall for the ask: memory anchors and the tools that fit |
+| `PreToolUse` | the guard refuses the catastrophic; outward and destructive acts ask — it only ever tightens Claude Code's own permissions |
+| `PostToolUse` | the paths a file tool wrote, for the gate |
+| `Stop` | the gate over everything the turn changed (shell writes too): an owned path changed without its doc, or a failing verify line, sends the turn back with the reasons; the verdict lands in `log.md` |
 
 ## The terminal
 
@@ -108,6 +129,7 @@ reviews the change before the turn is done:
 | `goal --validate "<cmd>" "<objective>"` | work turn after turn until the command passes; the binary runs it, the model cannot skip it |
 | `review [range]` | two reviewers on two models in parallel, one merged shortlist; nothing fixed before you approve |
 | `handoff [focus]` | a handoff note for a fresh session (`/handoff read` picks it up) |
+| `install --claude [--global] [--yes]` · `hook <event>` | run the policy inside Claude Code through its hooks (§Inside Claude Code) |
 | `guard check\|test\|show\|export\|hook\|install` | the global dangerous-command guard; `install --yes` wires it into Claude Code and OpenCode |
 | `ui init\|scan\|check` | web pages built from one token system: lay the foundation, regenerate the legend, lint and screenshot at 360/768/1280 in both themes |
 | `dash [--open]` | the session in the browser: the console, the neural net, metrics, relations; approvals answered there |
@@ -127,7 +149,7 @@ Configuration is YAML (or JSON), layered — each layer overrides the one before
 | project | `.agent-one/` in the workspace | yes |
 | project local | `.agent-one/config.local.yaml` | no (machine-only) |
 | environment | `AGENT_ONE_CONFIG=<file>`, `AGENT_ONE_CONFIG_CONTENT=<yaml>`, `AGENT_ONE_MODEL`, `AGENT_ONE_DISABLE_PROJECT_CONFIG=1` (skip the project layers), `AGENT_ONE_PROVIDER_<NAME>_API_KEY` (built-in provider names only; a custom provider uses `apiKeyEnv`) | — |
-| flags | `--model`, `--set key=value`, `--approve outward`, `--dry-run`, `--no-<feature>` | — |
+| flags | `--model`, `--set key=value`, `--approve outward`, `--dry-run`, `--no-<feature>` (all of them: `agent-one --help`) | — |
 
 `agent-one config explain` shows every effective value and the file and line it came from;
 `agent-one status` shows every model, the guard, the sandbox and anything switched off.
@@ -229,11 +251,14 @@ approval — no rule or `--approve` can run it:
 
 ```yaml
 # permissions.yaml — ask / allow / deny per command. An allow on bash, git or webfetch is a
-# loosening that `config check` lists; a bare bash:* allow is refused.
+# loosening that `config check` lists; a bare bash:* allow is refused. In the tracked project
+# layer an allow never pre-approves an outward or destructive act (a clone would carry it):
+# put those in .agent-one/config.local.yaml or the global config.
 rules:
   - { match: "bash:git push*", action: ask }
-  - { match: "bash:kubectl get*", action: allow }
   - { match: "bash:kubectl*", action: ask }
+# and in .agent-one/config.local.yaml, the machine's own word:
+#   permissions: { rules: [{ match: "bash:kubectl get*", action: allow }] }
 ```
 
 ### Every other section

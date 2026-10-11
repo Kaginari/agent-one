@@ -12,6 +12,7 @@ import (
 
 	"github.com/Kaginari/agent-one/config"
 	"github.com/Kaginari/agent-one/loop"
+	"github.com/Kaginari/agent-one/sandbox"
 	"github.com/Kaginari/agent-one/wire"
 )
 
@@ -79,7 +80,7 @@ func (h *ShellHooks) run(ctx context.Context, hooks []*config.Hook, in hookInput
 			continue
 		}
 		cctx, cancel := context.WithTimeout(ctx, timeout)
-		cmd := exec.CommandContext(cctx, "sh", "-c", hk.Command)
+		cmd := sandbox.Contain(exec.CommandContext(cctx, "sh", "-c", hk.Command))
 		cmd.Dir = h.Root
 		payload, _ := json.Marshal(in)
 		cmd.Stdin = bytes.NewReader(payload)

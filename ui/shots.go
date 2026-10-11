@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Kaginari/agent-one/sandbox"
 )
 
 // Widths are the catalogue's proving widths: a phone, a tablet, a desktop (README, Web UIs).
@@ -97,7 +99,7 @@ func chrome(ctx context.Context, browser string, args ...string) (string, error)
 	if os.Getuid() == 0 {
 		full = append([]string{"--no-sandbox"}, full...) // a root container has no user namespace
 	}
-	cmd := exec.CommandContext(ctx, browser, full...)
+	cmd := sandbox.Contain(exec.CommandContext(ctx, browser, full...))
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()

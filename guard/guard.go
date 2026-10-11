@@ -96,12 +96,31 @@ func (g *Guard) Match(cmd string) *Rule {
 	if g == nil {
 		return nil
 	}
+	words := CommandWords(cmd)
 	for i := range g.Rules {
-		if g.Rules[i].re.MatchString(cmd) {
+		if g.Rules[i].re.MatchString(cmd) || g.Rules[i].re.MatchString(words) {
 			return &g.Rules[i]
 		}
 	}
 	return nil
+}
+
+// commandWord is a command at a command position — the line's start, after a separator, opener or
+// quote (a `>|` redirection is not a pipe) — named by its path or escaped from an alias;
+// afterWrapper is one that follows a wrapper running it, past the wrapper's own flags and
+// assignments (`xargs /bin/rm`, `sudo -u root /usr/bin/git`, `env -i PATH=x /bin/rm`).
+var (
+	commandPathOrEscape = `\\?(?:(?:/[^\s/;&|'"` + "`" + `()]+)*/)?([A-Za-z0-9_.+-]+)`
+	commandWord         = regexp.MustCompile(`((?:^|[;&(` + "`" + `'"\n]|[^>]\||^\||\$\()\s*)` + commandPathOrEscape)
+	afterWrapper        = regexp.MustCompile(`((?:\b(?:xargs|exec|command|nohup|nice|env|time|sudo|timeout)\s+(?:-\S+\s+(?:[^-/\s]\S*\s+)?|\w+=\S*\s+|\d\S*\s+)*)+)` + commandPathOrEscape)
+)
+
+// CommandWords rewrites each command word to its bare name — `/usr/bin/git push` and `\rm` read
+// as `git push` and `rm` — so a rule written for the name holds for every way of calling it.
+// Arguments are left alone: `cat /usr/bin/rm` stays as it is.
+func CommandWords(cmd string) string {
+	s := commandWord.ReplaceAllString(cmd, "${1}${2}")
+	return afterWrapper.ReplaceAllString(s, "${1}${2}") // wrappers chain: `sudo env /bin/rm`
 }
 
 // Refusal is the message a blocked command answers with: what matched, and not to work around it.

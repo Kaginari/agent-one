@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/Kaginari/agent-one/guard"
 )
 
 // A port of loop.js's classifier: a heuristic, not a proof — it errs toward asking. A command is
@@ -12,7 +14,26 @@ import (
 // command position (line start, after ; & | ( ` $ or a quote) so `bash -c "git push"` is still
 // outward. Unknown commands default to write; declare a class to tighten.
 
-var systemPrefixes = []string{"/dev/", "/usr/", "/bin/", "/sbin/", "/lib", "/etc/", "/proc/", "/sys/", "/opt/", "/snap/"}
+// systemPrefixes are readable from inside the workspace; a write there leaves it (writesSystem).
+var systemPrefixes = []string{"/dev/", "/usr/", "/bin/", "/sbin/", "/lib/", "/lib32/", "/lib64/", "/etc/", "/proc/", "/sys/", "/opt/", "/snap/"}
+
+// harmlessDevices take a write without anything leaving the workspace.
+var harmlessDevices = []string{"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "/dev/fd/"}
+
+// writesSystem reports whether a write to abs lands in a system directory.
+func writesSystem(abs string) bool {
+	for _, d := range harmlessDevices {
+		if abs == d || strings.HasSuffix(d, "/") && strings.HasPrefix(abs, d) {
+			return false
+		}
+	}
+	for _, s := range systemPrefixes {
+		if strings.HasPrefix(abs, s) {
+			return true
+		}
+	}
+	return false
+}
 
 func at(s string) *regexp.Regexp { return regexp.MustCompile("(?:^|[\\s;&|(`$'\"])" + s) }
 
@@ -68,7 +89,38 @@ var (
 	absPath     = regexp.MustCompile(`^/[^/]`)
 	climbPath   = regexp.MustCompile(`(^|/)\.\.(/|$)`)
 	cdCmd       = regexp.MustCompile(`^cd\s`)
+	netDevice   = regexp.MustCompile(`/dev/(tcp|udp)/`)
+	redirectTo  = regexp.MustCompile(`(?:^|[^>&0-9])[0-9]?>>?\|?\s*([^\s;&|<>]+)`)
+	// the commands whose arguments are write targets: all of them, or the last
+	writesAll  = regexp.MustCompile(`^(tee|touch|mkdir|chmod|chown|chgrp|truncate|rm|rmdir|shred)\s`)
+	writesLast = regexp.MustCompile(`^(cp|mv|install|ln|rsync|sed\s+(-\S*i|--in-place))\s`)
 )
+
+// writeTargets lists the paths a segment writes: redirect targets, and the arguments of the
+// commands that write to theirs.
+func writeTargets(seg string) []string {
+	var out []string
+	for _, m := range redirectTo.FindAllStringSubmatch(seg, -1) {
+		out = append(out, m[1])
+	}
+	var args []string
+	for _, f := range strings.Fields(redirectTo.ReplaceAllString(seg, " "))[1:] {
+		if !strings.HasPrefix(f, "-") {
+			args = append(args, strings.Trim(f, `"'`))
+		}
+	}
+	switch {
+	case writesAll.MatchString(seg):
+		out = append(out, args...)
+	case writesLast.MatchString(seg) && len(args) > 0:
+		out = append(out, args[len(args)-1])
+	}
+	return out
+}
+
+// Segments is a command split at its pipes and separators, each part's leading assignments and
+// wrappers (sudo, env, time, nice) dropped.
+func Segments(cmd string) []string { return segments(cmd) }
 
 func segments(cmd string) []string {
 	// `|` not followed by `|`: the regexp consumes the next char, so re-split by hand.
@@ -82,6 +134,12 @@ func segments(cmd string) []string {
 			parts = append(parts, cur.String())
 			cur.Reset()
 			i++
+		case c == '|' && i > 0 && rs[i-1] == '>':
+			cur.WriteRune(c) // `>|` is a redirection, not a pipe
+		case c == '&' && !(i > 0 && (rs[i-1] == '>' || rs[i-1] == '<')) && !(i+1 < len(rs) && rs[i+1] == '>'):
+			// a lone & ends a command and starts the next; `2>&1`, `>&2` and `&>` are redirections
+			parts = append(parts, cur.String())
+			cur.Reset()
 		case c == '|' || c == ';' || c == '\n':
 			parts = append(parts, cur.String())
 			cur.Reset()
@@ -137,7 +195,17 @@ func (e Env) ClassifyCommand(cmd string) Classification {
 	if esc := e.OutsideWorkspace(cmd); esc != "" {
 		bump(Outward, "path outside the workspace: "+esc)
 	}
-	for _, seg := range segments(cmd) {
+	if m := netDevice.FindString(cmd); m != "" {
+		bump(Outward, "network through "+m)
+	}
+	// command words first: a wrapper (`env -i /bin/rm`) is still there to show where the command is
+	for _, seg := range segments(guard.CommandWords(cmd)) {
+		seg = guard.CommandWords(seg)
+		for _, t := range writeTargets(seg) {
+			if strings.HasPrefix(t, "/") && writesSystem(filepath.Clean(t)) {
+				bump(Outward, "writes a system path: "+t)
+			}
+		}
 		for _, r := range destructiveRules {
 			if r.re.MatchString(seg) {
 				bump(Destructive, r.why)
@@ -171,7 +239,7 @@ func IsRecord(p string) bool { return recordPath.MatchString(filepath.ToSlash(p)
 // ClassifyPath settles the class of a file write: outside the workspace is outward, onto a record
 // is destructive, else write.
 func (e Env) ClassifyPath(abs string) Classification {
-	if !e.Inside(abs) {
+	if !e.Inside(abs) || writesSystem(abs) {
 		return Classification{Class: Outward, Why: "path outside the workspace: " + abs, Paths: []string{abs}}
 	}
 	if e.isRecord(abs) {

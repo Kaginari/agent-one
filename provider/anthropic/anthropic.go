@@ -215,9 +215,22 @@ func (c *Client) Complete(ctx context.Context, req provider.Request) (provider.R
 	if err != nil {
 		return provider.Response{}, err
 	}
+	res, err := provider.Retry(ctx, func() (*http.Response, error) { return c.send(ctx, body, stream) })
+	if err != nil {
+		return provider.Response{}, fmt.Errorf("anthropic: %w", err)
+	}
+	defer res.Body.Close()
+	if stream && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("content-type"), "text/event-stream") {
+		return c.readStream(res.Body, req.OnDelta, req.OnThinking)
+	}
+	return c.readBody(res, req)
+}
+
+// send posts one Messages request.
+func (c *Client) send(ctx context.Context, body []byte, stream bool) (*http.Response, error) {
 	hr, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.BaseURL, "/")+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
-		return provider.Response{}, err
+		return nil, err
 	}
 	hr.Header.Set("content-type", "application/json")
 	hr.Header.Set("x-api-key", c.APIKey)
@@ -235,14 +248,11 @@ func (c *Client) Complete(ctx context.Context, req provider.Request) (provider.R
 	if client == nil {
 		client = http.DefaultClient
 	}
-	res, err := client.Do(hr)
-	if err != nil {
-		return provider.Response{}, fmt.Errorf("anthropic: %w", err)
-	}
-	defer res.Body.Close()
-	if stream && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("content-type"), "text/event-stream") {
-		return c.readStream(res.Body, req.OnDelta, req.OnThinking)
-	}
+	return client.Do(hr)
+}
+
+// readBody reads a whole (non-streamed) answer, or the error it carries.
+func (c *Client) readBody(res *http.Response, req provider.Request) (provider.Response, error) {
 	rawBody, err := io.ReadAll(io.LimitReader(res.Body, 32<<20))
 	if err != nil {
 		return provider.Response{}, err
@@ -320,12 +330,13 @@ func stopOf(s string) provider.StopReason {
 
 // streamed content, assembled block by block
 type sblock struct {
-	kind  string
-	id    string
-	name  string
-	text  strings.Builder
-	input strings.Builder
-	sig   string
+	kind    string
+	id      string
+	name    string
+	text    strings.Builder
+	input   strings.Builder
+	startIn json.RawMessage // a tool_use's input as the start block gave it (whole when no delta follows)
+	sig     string
 }
 
 // readStream assembles a streamed message from server-sent events.
@@ -333,7 +344,7 @@ func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (prov
 	resp := provider.Response{Message: provider.Message{Role: provider.Assistant}}
 	blocks := map[int]*sblock{}
 	var order []int
-	stop := ""
+	stop, stopped := "", false
 	var stopDetails *struct {
 		Category    string `json:"category"`
 		Explanation string `json:"explanation"`
@@ -363,6 +374,7 @@ func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (prov
 				ID   string          `json:"id"`
 				Name string          `json:"name"`
 				Text string          `json:"text"`
+				Data string          `json:"data"` // redacted_thinking
 				In   json.RawMessage `json:"input"`
 			} `json:"content_block"`
 			Delta *struct {
@@ -397,8 +409,9 @@ func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (prov
 			}
 		case "content_block_start":
 			if ev.ContentBlock != nil {
-				b := &sblock{kind: ev.ContentBlock.Type, id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
+				b := &sblock{kind: ev.ContentBlock.Type, id: ev.ContentBlock.ID, name: ev.ContentBlock.Name, startIn: ev.ContentBlock.In}
 				b.text.WriteString(ev.ContentBlock.Text)
+				b.text.WriteString(ev.ContentBlock.Data)
 				blocks[ev.Index] = b
 				order = append(order, ev.Index)
 			}
@@ -442,6 +455,8 @@ func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (prov
 					resp.Usage.CacheWrite = ev.Usage.CacheWrite
 				}
 			}
+		case "message_stop":
+			stopped = true
 		case "error":
 			if ev.Error != nil {
 				return provider.Response{}, fmt.Errorf("anthropic: stream error %s: %s", ev.Error.Type, ev.Error.Message)
@@ -451,6 +466,9 @@ func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (prov
 	if err := sc.Err(); err != nil {
 		return provider.Response{}, fmt.Errorf("anthropic: stream: %w", err)
 	}
+	if !stopped {
+		return provider.Response{}, fmt.Errorf("anthropic: stream: the connection ended before message_stop — the answer is incomplete")
+	}
 	var text []string
 	for _, i := range order {
 		b := blocks[i]
@@ -459,7 +477,14 @@ func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (prov
 			text = append(text, b.text.String())
 		case "tool_use":
 			in := json.RawMessage(strings.TrimSpace(b.input.String()))
-			if len(in) == 0 || !json.Valid(in) {
+			if len(in) == 0 {
+				// no input_json_delta: a tool with no arguments; its input is the start block's
+				in = json.RawMessage(`{}`)
+				if len(b.startIn) > 0 && json.Valid(b.startIn) {
+					in = b.startIn
+				}
+			}
+			if !json.Valid(in) {
 				// a streamed input that does not parse is a fault the tool names, never a guess
 				in = raw(map[string]string{"_malformed": b.input.String()})
 			}

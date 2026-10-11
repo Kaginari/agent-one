@@ -441,3 +441,43 @@ func TestReportedContextIsThePerceivedReading(t *testing.T) {
 		t.Fatalf("reported stress %d is the policy's line, not the perceived one", r.Context.Stress)
 	}
 }
+
+// A native call whose arguments did not parse keeps its tool's name; it is named malformed to the
+// model and never run with an input the tool would misread.
+func TestMalformedNativeCallIsNamed(t *testing.T) {
+	m := mock.New(mock.Calls(provider.ToolCall{ID: "1", Name: "read", Input: json.RawMessage(`{"_malformed":"{\"path\":\"READ"}`)}), mock.Text("@S DONE\n@U policy x\n@E 0"))
+	e := engine(t, m)
+	r, _ := e.Run(context.Background(), "read it")
+	if len(r.Steps) != 1 || r.Steps[0].Status != "failed" {
+		t.Fatalf("steps %+v", r.Steps)
+	}
+	res := m.Requests[1].Messages[2].ToolResults[0].Content
+	if !strings.Contains(res, "malformed tool call") || !strings.Contains(res, "read") || strings.Contains(res, "path is required") {
+		t.Fatalf("the model was told %q", res)
+	}
+}
+
+// A turn that stops early still records what its read-classified commands wrote: the stopped
+// turn's transcript carries it to the resume and the gate.
+func TestStoppedTurnKeepsItsWrites(t *testing.T) {
+	m := mock.New(mock.Calls(provider.ToolCall{ID: "1", Name: "bash", Input: json.RawMessage(`{"command":"echo f.txt | xargs touch"}`)}),
+		mock.Calls(provider.ToolCall{ID: "2", Name: "bash", Input: json.RawMessage(`{"command":"git push"}`)}), mock.Text("never"))
+	e := engine(t, m)
+	r, _ := e.Run(context.Background(), "touch then publish")
+	if r.Status != Denied {
+		t.Fatalf("%+v", r)
+	}
+	b, err := os.ReadFile(filepath.Join(e.JournalDir(), r.RunID+".transcript.json"))
+	if err != nil || !strings.Contains(string(b), `"wrote":["f.txt"]`) {
+		t.Fatalf("the stopped turn lost its write: %v %s", err, b)
+	}
+}
+
+func TestDependencyTreesAreNotWatched(t *testing.T) {
+	e := &Engine{}
+	for rel, want := range map[string]bool{"node_modules": true, "web/node_modules": true, ".venv": true, "src/__pycache__": true, "src/node_modules.go": false, ".git": true} {
+		if e.unwatched(rel) != want {
+			t.Errorf("%s: want unwatched=%v", rel, want)
+		}
+	}
+}

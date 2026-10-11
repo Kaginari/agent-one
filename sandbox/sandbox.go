@@ -177,6 +177,8 @@ func (s *Sandbox) Wrap(call Call, argv []string) []string {
 
 // Command builds an exec.Cmd for argv under this sandbox with a scrubbed environment and its own
 // process group (so a timeout can kill everything it started). env nil means os.Environ().
+// When ctx ends the whole group is killed, and a child left holding the output pipes cannot keep
+// Wait past WaitDelay.
 func (s *Sandbox) Command(ctx context.Context, call Call, env []string, argv ...string) *exec.Cmd {
 	if env == nil {
 		env = os.Environ()
@@ -185,9 +187,24 @@ func (s *Sandbox) Command(ctx context.Context, call Call, env []string, argv ...
 	cmd := exec.CommandContext(ctx, w[0], w[1:]...)
 	cmd.Env = s.Scrub(env)
 	cmd.Dir = call.Cwd
+	return Contain(cmd)
+}
+
+// Contain gives an exec.CommandContext command its own process group, killed whole when the
+// context ends, and bounds Wait by WaitDelay so a backgrounded child holding the output pipes
+// cannot outlive the deadline.
+func Contain(cmd *exec.Cmd) *exec.Cmd {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		return cmd.Process.Kill()
+	}
+	cmd.WaitDelay = WaitDelay
 	return cmd
 }
+
+// WaitDelay is how long Wait waits for the output pipes after the process is gone or killed.
+var WaitDelay = 2 * time.Second
 
 // Scrub applies this sandbox's env rules (nil-safe: the default rules alone).
 func (s *Sandbox) Scrub(env []string) []string {
@@ -212,18 +229,20 @@ func (s *Sandbox) Scrub(env []string) []string {
 	return append(kept, s.opt.EnvSet...)
 }
 
-var secretName = regexp.MustCompile(`(?i)(^|_)(API_KEY|TOKEN|SECRET|PASSWORD|PASSWD)$`)
+var (
+	secretName = regexp.MustCompile(`(?i)(^|_)(API_KEY|TOKEN|SECRET|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS?)(_|$)`)
+	// a URL carrying user:password, as DATABASE_URL usually does
+	secretValue = regexp.MustCompile(`://[^/@\s:]*:[^/@\s]+@`)
+)
 
-// ScrubEnv drops secrets from an environment: any name ending in _API_KEY, _TOKEN, _SECRET,
-// _PASSWORD (case-insensitive), plus the caller's names (globs allowed). allow wins.
+// ScrubEnv drops secrets from an environment: any name holding API_KEY, TOKEN, SECRET, PASSWORD,
+// PRIVATE_KEY, ACCESS_KEY or CREDENTIAL as a whole word (case-insensitive), any value that is a URL
+// with a password in it, plus the caller's names (globs allowed). allow wins.
 func ScrubEnv(env, drop, allow []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		name := kv
-		if i := strings.IndexByte(kv, '='); i >= 0 {
-			name = kv[:i]
-		}
-		if Dropped(name, drop, allow) {
+		name, value, _ := strings.Cut(kv, "=")
+		if Dropped(name, drop, allow) || secretValue.MatchString(value) && !allowed(name, allow) {
 			continue
 		}
 		out = append(out, kv)
@@ -233,16 +252,23 @@ func ScrubEnv(env, drop, allow []string) []string {
 
 // Dropped reports whether an env name is scrubbed under the rules.
 func Dropped(name string, drop, allow []string) bool {
-	for _, a := range allow {
-		if match(a, name) {
-			return false
-		}
+	if allowed(name, allow) {
+		return false
 	}
 	if secretName.MatchString(name) {
 		return true
 	}
 	for _, d := range drop {
 		if match(d, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func allowed(name string, allow []string) bool {
+	for _, a := range allow {
+		if match(a, name) {
 			return true
 		}
 	}

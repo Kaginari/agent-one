@@ -118,7 +118,8 @@ func TestE2ESessionGateAndTools(t *testing.T) {
 	if code != 4 || !strings.Contains(out, "denied at the gate") {
 		t.Fatalf("denied: %d %q", code, out)
 	}
-	w.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", "permissions:\n  rules:\n    - {match: \"bash:git push*\", action: allow}\n"))
+	// the allow lives in the local layer: the tracked project layer travels with every clone and never pre-approves a gated class
+	w.write(".agent-one/config.local.yaml", "permissions:\n  rules:\n    - {match: \"bash:git push*\", action: allow}\n")
 	w.script(".agent-one/tmp/s.json", when("push", call("bash", map[string]string{"command": "git push origin main"})), text("@S DONE pushed or not\n@E 22"))
 	code, out, _ = w.exec(agentOne, "", nil, "run", "--quiet", "push")
 	if code != 0 || !strings.Contains(out, "pushed or not") || !strings.Contains(w.journalText(".agent-one"), `"by":"rule"`) {

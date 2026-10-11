@@ -315,7 +315,7 @@ func TestParseFlags(t *testing.T) {
 	if c.Mode != "build" || !c.Policy.HumanGate.DryRun || c.Policy.HumanGate.Approve[0] != "outward" || c.MCP.Enabled || c.Policy.Principles.Enabled {
 		t.Errorf("flags applied: %+v", c.Policy.HumanGate)
 	}
-	if off := c.OffLines(); len(off) != 2 || !strings.Contains(off[1], "policy.principles.enabled — flag:--no-policy.principles") {
+	if off := c.OffLines(); len(off) != 3 || !strings.Contains(off[1], "policy.humanGate.approve[0] — flag:--approve") || !strings.Contains(off[2], "policy.principles.enabled — flag:--no-policy.principles") {
 		t.Errorf("off: %v", off)
 	}
 }

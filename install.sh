@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install the latest Agent-One release: downloads the archive for this OS/arch from GitHub Releases,
 # verifies it against checksums.txt, and puts the binary in $BIN_DIR (default ~/.local/bin).
-#   curl -fsSL https://raw.githubusercontent.com/Kaginari/agent-one/main/install.sh | sh
+#   curl -fsSL -o install.sh https://raw.githubusercontent.com/Kaginari/agent-one/main/install.sh && sh install.sh
 #   VERSION=v0.1.0 BIN_DIR=/usr/local/bin sh install.sh
 set -eu
 REPO="Kaginari/agent-one"

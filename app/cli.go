@@ -93,6 +93,48 @@ func splitFlags(args []string) (cliFlags, []string) {
 	return f, rest
 }
 
+const globalFlags = "flags: --root <dir> --model <provider/id> --approve <classes> --dry-run --strict --set key=value --no-<feature> --format text|json|wire --json --quiet --session <id> --plain --no-board --containered [--image <ref>]"
+
+// asked reports whether one of the flags is among the arguments, before a `--` that ends them.
+func asked(args []string, flags ...string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		for _, f := range flags {
+			if a == f {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// named reports whether the command was written out (`repl --help`), not defaulted.
+func named(args []string, name string) bool {
+	for _, a := range args {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+func commandSummary(name string) (string, bool) {
+	for _, c := range commands {
+		if c.name == name {
+			return c.summary, true
+		}
+	}
+	return "", false
+}
+
+// isCommand is a command the dispatcher answers: the listed ones, and found (init's second half).
+func isCommand(name string) bool {
+	_, ok := commandSummary(name)
+	return ok || name == "found"
+}
+
 var commands = []struct{ name, summary string }{
 	{"repl", "a live session (the default)"},
 	{"dash", "a live session in the browser: prompt, the neural net, metrics, relations — dash [--open]"},
@@ -102,7 +144,7 @@ var commands = []struct{ name, summary string }{
 	{"review", "two reviewers on two models, one merged shortlist: review [range]"},
 	{"handoff", "write a handoff for a fresh session: handoff [focus]"},
 	{"sessions", "list the sessions of this workspace"},
-	{"status", "the honesty rule and the instrument board"},
+	{"status", "every reading — models, sandbox, guard, memory — and every policy feature switched off, with where"},
 	{"config", "config show [--yaml] | explain | check | path | patch"},
 	{"memory", "the memory instrument (status, index, recall, remember, forget)"},
 	{"toolbox", "the toolbox instrument (index, brief, pick, load, status)"},
@@ -113,6 +155,8 @@ var commands = []struct{ name, summary string }{
 	{"init", "found a workspace here: init [--level light|medium|complex] [--bench] — light: the policy only; medium: a team sketched from the tree; complex: the model reads all the code and founds the team"},
 	{"board", "serve the board and the dashboard (read-only) without a session, on 127.0.0.1"},
 	{"guard", "the global dangerous-command guard: check, test, show, export, hook, install"},
+	{"install", "run the policy inside Claude Code through its hooks: install --claude [--global] [--yes]"},
+	{"hook", "a Claude Code hook (wired by install): hook session-start|prompt|pre-tool|post-tool|stop, the event's JSON on stdin"},
 	{"ui", "the web ui system: init (tokens, layout, components), scan (the legend), check (lint + screenshots)"},
 	{"version", "print the version"},
 	{"help", "this list"},
@@ -136,18 +180,31 @@ func Main(dist string, args []string, io IO, v Version) int {
 		return code
 	}
 	args, _, _ = stripContainerFlags(args)
+	helpFlag, versionFlag, replNamed := asked(args, "-h", "--help"), asked(args, "--version"), named(args, "repl")
 	name, args := command(args)
-	switch name {
-	case "version":
+	switch {
+	case name == "version" || versionFlag:
 		fmt.Fprintln(io.Out, versionLine(dist, v))
 		return 0
-	case "help", "-h", "--help":
+	case name == "help" || helpFlag && name == "repl" && !replNamed:
 		fmt.Fprintf(io.Out, "%s [command] [flags]\n", dist)
 		for _, c := range commands {
 			fmt.Fprintf(io.Out, "  %-9s %s\n", c.name, c.summary)
 		}
-		fmt.Fprintln(io.Out, "flags: --root <dir> --model <provider/id> --approve <classes> --dry-run --strict --set key=value --no-<feature> --format text|json|wire --json --quiet --session <id> --plain --containered [--image <ref>]")
+		fmt.Fprintln(io.Out, globalFlags)
+		fmt.Fprintf(io.Out, "`%s <command> --help` shows one command.\n", dist)
 		return 0
+	case helpFlag:
+		summary, ok := commandSummary(name)
+		if !ok {
+			fmt.Fprintf(io.Err, "@S FAIL\n@? unknown command %q — `%s help` lists them\n", name, dist)
+			return 2
+		}
+		fmt.Fprintf(io.Out, "%s %s — %s\n%s\n", dist, name, summary, globalFlags)
+		return 0
+	case !isCommand(name):
+		fmt.Fprintf(io.Err, "@S FAIL\n@? unknown command %q — `%s help` lists them\n", name, dist)
+		return 2
 	}
 	f, rest := splitFlags(args)
 	if f.dist != "" {
@@ -187,6 +244,10 @@ func Main(dist string, args []string, io IO, v Version) int {
 		return cmdInstrument(name, dist, f, leftover, io)
 	case "guard":
 		return cmdGuard(dist, rest, io)
+	case "hook":
+		return cmdHook(dist, leftover, io)
+	case "install":
+		return cmdInstall(dist, f, rest, io)
 	case "ui":
 		return cmdUI(dist, f, rest, io)
 	case "selftest":
@@ -306,9 +367,15 @@ func cmdInit(dist string, f cliFlags, io IO) (int, string) {
 		fmt.Fprintf(io.Err, "@S FAIL\n@? init: %v\n", err)
 		return 2, ""
 	}
-	if len(made) == 0 {
+	human := humanOut(io, f)
+	switch {
+	case len(made) == 0 && human:
+		fmt.Fprintf(io.Out, "This %s is already founded at %s — nothing touched.\n", "workspace", root)
+	case len(made) == 0:
 		fmt.Fprintf(io.Out, "@S OK %s already founded at %s — nothing touched\n", dist, root)
-	} else {
+	case human:
+		fmt.Fprintf(io.Out, "✓ Founded a %s at %s\n  %d entries under %s: the policy, the log, memory, the ontology, the instruments.\n", "workspace", root, len(made), strings.Split(made[0], "/")[0]+"/")
+	default:
 		fmt.Fprintf(io.Out, "@S OK %s founded at %s\n", dist, root)
 		for _, m := range made {
 			fmt.Fprintln(io.Out, "@F "+m)
@@ -343,12 +410,50 @@ func cmdInit(dist string, f cliFlags, io IO) (int, string) {
 		fmt.Fprintf(io.Out, "@S OK a team sketched from the tree: %d members written (%d kept as they were) — refine their traits and verify lines, or run `%s init --level complex` to have the model read the code\n",
 			len(wrote), len(s.all())-len(wrote), dist)
 	case "complex":
+		// the founding session is a model's work: name a missing model now, not after the founding
+		if why := modelMissing(dist, root, io); why != "" && !f.bench {
+			fmt.Fprintf(io.Err, "@? the founding session needs a model: %s\n@? the %s is founded with the policy only — set the model, then run `%s init --level complex` again (`%s config path` shows where config lives)\n", why, "workspace", dist, dist)
+			return 2, ""
+		}
 		fmt.Fprintf(io.Out, "@S OK the founding session starts: the model reads all the code and founds the team\n")
 	}
 	if f.bench {
 		fmt.Fprintln(io.Out, "@F bench: config comes from "+strings.ToUpper(strings.ReplaceAll(dist, "-", "_"))+"_CONFIG_CONTENT; the gate needs a TTY or a file-layer pre-approval")
 	}
+	if human && level != "complex" {
+		fmt.Fprintln(io.Out, "\nNext:")
+		if why := modelMissing(dist, root, io); why != "" {
+			fmt.Fprintf(io.Out, "  • a model — %s\n    (or set models.default: `%s config path` shows where config lives)\n", why, dist)
+		}
+		fmt.Fprintf(io.Out, "  • %s                        a live session\n", dist)
+		if level != "medium" {
+			fmt.Fprintf(io.Out, "  • %s init --level complex   the model reads the code and founds the team\n", dist)
+		}
+	}
 	return 0, level
+}
+
+// humanOut is whether this command's output goes to a person: a terminal, and no machine format
+// asked for. A person reads prose; a pipe or --format reads the wire.
+func humanOut(io IO, f cliFlags) bool {
+	out, ok := io.Out.(*os.File)
+	return ok && isTerminal(out) && !f.json && f.format == ""
+}
+
+// modelMissing names why the workspace's default model cannot be reached, or "" when it can.
+func modelMissing(dist, root string, io IO) string {
+	cfg, err := config.LoadWith(config.Options{Dist: dist, Root: root, Env: io.Env})
+	if err != nil {
+		return err.Error()
+	}
+	ps := NewProviders(cfg, io.Env)
+	if _, _, err := ps.Route(Route{}); err != nil {
+		if h := ps.Holes(); len(h) > 0 {
+			return strings.Join(h, "; ")
+		}
+		return err.Error()
+	}
+	return ""
 }
 
 // cmdInstrument delegates to the memory, toolbox and ontology CLIs under the distribution's

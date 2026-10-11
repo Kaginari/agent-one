@@ -476,6 +476,10 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 		}
 		r.Usage, r.Context, r.Turns = s.Spend, s.Context, s.Turns
 		if status != Done && status != Dry {
+			// a turn stopped short of finish still owns what it changed on disk
+			for _, w := range s.seen() {
+				s.Wrote = appendUnique(s.Wrote, w)
+			}
 			s.saveTranscript()
 		}
 		s.Journal.Log(Event{"t": "end", "status": status, "turns": s.Turns, "steps": s.Steps, "ms": time.Since(s.Started).Milliseconds(), "holes": r.Holes})
@@ -635,18 +639,26 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	}
 	s.Journal.Log(Event{"t": "perceive", "id": st.ID, "steps": stepsThisTurn, "ms": time.Since(s.Started).Milliseconds(), "context": s.Context})
 	t, ok := e.Tools.Get(call.Name)
-	if !ok {
+	raw, native := malformedInput(call.Input)
+	if !ok || native {
 		st.Status = "failed"
 		msg, stop := fmt.Sprintf("unknown tool %q", call.Name), false
-		if call.Name == "_malformed" {
+		switch {
+		case native:
+			msg = fmt.Sprintf("malformed tool call: the arguments to %s are not valid JSON (%s) — call it again with a whole JSON object", call.Name, clipRaw(raw))
+		case call.Name == "_malformed":
 			var f struct{ Fault, Raw string }
 			_ = json.Unmarshal(call.Input, &f)
 			msg = "malformed tool call: " + f.Fault + " — write one <tool_call>{\"name\", \"input\"}</tool_call> per call"
-		} else if e.Hooks.Missing != nil {
+		case e.Hooks.Missing != nil:
 			msg, stop = e.Hooks.Missing(ctx, s, call)
 		}
-		s.Journal.Log(Event{"t": "record", "id": st.ID, "status": "failed", "attempts": 0, "why": "missing tool", "msg": msg})
-		s.trace("✗ %s %s missing: %s", st.ID, call.Name, lastLine(msg))
+		why := "missing tool"
+		if native || call.Name == "_malformed" {
+			why = "malformed"
+		}
+		s.Journal.Log(Event{"t": "record", "id": st.ID, "status": "failed", "attempts": 0, "why": why, "msg": msg})
+		s.trace("✗ %s %s %s: %s", st.ID, call.Name, why, lastLine(msg))
 		if stop {
 			return st, deny(msg), Escalate, msg
 		}
@@ -1043,4 +1055,30 @@ func (e *Engine) toolNames() []string {
 		return nil
 	}
 	return e.Tools.Names()
+}
+
+// malformedInput reads a native call's {"_malformed": "<raw>"} input — arguments the provider
+// could not parse, kept under the tool's own name.
+func malformedInput(in json.RawMessage) (string, bool) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(in, &m) != nil || len(m) != 1 {
+		return "", false
+	}
+	v, ok := m["_malformed"]
+	if !ok {
+		return "", false
+	}
+	var raw string
+	_ = json.Unmarshal(v, &raw)
+	return raw, true
+}
+
+func clipRaw(s string) string {
+	if len(s) > 80 {
+		return s[:80] + "…"
+	}
+	if s == "" {
+		return "empty"
+	}
+	return s
 }

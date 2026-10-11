@@ -86,6 +86,11 @@ func (c *Config) Decide(tool, input, class string) (Action, *PermRule) {
 			if !Match(r.Pattern, input, pathTools[tool]) {
 				continue
 			}
+			// the tracked project layer travels with every clone: its allow never pre-approves
+			// an act the human gate asks about — that word is the machine's own layers'
+			if r.Action == string(Allow) && r.Origin.Layer == "project" && ClassDefault(class) == Ask {
+				continue
+			}
 			spec := r.Specificity()
 			switch {
 			case best == nil, spec.beats(bestSpec):

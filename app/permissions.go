@@ -72,12 +72,32 @@ func decideHook(live func() *config.Config, env func() tool.Env) func(s *loop.Se
 					action, rule = a, r
 				}
 			}
+			if action == config.Allow && rule != nil && !allowsEveryPart(cfg, name, subject, env()) {
+				return loop.Decision{}
+			}
 		}
 		if rule == nil {
 			return loop.Decision{}
 		}
 		return loop.Decision{Action: string(action), Why: fmt.Sprintf("%s → %s (%s)", rule.Match, rule.Action, rule.Origin)}
 	}
+}
+
+// allowsEveryPart is whether an allow on a command holds for each act inside it: a chained or
+// nested part the gate would ask about (outward, destructive) needs an allow rule of its own,
+// so `npm test*` never carries `&& curl …`.
+func allowsEveryPart(cfg *config.Config, name, subject string, env tool.Env) bool {
+	parts := append(tool.Segments(subject), tool.CommandForms(subject)...)
+	for _, p := range parts {
+		class := env.ClassifyCommand(p).Class
+		if config.ClassDefault(class.String()) == config.Allow {
+			continue
+		}
+		if a, r := cfg.Decide(name, p, class.String()); a != config.Allow || r == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // tighter orders actions: deny over ask over allow.

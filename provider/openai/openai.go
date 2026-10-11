@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -572,43 +571,13 @@ func (c *Client) ContextWindow(ctx context.Context) (int, error) {
 }
 
 // retryable statuses: rate limits and transient server faults (a free tier answers 429 and 503
-// routinely); anything else is the caller's to see at once.
-func retryable(code int) bool {
-	return code == 429 || code == 500 || code == 502 || code == 503 || code == 504
-}
-
-// backoff is the wait before retry n (0-based) when the server names none; tests shorten it.
-var backoff = func(attempt int) time.Duration { return time.Duration(1<<attempt) * time.Second }
-
-// doRetry posts a chat completion, retrying transient failures with backoff — Retry-After when
-// the server gives one, else 1s, 2s, 4s — up to 3 retries, and never past the context.
+// doRetry posts a chat completion under provider.Retry.
 func (c *Client) doRetry(ctx context.Context, body []byte) (*http.Response, error) {
-	const retries = 3
-	for attempt := 0; ; attempt++ {
-		res, err := c.do(ctx, "POST", "/chat/completions", body)
-		if err == nil && !retryable(res.StatusCode) {
-			return res, nil
-		}
-		if attempt == retries || ctx.Err() != nil {
-			if err != nil {
-				return nil, fmt.Errorf("openai: %w", err)
-			}
-			return res, nil // the caller reads the final status and its message
-		}
-		wait := backoff(attempt)
-		if err == nil {
-			if s, perr := strconv.Atoi(strings.TrimSpace(res.Header.Get("Retry-After"))); perr == nil && s > 0 && s <= 60 {
-				wait = time.Duration(s) * time.Second
-			}
-			_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
-			res.Body.Close()
-		}
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("openai: %w", ctx.Err())
-		case <-time.After(wait):
-		}
+	res, err := provider.Retry(ctx, func() (*http.Response, error) { return c.do(ctx, "POST", "/chat/completions", body) })
+	if err != nil {
+		return nil, fmt.Errorf("openai: %w", err)
 	}
+	return res, nil
 }
 
 // errorText reads a provider error body: OpenAI's {"error":{…}}, Gemini's [{"error":{…}}], or

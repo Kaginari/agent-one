@@ -119,7 +119,7 @@ func CustomTool(c Custom, opt CustomOptions) (*Tool, error) {
 			if c.Sandbox && opt.Sandbox != nil {
 				cmd = opt.Sandbox.Command(cctx, sandbox.Call{Cwd: dir, Network: network}, env0, argv...)
 			} else {
-				cmd = exec.CommandContext(cctx, argv[0], argv[1:]...)
+				cmd = sandbox.Contain(exec.CommandContext(cctx, argv[0], argv[1:]...))
 				cmd.Dir = dir
 				cmd.Env = sandbox.ScrubEnv(env0, nil, nil)
 			}

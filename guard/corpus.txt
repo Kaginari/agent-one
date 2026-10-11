@@ -1,6 +1,10 @@
 # The guard's corpus: every line is `block <command>` or `allow <command>`.
 # Derived from davidondrej/skills hooks/test-guard.sh (MIT License, (c) David Ondrej).
 block rm -rf /
+block /bin/rm -rf /
+block \rm -rf ~
+block /usr/bin/git push --force origin main
+allow cat /usr/bin/rm
 block rm -rf /*
 block rm -rf ~
 block rm -rf ~/

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Kaginari/agent-one/loop"
+	"github.com/Kaginari/agent-one/sandbox"
 	"github.com/Kaginari/agent-one/wire"
 )
 
@@ -39,6 +40,12 @@ type GateOptions struct {
 	// TestsBefore is the test files' text as the turn opened; the EndGate hook fills it per call.
 	TestsBefore map[string]string
 	Timeout     time.Duration // per verify command; 0 = 120s
+	// VerifyBefore is each member's verify lines as the turn opened, when the caller took them
+	// itself (a host whose gate runs in a fresh process); nil reads the roster as it stands
+	VerifyBefore map[string][]string
+	// Sandbox contains every verify line and check: no network, secrets scrubbed; nil runs them
+	// with the scrubbed environment alone
+	Sandbox *sandbox.Sandbox
 }
 
 // Verdict is one gate run.
@@ -63,9 +70,12 @@ func (w *Workspace) Gate(ctx context.Context, opt GateOptions, as string, wrote 
 	if !opt.Enabled {
 		return Verdict{Word: "off", Holes: []string{"policy.gate is off — the turn's writes were not checked"}}
 	}
-	// the verify lines as they stood before the turn: an agent edits its own doc in the same turn,
-	// so the post-turn lines alone would let it rewrite the check it is judged by
-	before := w.verifyLines()
+	// the verify lines as they stood before the turn: an agent edits its own doc in the same turn
+	// (Docs-as-code), so the post-turn lines alone would let it rewrite the check it is judged by
+	before := opt.VerifyBefore
+	if before == nil {
+		before = w.verifyLines()
+	}
 	_ = w.Reload() // docs may have changed this turn; the roster is read fresh
 	fail := func(why string) { v.Reasons = append(v.Reasons, why) }
 	domainOwners := w.GateHolders()
@@ -115,13 +125,15 @@ func (w *Workspace) Gate(ctx context.Context, opt GateOptions, as string, wrote 
 					v.Holes = append(v.Holes, fmt.Sprintf("%s: %s's verify `%s` was removed or changed this turn — the pre-turn line still ran; the gate holder confirms the change", w.Lex.Checks[1], n, c))
 				}
 			}
+			// a line added this turn is the model's own command: it runs once the gate holder has
+			// confirmed it, from the next turn on, never on the turn that wrote it
 			for _, c := range now {
 				if !contains(cmds, c) {
-					cmds = append(cmds, c)
+					v.Holes = append(v.Holes, fmt.Sprintf("%s: %s's verify `%s` was added this turn — not run; the gate holder confirms it and it runs from the next turn", w.Lex.Checks[1], n, c))
 				}
 			}
 			for _, cmd := range cmds {
-				if code, tail := w.run(ctx, cmd, opt.Timeout); code != 0 {
+				if code, tail := w.run(ctx, opt.Sandbox, cmd, opt.Timeout); code != 0 {
 					fail(fmt.Sprintf("%s: %s verify `%s` exit %d%s", w.Lex.Checks[1], n, cmd, code, tail))
 				}
 			}
@@ -165,7 +177,7 @@ func (w *Workspace) Gate(ctx context.Context, opt GateOptions, as string, wrote 
 		if strings.TrimSpace(ck.Command) == "" || !(Rule{Scope: ck.Scope}).Applies(as, rank) {
 			continue
 		}
-		if code, tail := w.run(ctx, ck.Command, ck.Timeout); code != 0 {
+		if code, tail := w.run(ctx, opt.Sandbox, ck.Command, ck.Timeout); code != 0 {
 			fail(fmt.Sprintf("check %s: `%s` exit %d%s", or(ck.Name, "unnamed"), ck.Command, code, tail))
 		}
 		v.Checked = append(v.Checked, "check "+or(ck.Name, ck.Command))
@@ -176,14 +188,15 @@ func (w *Workspace) Gate(ctx context.Context, opt GateOptions, as string, wrote 
 	return v
 }
 
-func (w *Workspace) run(ctx context.Context, command string, timeout time.Duration) (int, string) {
+// run is one gate reading: under the sandbox with the network off and secrets scrubbed, killed
+// with everything it started when the timeout passes.
+func (w *Workspace) run(ctx context.Context, sb *sandbox.Sandbox, command string, timeout time.Duration) (int, string) {
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "bash", "-c", command)
-	cmd.Dir = w.Root
+	cmd := sb.Command(cctx, sandbox.Call{Cwd: w.Root}, nil, "bash", "-c", command)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
@@ -289,6 +302,12 @@ func firstLine(s string) string {
 		s = s[:120] + "…"
 	}
 	return s
+}
+
+// VerifyLines is each member's verify commands as the docs hold them now, read fresh.
+func (w *Workspace) VerifyLines() map[string][]string {
+	_ = w.Reload()
+	return w.verifyLines()
 }
 
 // verifyLines is each member's verify commands as the roster holds them now.

@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -107,5 +108,30 @@ func TestEnvSetWinsAndTokenAllowed(t *testing.T) {
 	}
 	if !strings.Contains(got, "ARTIFACTORY_TOKEN=t") || strings.Contains(got, "OTHER_TOKEN") {
 		t.Fatalf("the named token passes, other secrets do not: %s", got)
+	}
+}
+
+// A command that backgrounds a child holding its output must not keep Run past the deadline.
+func TestCommandDeadlineKillsTheTree(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	var nilbox *Sandbox
+	cmd := nilbox.Command(ctx, Call{Cwd: t.TempDir()}, nil, "bash", "-c", "sleep 30 & sleep 30")
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	start := time.Now()
+	_ = cmd.Run()
+	if d := time.Since(start); d > WaitDelay+2*time.Second {
+		t.Fatalf("Run returned after %s — the backgrounded child kept it", d)
+	}
+}
+
+// Credentials named the common ways, or carried in a URL's userinfo, never reach a child.
+func TestScrubCommonCredentialNames(t *testing.T) {
+	env := []string{"AWS_SECRET_ACCESS_KEY=a", "GH_PRIVATE_KEY=b", "GOOGLE_APPLICATION_CREDENTIALS=c", "DOCKER_CREDENTIAL=d",
+		"SESSION_TOKEN_V2=e", "DATABASE_URL=postgres://u:p@db/x", "REDIS_URL=redis://:pw@cache:6379", "PUBLIC_URL=https://example.com/a@b", "NOTASECRET=1", "TOKENIZER=bpe"}
+	got := strings.Join(ScrubEnv(env, nil, nil), " ")
+	if got != "PUBLIC_URL=https://example.com/a@b NOTASECRET=1 TOKENIZER=bpe" {
+		t.Fatalf("scrubbed to %q", got)
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Kaginari/agent-one/sandbox"
 )
 
 const (
@@ -217,9 +219,11 @@ func BashTool() *Tool {
 			}
 			cctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(cctx, "bash", "-c", a.Command)
+			// the shelf's bash runs in the sandboxed shell (NewBashTool); this one, for a bare
+			// registry, still never hands a secret to the command or outlives its timeout
+			cmd := sandbox.Contain(exec.CommandContext(cctx, "bash", "-c", a.Command))
 			cmd.Dir = dir
-			cmd.Env = append(os.Environ(), "AGENT_ONE_ROOT="+env.Root)
+			cmd.Env = append(sandbox.ScrubEnv(os.Environ(), nil, nil), "AGENT_ONE_ROOT="+env.Root)
 			var out, errb bytes.Buffer
 			cmd.Stdout, cmd.Stderr = &out, &errb
 			t0 := time.Now()

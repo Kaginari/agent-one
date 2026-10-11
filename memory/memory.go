@@ -379,7 +379,7 @@ func (w *Workspace) BuildIndex() (*Index, error) {
 // LoadIndex returns the index, or nil and the hole that names the silence.
 func (w *Workspace) LoadIndex() (*Index, string) {
 	if !Exists(w.IndexPath()) {
-		return nil, "no long-term index — run `memory.js index`"
+		return nil, "no long-term index — run `" + w.endpoint() + " index`"
 	}
 	raw := RdOr(w.IndexPath())
 	var probe struct {
@@ -387,14 +387,14 @@ func (w *Workspace) LoadIndex() (*Index, string) {
 		Mems json.RawMessage `json:"mems"`
 	}
 	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
-		return nil, fmt.Sprintf("index unreadable (%s) — rerun `memory.js index`", w.Rel(w.IndexPath()))
+		return nil, fmt.Sprintf("index unreadable (%s) — rerun `%s index`", w.Rel(w.IndexPath()), w.endpoint())
 	}
 	if probe.V == nil || *probe.V != IndexV || !strings.HasPrefix(strings.TrimSpace(string(probe.Mems)), "[") {
-		return nil, "index built by an older memory.js — rerun `memory.js index`"
+		return nil, "index built by an older memory.js — rerun `" + w.endpoint() + " index`"
 	}
 	var idx Index
 	if err := json.Unmarshal([]byte(raw), &idx); err != nil {
-		return nil, fmt.Sprintf("index unreadable (%s) — rerun `memory.js index`", w.Rel(w.IndexPath()))
+		return nil, fmt.Sprintf("index unreadable (%s) — rerun `%s index`", w.Rel(w.IndexPath()), w.endpoint())
 	}
 	return &idx, ""
 }
@@ -416,10 +416,10 @@ func (w *Workspace) IndexHoles(idx *Index, why string) []string {
 	}
 	var h []string
 	if head := GitHead(w.Root); idx.Head != nil && head != nil && *idx.Head != *head {
-		h = append(h, "index older than HEAD — rerun `memory.js index` before trusting")
+		h = append(h, "index older than HEAD — rerun `"+w.endpoint()+" index` before trusting")
 	}
 	if parts := StaleParts(w.sourceStamps(), idx.Sources); len(parts) > 0 {
-		h = append(h, "index older than its sources — "+strings.Join(parts, "; ")+" — rerun `memory.js index`")
+		h = append(h, "index older than its sources — "+strings.Join(parts, "; ")+" — rerun `"+w.endpoint()+" index`")
 	}
 	return h
 }
@@ -987,7 +987,7 @@ func (w *Workspace) Recall(q string, o RecallOpts) (*RecallResult, error) {
 		holes = append(holes, w.IndexHoles(idx, why)...)
 	}
 	if tier == "shared" && len(shared) == 0 {
-		holes = append(holes, "no shared notes yet — `memory.js remember \"<note>\"` writes the first")
+		holes = append(holes, "no shared notes yet — `"+w.endpoint()+" remember \"<note>\"` writes the first")
 	}
 	if unsaidKind != "" && len(shared) > 0 {
 		found := false
@@ -997,7 +997,7 @@ func (w *Workspace) Recall(q string, o RecallOpts) (*RecallResult, error) {
 			}
 		}
 		if !found {
-			holes = append(holes, fmt.Sprintf("no shared note carries kind %s yet — `memory.js remember \"<note>\" --kind %s` writes the first", unsaidKind, unsaidKind))
+			holes = append(holes, fmt.Sprintf("no shared note carries kind %s yet — `%s remember \"<note>\" --kind %s` writes the first", unsaidKind, w.endpoint(), unsaidKind))
 		}
 	}
 	res := &RecallResult{S: "MISS", As: as, Q: q, Results: ranked, Holes: holes}
@@ -1083,4 +1083,13 @@ func (w *Workspace) Forget(as string) (*ForgetResult, error) {
 		}
 	}
 	return &ForgetResult{"FORGOT", as, n, w.Rel(p)}, nil
+}
+
+// endpoint names the memory command in holes: memory.js when the workspace ships it (so the JS
+// instrument and this port speak byte-identical lines), else the binary's own subcommand.
+func (w *Workspace) endpoint() string {
+	if _, err := os.Stat(filepath.Join(w.Root, w.Dir, "tools", "memory.js")); err == nil {
+		return "memory.js"
+	}
+	return strings.TrimPrefix(w.Dir, ".") + " memory"
 }

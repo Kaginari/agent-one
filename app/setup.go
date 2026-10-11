@@ -67,12 +67,15 @@ func runSetup(dist, root string, io IO) (string, error) {
 	fmt.Fprintln(io.Out)
 
 	pick := "keep"
-	global := "the global config (~/.config/" + dist + "/config.yaml)"
+	keep := "Keep the global config (~/.config/" + dist + "/config.yaml)"
+	if !globalConfigExists(dist) {
+		keep = "Decide later — no config yet (`" + dist + " config path` shows where it goes)"
+	}
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().
 			Title("Which model should this "+worldWord(dist)+" run on?").
 			Options(
-				huh.NewOption("Keep "+global, "keep"),
+				huh.NewOption(keep, "keep"),
 				huh.NewOption("OpenRouter free models — gemma-4-31b, inkling-small as fallback", "openrouter"),
 				huh.NewOption("Anthropic — Claude", "anthropic"),
 				huh.NewOption("OpenAI", "openai"),
@@ -160,4 +163,18 @@ func askLevel(dist string) (string, error) {
 			).Value(&level),
 	)).WithTheme(huh.ThemeFunc(huh.ThemeCatppuccin)).Run()
 	return level, err
+}
+
+// globalConfigExists is whether the machine-wide layer holds any config file.
+func globalConfigExists(dist string) bool {
+	d, err := parseDist(dist)
+	if err != nil {
+		return false
+	}
+	for _, n := range []string{"config.yaml", "config.yml", "config.json"} {
+		if _, err := os.Stat(filepath.Join(d.GlobalDir, n)); err == nil {
+			return true
+		}
+	}
+	return false
 }

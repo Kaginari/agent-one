@@ -183,8 +183,9 @@ func (a *App) uiGate(wrote []string) []string {
 	return out
 }
 
-// withUIGate hangs the ui lints on the gate when policy.gate.ui is on.
-func (a *App) withUIGate(h workspace.HookOptions) workspace.HookOptions {
+// gateHooks gives the gate the sandbox its readings run under, and the ui lints when policy.gate.ui is on.
+func (a *App) gateHooks(h workspace.HookOptions) workspace.HookOptions {
+	h.Gate.Sandbox = a.Sandbox
 	if a.Cfg.Policy.Gate.UI {
 		h.Gate.UI = a.uiGate
 	}

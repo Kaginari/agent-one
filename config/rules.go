@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Kaginari/agent-one/sandbox"
 )
 
 // Fact is an injected policy as the ontology takes it: a plain struct, no onto import.
@@ -180,7 +182,7 @@ func RunCheck(ctx context.Context, dir string, env []string, ch Check) CheckResu
 	res := CheckResult{Check: ch}
 	ctx, cancel := context.WithTimeout(ctx, ch.Timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sh", "-c", ch.Command)
+	cmd := sandbox.Contain(exec.CommandContext(ctx, "sh", "-c", ch.Command))
 	cmd.Dir = dir
 	if env != nil {
 		cmd.Env = env

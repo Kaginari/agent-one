@@ -1,4 +1,5 @@
+# Tracked with the workspace: it may tighten the gate, never pre-approve an outward act. A standing
+# allow such as `bash:kubectl get*` goes in .agent-one/config.local.yaml (the machine's own).
 rules:
   - { match: "bash:git push*", action: ask }
-  - { match: "bash:kubectl get*", action: allow }
   - { match: "bash:kubectl*", action: ask }
