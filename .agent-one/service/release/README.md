@@ -1,12 +1,12 @@
 # service-release
 
 - **Rank:** Service owner
-- **Territory:** `.github/`, `.goreleaser.yaml`, `Dockerfile.release`, `install.sh`, `RELEASING.md`, `CHANGELOG.md`, `bench/`, `.gitignore`
+- **Owns:** `.github/`, `.goreleaser.yaml`, `Dockerfile.release`, `install.sh`, `RELEASING.md`, `CHANGELOG.md`, `bench/`, `.gitignore`
 - **Reports to:** orchestrator
 - **Skills:** service-release-flow
 - **Purpose:** owns CI, releases and the benchmark harness end to end, across sessions; anything that tags, publishes, pushes an image or spends on a gateway waits for the operator.
 
-## Traits
+## Invariants
 - `ci.yml` on push to main and PRs: gofmt clean, `go vet`, bubblewrap installed and `kernel.apparmor_restrict_unprivileged_userns=0`, `go test -race ./...`, `go run ./cmd/agent-one selftest`, then the tree must be clean (`git status --porcelain` empty — a test that writes a tracked file fails CI); a linux/darwin × amd64/arm64 build matrix; `goreleaser check`; and bench-smoke (Harbor in Docker against the fake vLLM: right must score 1.0, wrong 0.0).
 - `release.yml` on `v*` tags: tests, then the tag's `## [X.Y.Z]` section of CHANGELOG.md must exist or the release fails; GoReleaser builds tar.gz archives named `agent-one_<os>_<arch>` (no version, so `releases/latest/download` resolves), `checksums.txt`, the GHCR image `ghcr.io/kaginari/agent-one` tagged `<version>` and `latest` (never `latest` on a pre-release), and Sigstore attestations only when the repository is public.
 - `install.sh` downloads the archive and `checksums.txt` from `releases/latest` (or `VERSION=vX.Y.Z`) and verifies sha256 before installing to `~/.local/bin`.

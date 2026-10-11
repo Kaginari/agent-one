@@ -1,18 +1,20 @@
 # zone-ontology
 
 - **Rank:** Zone worker
-- **Territory:** `onto/`
+- **Owns:** `onto/`
 - **Reports to:** domain-workspace
 - **Skills:** zone-go-package, zone-workspace-docs
 - **Purpose:** the ground truth of the ownership graph: the Turtle parser, the triple store, the derivation of members from their docs, the reasoner and the shapes.
 
-## Traits
-- A hand-written Turtle lexer/parser/writer over an in-memory triple store with S/P/O indexes. Asserted triples come from `ontology/schema.ttl` and `ontology/graph/*.ttl`; derived triples come from the docs on disk and from `Infer` and are never written back.
-- Derivation: a member is a directory `<workspace>/<rank dir>/<short>/` with README.md (else `<short>.md`, SKILL.md, the first .md); its id is `<dir>-<short>`. Fields are read leniently (`- **Key:** value`): Reports to / Parent → the bond (zone → domain is `truth`, domain → coord is `verdict`, → orchestrator is `reports`, else `above`); Territory / Owns / Ownership → `owns`, plus EVERY back-ticked token that contains `/` and no space, anywhere in the doc; the Skills field and any skill name appearing as a whole word → `holds`.
-- Skills are read from .opencode/skills, .opencode/skill, .claude/skills; a skill whose name does not start with a rank dir is `shared` and exempt from SkillHeld.
-- Shapes (schema.ttl): ZoneTruth (exactly one truth edge), ZoneOwnership (owns disjoint among zone workers; overlap is equality or a `/`-prefix), SkillHeld (at least one holder unless shared), BondTarget (an `above` target has a doc). `onto check` exits 0 on PASS, 1 on findings, 2 on a load error.
-- `Infer` runs to a fixpoint deterministically (sorted triples): subClassOf/subPropertyOf closure, type propagation, domain/range typing, inverses, transitives. `Visible`/`Project` give a member the plain lines it may see within a token budget (Tokens = runes/4).
-- CLI: check · show · project <member> [--budget N] · assert <agent> <kind> <text>; `CLILayout` is set by the binary from the lexicon before delegating.
+## Invariants
+- One prefix, `ao:` = agent-one:. schema.ttl declares the classes (Member, Orchestrator, Coordinator, Domain owner, Zone worker, Service owner, Skill, Doc, Fact with Policy/Team/Ownership), the bonds (above transitive; truth, verdict, reports subPropertyOf above; holds/heldBy, owns, knows/knownBy, doc, shared) and four shapes: ZoneTruth (exactly one truth edge), ZoneOwnership (owns disjoint), SkillHeld (≥ 1 heldBy unless shared), BondTarget (every above-target has a doc). The workspace's copy of the schema must equal onto.DefaultSchema (TestSchemaOnDiskMatchesBuiltIn).
+- Overlap (validate.go `overlap`): two members asserting the same FILE is a lawful split, not a finding; the same DIRECTORY claimed twice collides, and so does a strict ancestor (src/auth vs src/auth/login). Two claims of one member never collide with each other.
+- derive() never writes: member id = `<rank dir>-<folder lowercased>`; the doc is README.md, else `<folder>.md`, else SKILL.md, else the first .md; fields are read leniently from `- **Key:** value` lines (reports to / domain owner / coordinator / parent; ownership / zone / owns; skills / skill / holds / hats), first wins, and a `## Ownership` heading's backticked bullets count too. The parent falls back to the first member of the expected rank the doc names, or orchestrator.
+- Claims: the structured Ownership field is the authoritative claim list — a bare entry (a top-level dir, a file name) derives; a slashed entry derives only when rooted in the seat's own name (or `.agent-one` / `src`), otherwise it is a cross-reference and registers nothing. Prose backticks derive owns only when they self-name the member (selfNamesSpan) and are rooted in its seat or `.agent-one`; a foreign file path, bare .agent-one, anything under .agent-one/tmp, URI templates and REST routes never derive.
+- A retired seat (a `- **Retired:** true` line) keeps its name, bonds and Skills in the graph but derives no owns — neither its Ownership field nor its prose — so the young of a split, a promotion or a relief never overlap it.
+- Skills come from discover.SkillBases(WorkspaceDir) — crafted-skills, base-skills, then the host dirs, first home wins; a skill whose name prefix is no rank dir is `shared`. A member holds a skill its Skills field names or whose name appears as a whole word in its doc.
+- Housekeep(root, heal, spawn): check-only reports and writes nothing; heal registers a missing member home, rewires a missing chain edge, and rewires a dead bond (a `Reports to:` naming no live seat) to the rank's policy parent — a live bond, policy-shaped or not, stays the operator's. spawn seats draft homes for tracked top-level dirs nobody covers. Overlaps are reported, never rewritten. app runs heal at every workspace-touching CLI start and at init, so a heal must stay idempotent.
+- CLI: `onto check` prints `@S PASS|FAIL n findings · members · skills · facts · triples` (non-zero on findings), plus show, project, owner (ownerOf mirrors workspace.Owner: longest claim, authoring rank on a tie) and assert. Project(member, budget) renders @ONTO by token budget (Tokens = runes/4, rounded up); Visible walks the bonds.
 
 ## Verify
 - `go test ./onto/`

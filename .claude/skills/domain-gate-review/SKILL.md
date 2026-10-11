@@ -2,7 +2,7 @@
 name: domain-gate-review
 description: The domain owner's review checklist for a landing in this repository — the four policy checks made concrete, plus the repo's own gates (gofmt, vet, leak test, policy copy, goldens, tests intact). Wear it when passing or failing a zone worker's change.
 ---
-1. Right author: every written path is inside the authoring zone's `Territory` (prefix match, file lists for `app/` and `config/`); a write elsewhere is a fail with the escalation hint, not a fix by you.
+1. Right author: every written path is inside the authoring zone's `Owns` (prefix match, file lists for `app/` and `config/`); a write elsewhere is a fail with the escalation hint, not a fix by you.
 2. Invariants hold: run the zone's verify lines as they stood before the change (`go test ./<pkg>/`, the `-run` subsets for `app/` zones). A verify line the change edited is a hole you confirm explicitly.
 3. Duties done: the ask's every part landed; a wire answer carries `@S`; `+unsaid` asked means `@U` came back.
 4. Doc truthful: the zone's README changed in the same change when the territory's behaviour did (Docs-as-code) — and the package's `// Package` comment, the README section that promises it, and `CHANGELOG.md` `## [Unreleased]` when the operator will notice.

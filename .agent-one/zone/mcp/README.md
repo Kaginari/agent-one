@@ -1,16 +1,17 @@
 # zone-mcp
 
 - **Rank:** Zone worker
-- **Territory:** `mcp/`
+- **Owns:** `mcp/`
 - **Reports to:** domain-safety
 - **Skills:** zone-go-package, zone-act-classes
 - **Purpose:** the ground truth of the Model Context Protocol client: how servers are spawned, how their tools are classed, how their death is seen.
 
-## Traits
-- JSON-RPC 2.0 over stdio or streamable HTTP (POST, JSON or SSE answers, session id header), stdlib only; `ProtocolVersion` is `2025-06-18`. Stdio servers spawn under the sandbox with the scrubbed environment; `ServerConfig.Env` is added after scrubbing, `EnvAllow` lets names through, `Network` lets the server reach the network.
-- Registry names are `mcp__<server>__<tool>`. The class floor is Outward ("a mouth outside the workspace") unless the server is marked inward (Write) or config names a per-tool class; annotations only tighten — `destructiveHint` → Destructive, `openWorkspaceHint` → Outward; `readOnlyHint` lowers nothing.
-- A server's death is detected and reported; its tools then return the fault instead of vanishing. Per-call timeout defaults to 60 s.
-- Tests use `mcp/internal/testserver` in-process and build the Go server under `mcp/testdata/server`.
+## Invariants
+- JSON-RPC 2.0 over the standard library; ProtocolVersion 2025-06-18; Connect picks stdio when a Command is set (spawned under the sandbox with a scrubbed environment) else http (POST, JSON or SSE answers, session id header); then initialize → notifications/initialized; default Timeout 60 s per call.
+- A server's death is detected (setFault, ErrDead) and reported: Alive() false, and its tools then return the fault instead of vanishing from the shelf.
+- adapter.go: ToolName is mcp__<server>__<tool>; Classify's floor is Outward ("an endpoint outside the workspace") unless ServerOptions.Inward, a per-tool class from config replaces the floor, and destructiveHint / openWorkspaceHint only tighten. Adapt wraps a ToolInfo as a tool.Tool whose Run calls the server.
+- Server definitions come from config (mcp.servers, checkMCP: credentials only through headersEnv / envAllow) and from discover's imports; app/mcp.go is the one caller that connects them and puts the adapted tools on the shelf.
+- Test fixtures: internal/testserver (an in-process server) and testdata/server (a binary). The app package keeps its own fixture at app/testdata/mcpserver for its junction tests.
 
 ## Verify
 - `go test ./mcp/`

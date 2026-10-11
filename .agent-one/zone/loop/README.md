@@ -1,18 +1,21 @@
 # zone-loop
 
 - **Rank:** Zone worker
-- **Territory:** `loop/`
+- **Owns:** `loop/`
 - **Reports to:** domain-engine
 - **Skills:** zone-go-package
 - **Purpose:** the ground truth of the turn engine: the six beats of a step, the journal, the tree snapshot that sees every write, resume.
 
-## Traits
-- A turn's writes are seen by stamping the whole tree (size + mtime) before and after — never by trusting a tool's word: `xargs touch` under a read-classified command is still a write (snapshot.go, `seen`). The walk stops at `SnapshotCap` = 200000 entries; past it the session is unwatched and the hole is named once.
-- Unwatched paths: `.git`, and under the workspace dir `instruments`, `tmp`, `memory`, toolbox/registry.json, ontology/graph/unsaid.ttl, `log.md`.
-- Test files are read as the turn opens (256 KiB a file, 4 MiB in all) so the gate can see deleted or skipped tests; `IsTestFile` knows Go (`_test.go`), JS/TS (`.test.`/`.spec.`) and Python (`test_*.py`, `_test.py`).
-- Statuses DONE · DRY · FAIL · ESCALATE · DENIED · CHECKPOINT; a budget or wall-clock stop is CHECKPOINT with a `resume: agent-one resume <id>` hint. Defaults: 50 steps a turn, 30 minutes a session, 2 retries. Journals are JSONL `Event` maps under the engine's JournalDir, in the shape loop.js writes.
-- A wire answer with no `@U` when the unsaid was asked is a hole, not a failure; an answer with no `@S` at all is a hole too. `StopMaxTokens` and `StopRefusal` become holes.
-- `loop.Hooks` is the only seam (System, Perceive, Recall, Record, Budget, Decide, PreTool/PostTool, EndGate, Drain, Missing, GateRetries…); every one is optional. New behaviour enters through a hook, not through an import.
+## Invariants
+- Session.step runs in this order: step and wall-clock budgets (CHECKPOINT with a resume hint) → a missing or malformed tool (Hooks.Missing may stop the turn ESCALATE; `_malformed` carries a text-call parse fault) → t.Settle → Hooks.Guard (`refused`, by guard) → env.Policy (`refused`, by policy) → Hooks.Decide (deny / allow By "rule" / ask forces the gate) → gate.Ask (Denied ends DENIED, Suspended ends SUSPENDED) → dry-run (`would-ask` / `would-run`) → Hooks.PreTool → t.Run → Hooks.PostTool → gutsNote + Hooks.Note → doom check → record. Consecutive failed acts past Budget.retries() end the run ESCALATE.
+- guts.go is advisory only: gutsValue scores each act in [-2, +1] (failed act, failure lexemes, positive lexemes, the same act twice); a bench (`go test` / `go vet` through bash/shell/exec) whose output carries FAIL scores 0, the red pin. Momentum is the sum over Guts.Window (5); it speaks once at or below Floor (-2), then stays silent for a window. Every reading journals as a `guts` event, spoken or not.
+- Bench thrash: gutsBenchKey is the tool plus the command's first two fields (a `read` keys on its whole input, so page-walks are distinct benches); from BenchThrashVisits (6, negative = off) every further visit costs -1. A piped bench whose result shows neither red nor green counts muted, never green. The echo penalty is separate: a third clean visit to one read/bash bench with no write since costs -1.
+- Session.Pulse() is the one self-state screen (steps, turns, wall, context zone, momentum, top three benches with red/green/muted, writes, failed acts); the `pulse` tool reads it through tool.Env.Self, and every DigestEvery steps (10, negative = off) a `[pulse: …]` line rides the tool result.
+- Doom relief: a landed write resets the spoke streak; when Engine.Doom > 0 and the streak reaches it, the step ends the run CHECKPOINT naming the retire / split / configuration-shift arms, journals `budget` why `doomLoop:guts`, and zeroes the streak and the momentum window so the next turn starts unarmed.
+- snapshot.go stamps the tree (size + mtime) at turn start, after every write-class step and at the turn's end, so shell writes reach the gate. It never walks .git or heavyDirs (node_modules, .venv, venv, __pycache__, target, dist, .next, .turbo, .cache) at any depth, nor the workspace's instruments/, tmp/, memory/, toolbox/registry.json, ontology/graph/unsaid.ttl, log.md; past SnapshotCap (200000 files) shell writes go unseen and the hole is named. IsTestFile feeds the gate's tests-intact check.
+- Every beat journals to .agent-one/instruments/loop/<run-id>.jsonl keyed "t"; a run stopped short of DONE/DRY saves its transcript, and Engine.Resume answers a tool call cut mid-flight "interrupted" — never replayed; the model re-issues it and the gate asks again. compactReplay (loop/compact.go) slims only the wire copy — the newest 4 tool results and the last thinking stay — Session.Messages stay whole.
+- finish: an off-the-wire answer from a Wire agent is sent back once (errWireRetry), a missing @U under +unsaid once more on its own counter; a failed Hooks.EndGate goes back up to Hooks.GateRetries times; ClosingCheck re-asks once, adding the witness demand when files were written; ForgeDemandAt (policy.forge.demandAtSteps) asks the @FORGE question once per turn past that many of the turn's own steps — inside the closing check when it runs, on its own re-ask otherwise; 0 = off. Hooks.Answer sees a DONE turn's final result (the workspace files the orchestrator's drafts there).
+- instrument: DefaultBudget 200000, DefaultStress 180000; zones OK, NEAR (≥ 75% of stress), STRESS, UNREAD. UNREAD is a finding, never a zero; the reading is provider-reported usage (Input + CacheRead + CacheWrite).
 
 ## Verify
 - `go test ./loop/`

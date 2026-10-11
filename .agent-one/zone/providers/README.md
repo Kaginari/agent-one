@@ -1,18 +1,20 @@
 # zone-providers
 
 - **Rank:** Zone worker
-- **Territory:** `provider/`
+- **Owns:** `provider/`
 - **Reports to:** domain-engine
 - **Skills:** zone-go-package
 - **Purpose:** the ground truth of the one standing outward act — a chat turn with a model: the shared request shape and the two vendor dialects plus the mock.
 
-## Traits
-- anthropic: the key comes from `ANTHROPIC_API_KEY` only (the error says "location only: the key never crosses the wire"); `DefaultModel` is `claude-opus-5`, API version `2023-06-01`; `New` switches on adaptive thinking, refusal fallbacks (beta `server-side-fallback-2026-07-01`), `cache_control` on the system prefix, streaming, and `max_tokens` 16000. A tool with a vendor `Declare` (bash_20250124, text_editor_20250728) is sent as that object instead of its schema.
-- openai: any chat-completions endpoint (vLLM, Ollama, OpenRouter, a Gemini compat layer); an empty API key is allowed. Retries 429/500/502/503/504 three times honouring `Retry-After` (≤ 60 s) else 1 s, 2 s, 4 s. `ToolCalls: "text"` parses `<tool_call>{…}</tool_call>` tags for models without native tool calling; `ContextWindow` reads /v1/models once (`max_model_len`, `context_length`, `context_window`).
-- `provider.Validate` enforces the shape every vendor needs: roles alternate, tool results answer exactly the preceding calls, the conversation ends on a user message. A failure here is the caller's bug, not the vendor's.
-- `AGENT_ONE_MODEL` overrides a provider's default model (`provider.DefaultModel`); `provider.Getenv` is a variable tests swap.
-- mock is the scripted provider tests and the selftest use (`mock.Text`, `mock.Call`, `mock.Calls`).
-- Hazard: the HTTP client timeout is 10 minutes a call; a provider's `Headers` map is trusted here and refused upstream by config when it looks like a credential.
+## Invariants
+- provider.Retry (retry.go) is the one retry path, used by both clients: Retryable is 429, 500, 502, 503, 504 and 529; up to 3 retries, waiting Retry-After when it is 1–60 s, else Backoff (1 s, 2 s, 4 s — a package var tests shorten); never past the context; the last response is returned for the caller to read. A non-retryable status comes back at once.
+- Model fallback is not here: app/providers.go wraps a primary and a secondary Provider and tries the secondary only after the primary's error (after its retries) names a transport fault, HTTP 404/429/5xx/529 or `finish_reason error` — never on a refusal. So error strings `anthropic: HTTP n: …` / `openai: HTTP n: …` and openai's errUpstream wording are a contract with that wrapper.
+- anthropic: POST /v1/messages, anthropic-version 2023-06-01, DefaultModel claude-opus-5 (AGENT_ONE_MODEL overrides), max_tokens 16000 unless set; with Fallbacks on (New's default) it sends agent `fallbacks: "default"` and the anthropic-beta FallbackBeta header — the server-side refusal fallback. It declares Claude's trained tools schema-less (bash_20250124, text_editor_20250728), puts cache_control on the last stable system block, sends adaptive thinking and output_config.effort, and replays thinking blocks opaque on the next call.
+- openai: ToolCalls "text" appends textToolIntro and parses <tool_call> tags (a bad tag becomes a call named `_malformed`); native arguments that are not JSON become `{"_malformed": …}`; Guided constrains a Wire request to WireSchema and RenderWire turns the JSON back into @-lines; ContextWindow reads GET /models once; finish_reason "error" under HTTP 200 is a failed call (errUpstream), not an answer; errorText reads OpenAI's and Gemini's error shapes. An empty APIKey is allowed (Ollama).
+- Keys never cross the wire: provider.Getenv is a package var so tests inject an environment. Config-declared Headers are set verbatim on every request — config refuses authorization, x-api-key, api-key and secret-looking values there, so this package trusts what it is given.
+- Provider.Name() is anthropic/<model> or openai/<model> (the fallback wrapper keeps the primary's); the usage journal and the board key spend by that name. Usage.Context() = Input + CacheRead + CacheWrite is what the instrument reads; Usage.Add sums a Subagent's spend into its parent.
+- provider.Validate refuses before any send: no messages, two user messages in a row, a tool result that answers no call or a call left unanswered, an empty user message, a conversation not ending on the user.
+- mock.Provider plays scripted Responses in order for tests and selftests; the app's bench uses its own scriptProvider (app/mockscript.go).
 
 ## Verify
 - `go test ./provider/...`
