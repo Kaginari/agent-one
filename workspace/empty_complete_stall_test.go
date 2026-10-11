@@ -94,7 +94,7 @@ func TestSubagentHangSalvagesKnowledge(t *testing.T) {
 		mock.Text("@S DONE\n@U team answered\n@E 0"),
 	)
 	b := build(m)
-	b.Journal = ""          // journaling on: the worker must leave a transcript for the grace turn to resume from
+	b.Journal = ""         // journaling on: the worker must leave a transcript for the grace turn to resume from
 	b.Budget.Minutes = 0.1 // 6s work clock → ~0.6s grace: room for a loaded runner under -race, still not minutes realism
 	b.Subagent.SalvageTokens = 512
 	b.Models = func(r Route) provider.Provider {
