@@ -610,7 +610,7 @@ func (d *Drainer) modelPass(ctx context.Context, s *loop.Session, drained []prov
 	if err != nil {
 		return wire.Report{}, err
 	}
-	s.Spend = s.Spend.Add(resp.Usage)
+	s.AddSpend(resp.Usage)
 	rep, ok := wire.ParseReport(resp.Message.Text)
 	if !ok {
 		return wire.Report{}, fmt.Errorf("the drain's answer is not on the wire (no @S)")
@@ -759,7 +759,7 @@ func (d *Drainer) summarize(ctx context.Context, s *loop.Session, drained []prov
 	if err != nil {
 		return "", err
 	}
-	s.Spend = s.Spend.Add(resp.Usage)
+	s.AddSpend(resp.Usage)
 	if strings.TrimSpace(resp.Message.Text) == "" {
 		return "", fmt.Errorf("empty summary")
 	}

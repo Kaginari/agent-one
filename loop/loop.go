@@ -280,6 +280,7 @@ type Session struct {
 	Turns         int
 	Steps         int
 	Spend         provider.Usage
+	spendMu       sync.Mutex // Spend is also added to from a background subagent's goroutine (AddSpend)
 	Last          provider.Usage
 	Context       instrument.Context // the session's own goroutine reads it directly; others use Reading
 	ctxMu         sync.RWMutex       // guards Context against readers on other goroutines (status line, board)
@@ -656,7 +657,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 		if why != "" {
 			r.hole(why)
 		}
-		r.Usage, r.Context, r.Turns = s.Spend, s.Context, s.Turns
+		r.Usage, r.Context, r.Turns = s.SpendNow(), s.Context, s.Turns
 		r.Strains = s.failures + s.gateTries + s.wireTries
 		r.GateTries = s.gateTries
 		r.Interrupted = ctx.Err() != nil
@@ -774,7 +775,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 			return end(Fail, "provider: "+err.Error())
 		}
 		s.Last = resp.Usage
-		s.Spend = s.Spend.Add(resp.Usage)
+		s.AddSpend(resp.Usage)
 		s.perceive() // the reading the loop acts on (a Perceive hook may scale the stress line) is the one reported
 		s.Journal.Log(Event{"t": "turn", "n": s.Turns, "model": resp.Model, "stop": string(resp.Stop), "usage": resp.Usage, "context": s.Context, "calls": len(resp.Message.ToolCalls)})
 		s.Messages = append(s.Messages, resp.Message)
@@ -1278,7 +1279,7 @@ func (s *Session) saveTranscript() {
 // by a circuit that needs the pack before the run has finished dying (a subagent about to be
 // axed by its own clock journalizes to prepare for the time-out).
 func (s *Session) Transcript() []byte {
-	b, err := json.Marshal(map[string]interface{}{"runId": s.RunID, "ask": s.Ask, "messages": s.Messages, "wrote": s.Wrote, "steps": s.Steps, "spend": s.Spend})
+	b, err := json.Marshal(map[string]interface{}{"runId": s.RunID, "ask": s.Ask, "messages": s.Messages, "wrote": s.Wrote, "steps": s.Steps, "spend": s.SpendNow()})
 	if err != nil {
 		return nil
 	}
@@ -1480,4 +1481,20 @@ func clipRaw(s string) string {
 		return "empty"
 	}
 	return s
+}
+
+// AddSpend adds a call's usage to the session's spend. A background subagent's report lands on
+// its parent's session from the subagent's own goroutine while the parent's turn runs, so every
+// read and write of Spend goes through spendMu (AddSpend, SpendNow).
+func (s *Session) AddSpend(u provider.Usage) {
+	s.spendMu.Lock()
+	s.Spend = s.Spend.Add(u)
+	s.spendMu.Unlock()
+}
+
+// SpendNow is the session's spend so far, read under the same lock.
+func (s *Session) SpendNow() provider.Usage {
+	s.spendMu.Lock()
+	defer s.spendMu.Unlock()
+	return s.Spend
 }

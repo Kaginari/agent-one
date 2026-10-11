@@ -225,7 +225,7 @@ func TestTUIJunctionTurn(t *testing.T) {
 	sc.wait(t, "⎿ ok · ")
 	sc.wait(t, "there")
 	sc.wait(t, "● edit  README.md  write")
-	sc.wait(t, " ⎿ ok · ") // the diff is ctrl+o ownership now, never ambient
+	sc.wait(t, "+2 −0") // the edit's own result: ctrl+o opens the last folded block, which must be it
 	tm.Send(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 	sc.wait(t, "+ the login zone")
 	sc.wait(t, "hi was said and the file edited")

@@ -56,7 +56,9 @@ func TestWatchdogLeavesAnAnsweredTurnAlone(t *testing.T) {
 	)
 	w.write(".agent-one/config.yaml", mockCfg(".agent-one/tmp/s.json", ""))
 	oldTick, oldNotice, oldDeny := watchdogTick, watchdogNotice, watchdogAutoDeny
-	watchdogTick, watchdogNotice, watchdogAutoDeny = 30*time.Millisecond, 60*time.Millisecond, 120*time.Millisecond
+	// the rungs are far enough out that a slow runner (-race on CI) still answers inside them:
+	// the property is that an answered card stops the clock, not how fast a test types
+	watchdogTick, watchdogNotice, watchdogAutoDeny = 30*time.Millisecond, 3*time.Second, 6*time.Second
 	t.Cleanup(func() { watchdogTick, watchdogNotice, watchdogAutoDeny = oldTick, oldNotice, oldDeny })
 	_, tm, sc := tuiSessionHost(t, w)
 	tm.Type("push it")
