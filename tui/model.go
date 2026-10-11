@@ -72,7 +72,8 @@ type Model struct {
 	subagentRows  map[int]string  // window row → the subagent a roster row shows; a click there switches the plan card
 	railCardRows  map[string]int  // sidebar section key ("subagents" | "plan" | "files") → its rule's window row; a click there folds it
 	railScroll    int             // the rail's scroll offset in rows: the wheel over the rail column walks it
-	railMore      bool            // rows lie below the sidebar's last visible one (the ▼ on its edge)
+	railTotal     int             // the sidebar's content rows, scrolled or not (its scrollbar's length)
+	barDrag       string          // "chat" | "rail" while a scrollbar's thumb is dragged
 	railOff       bool            // the human hid the sidebar (alt+s, /sidebar): the frame keeps one column
 	railCollapsed map[string]bool // rail card key ("subagents" | "plan" | "files") → collapsed to its header
 	lay           layout          // the last frame's geometry: the mouse reads it back
@@ -267,12 +268,15 @@ func New(host Host, theme Theme, words Words) *Model {
 		}
 		return "  "
 	})
-	ta.Placeholder = "ask, or / for commands"
+	ta.Placeholder = "ask anything · / for commands · @ for files"
 	ta.CharLimit = 0
 	// the box grows with its visual rows (soft wraps included) up to 8, then scrolls inside
 	ta.DynamicHeight = true
 	ta.MinHeight = 1
 	ta.MaxHeight = 8
+	// the content is never capped: past MaxHeight rows the box scrolls inside (without this the
+	// textarea refuses a ninth line)
+	ta.MaxContentHeight = 1 << 16
 	ta.SetHeight(1)
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 	st := ta.Styles()
@@ -522,11 +526,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		if m.barMouse(msg) {
+			return m, nil
+		}
 		cmd, _ := m.mouseSelect(msg)
 		return m, cmd
 	case evSelScroll:
 		return m, m.selScroll()
 	case tea.MouseClickMsg:
+		if m.barMouse(msg) {
+			return m, nil
+		}
 		if cmd, ok := m.mouseSelect(msg); ok {
 			return m, cmd
 		}
@@ -805,14 +815,20 @@ func (m *Model) railVisible() int {
 
 // sizeInput fits the textarea to where it lives: the main column's content width under the
 // frame, the inline box's inner width otherwise.
+//
+// Under the frame the ask's well starts three rows tall and grows with its soft-wrapped rows
+// up to eight (or 35% of the window), then scrolls inside; the inline box starts at one.
 func (m *Model) sizeInput() {
 	w := m.width - 4
+	lo, hi := 1, 8
 	if l := m.layout(); l.pane {
 		w = l.input.W
+		lo, hi = 3, min(8, max(3, m.height*35/100))
 	}
-	if w != m.inputW {
+	if w != m.inputW || lo != m.input.MinHeight || hi != m.input.MaxHeight {
 		m.inputW = w
-		m.input.SetWidth(w)
+		m.input.MinHeight, m.input.MaxHeight = lo, hi
+		m.input.SetWidth(w) // re-measures the height against the new bounds
 	}
 }
 
@@ -884,18 +900,18 @@ func (m *Model) chatRows(live []string, l layout) []string {
 func (m *Model) railRowsAt(l layout) []railRow {
 	m.subagentRows = map[int]string{}
 	m.railCardRows = map[string]int{}
-	m.railMore = false
+	m.railTotal = 0
 	if l.rc == 0 {
 		return nil
 	}
 	rows := m.theme.railRows(m.railView(l.rc-2), l.rc)
+	m.railTotal = len(rows)
 	maxScroll := max(len(rows)-l.rail.H, 0)
 	m.railScroll = min(max(m.railScroll, 0), maxScroll)
 	rows = rows[m.railScroll:]
 	if len(rows) > l.rail.H {
 		rows = rows[:l.rail.H]
 	}
-	m.railMore = m.railScroll < maxScroll
 	if m.bview == nil && m.board == nil {
 		for i, r := range rows {
 			y := l.rail.Y + i
@@ -938,8 +954,19 @@ func (m *Model) railView(rw int) RailView {
 		CtxMax:    m.footer.CtxMax,
 		Layers:    m.footer.Layers,
 	}
+	switch {
+	case m.choice != nil:
+		v.State = "wait"
+	case m.busy:
+		v.State = "busy"
+		v.Verb = strings.ToLower(strings.TrimSuffix(m.verb, "…"))
+		if len([]rune(v.Verb)) > 20 {
+			v.Verb = string([]rune(v.Verb)[:19]) + "…"
+		}
+	}
 	if m.railCollapsed != nil {
 		v.Collapsed = map[string]bool{
+			"ranks":     m.railCollapsed["ranks"],
 			"subagents": m.railCollapsed["subagents"],
 			"plan":      m.railCollapsed["plan"],
 			"files":     m.railCollapsed["files"],
@@ -1329,12 +1356,12 @@ func (m *Model) Render() string {
 	if m.intro != nil && m.ready {
 		return m.introView()
 	}
+	m.sizeInput()
 	l := m.layout()
 	m.lay = l
 	if !l.pane {
 		m.catchUp() // pane exit (or an always-narrow run): the scrollback gets the blocks it never saw
 	}
-	m.sizeInput()
 	cw := m.width
 	if l.pane {
 		cw = l.chat.W
@@ -1403,12 +1430,12 @@ func (m *Model) Render() string {
 			below := max(m.vp.TotalLineCount()-m.vp.YOffset()-m.vp.Height(), 0)
 			aside = m.theme.accent.Render(fmt.Sprintf("↓ %d more", below))
 		}
-		ask, askAside := m.theme.title("ask"), ""
+		ask, askAside := m.theme.regionTitle("ask"), ""
 		switch {
 		case m.choice != nil:
 			ask = m.theme.dim.Render(smallCap("ask") + " · answer the card first")
-		case m.busy:
-			askAside = m.theme.dim.Render("enter queues for " + m.words.Session())
+		default:
+			askAside = m.askHint(l.mc - ansi.StringWidth(ansi.Strip(ask)) - 8)
 		}
 		rows := m.frame(l, m.header(l.W-4), chat, input, rail, aside, ask, askAside, m.theme.StatusBar(f, l.W-4))
 		return strings.Repeat(strings.Repeat(" ", l.W)+"\n", paneTop) + m.overlay(strings.Join(rows, "\n"))
@@ -1436,6 +1463,31 @@ func (m *Model) Render() string {
 	f.Hint = "? for shortcuts · ctrl+p plans"
 	parts = append(parts, m.theme.Footer(f, m.width))
 	return m.overlay(strings.Join(parts, "\n"))
+}
+
+// askHint is the ask's rule's right end, fitted to w cells: the draft's size while there is
+// one (its lines and characters), then what enter does (sends, or queues behind a busy
+// session) and the newline key — the parts yield right to left.
+func (m *Model) askHint(w int) string {
+	t := m.theme
+	var parts []string
+	if v := m.input.Value(); v != "" {
+		n := strings.Count(v, "\n") + 1
+		parts = append(parts, t.label.Render(fmt.Sprintf("%d line%s · %d char%s", n, plural(n), len([]rune(v)), plural(len([]rune(v))))))
+	}
+	enter := t.label.Render("enter") + t.dim.Render(" sends")
+	if m.busy {
+		enter = t.label.Render("enter") + t.dim.Render(" queues for "+m.words.Session())
+	}
+	parts = append(parts, enter, t.label.Render("shift+enter")+t.dim.Render(" newline"))
+	for len(parts) > 0 {
+		s := strings.Join(parts, t.dim.Render(" · "))
+		if ansi.StringWidth(s) <= w {
+			return s
+		}
+		parts = parts[:len(parts)-1]
+	}
+	return ""
 }
 
 // paneTop is the headroom the panes leave above themselves: the frame still fills the window

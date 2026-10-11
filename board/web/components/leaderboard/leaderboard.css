@@ -1,4 +1,4 @@
-/* @component leaderboard — tokens: --ink, --ink-muted, --line, --accent, --second, --ok, --warn, --danger, --surface-sunken, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --font-heading, --font-code, --font-body, --step--2, --step--1, --step-0, --step-1, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --hairline, --tracking-label, --tracking-caps, --weight-bold, --glow-primary, --glow-accent, --radius-s. The members ranked by their work, a scoreboard: a large rank numeral (the first in the accent), the member and its rank under it, its runs in the primary, its pass rate, its tokens, and whether it is live now. A row is a button-like line that focuses its neuron. */
+/* @component leaderboard — tokens: --ink, --ink-muted, --line, --accent, --second, --ok, --warn, --danger, --surface-sunken, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --font-heading, --font-code, --font-body, --step--2, --step--1, --step-0, --step-1, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --hairline, --tracking-label, --tracking-caps, --weight-bold, --glow-primary, --glow-accent, --radius-s. The members ranked by their rank's value score, a scoreboard: a large rank numeral (the first in the accent), the member and its rank under it, its score, its rank's own measure in its band's tone, its strain, its runs, its tokens, and whether it is live now. A row under its rank's record is hatched and unranked (an em dash, never a place it has not earned). The hue falls back to the rank's family when the rank has none of its own. A row is a button-like line that focuses its neuron. */
 @layer components {
   .leaderboard-wrap { overflow-x: auto; border: var(--hairline) solid var(--line); border-radius: var(--radius-s); }
   .leaderboard { inline-size: 100%; border-collapse: collapse; font-size: var(--step-0); }
@@ -11,18 +11,28 @@
   .leaderboard tbody tr:hover { background: color-mix(in oklch, var(--accent) 5%, transparent); }
   .leaderboard tbody tr:focus-visible { outline: var(--hairline) solid var(--accent); outline-offset: -1px; }
   .leaderboard-rank { font: var(--weight-bold) var(--step-1) var(--font-heading); color: var(--ink-muted); font-variant-numeric: tabular-nums; inline-size: 1%; }
-  .leaderboard tbody tr:first-child .leaderboard-rank { color: var(--second); text-shadow: var(--glow-accent); }
+  .leaderboard tbody tr:first-child[data-confidence="ok"] .leaderboard-rank { color: var(--second); text-shadow: var(--glow-accent); }
   .leaderboard-name { font: var(--weight-bold) var(--step-0) var(--font-heading); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink); white-space: nowrap; }
   .leaderboard-sub { display: block; font: var(--step--2) var(--font-body); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-muted); }
   .leaderboard-sub::before { content: ""; display: inline-block; inline-size: 0.5em; block-size: 0.5em; margin-inline-end: var(--space-3xs); background: var(--leaderboard-rank, var(--ink-muted)); transform: rotate(45deg); }
+  .leaderboard tr[data-family="author"] { --leaderboard-rank: var(--series-1); }
+  .leaderboard tr[data-family="gate"] { --leaderboard-rank: var(--series-2); }
+  .leaderboard tr[data-family="steward"] { --leaderboard-rank: var(--series-3); }
+  .leaderboard tr[data-family="planner"] { --leaderboard-rank: var(--series-4); }
+  .leaderboard tr[data-family="auditor"] { --leaderboard-rank: var(--series-5); }
+  .leaderboard tr[data-family="root"] { --leaderboard-rank: var(--series-6); }
   .leaderboard tr[data-rank="zone"] { --leaderboard-rank: var(--series-1); }
   .leaderboard tr[data-rank="domain"], .leaderboard tr[data-rank="principal-domain-owner"] { --leaderboard-rank: var(--series-2); }
   .leaderboard tr[data-rank="service"] { --leaderboard-rank: var(--series-3); }
   .leaderboard tr[data-rank="coord"], .leaderboard tr[data-rank="principal-coordinator"] { --leaderboard-rank: var(--series-4); }
   .leaderboard tr[data-rank="auditor"] { --leaderboard-rank: var(--series-5); }
   .leaderboard tr[data-rank="orchestrator"] { --leaderboard-rank: var(--series-6); }
+  .leaderboard tbody tr[data-confidence="low"] { background: repeating-linear-gradient(-45deg, transparent 0 0.4rem, color-mix(in oklch, var(--line) 45%, transparent) 0.4rem 0.46rem); }
+  .leaderboard tbody tr[data-confidence="low"] .leaderboard-num { color: var(--ink-muted); }
+  .leaderboard-unit { margin-inline-end: var(--space-3xs); font: var(--step--2) var(--font-body); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--ink-muted); }
   .leaderboard-num { font: var(--step--1) var(--font-code); font-variant-numeric: tabular-nums; color: var(--ink); text-align: end; white-space: nowrap; }
   .leaderboard-num[data-lead] { font-weight: var(--weight-bold); color: var(--accent); text-shadow: var(--glow-primary); }
+  .leaderboard-num[data-tone="ok"] { color: var(--ok); }
   .leaderboard-num[data-tone="warn"] { color: var(--warn); }
   .leaderboard-num[data-tone="danger"] { color: var(--danger); }
   .leaderboard th[data-num] { text-align: end; }

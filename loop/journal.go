@@ -71,8 +71,11 @@ type StepState struct {
 
 // RunState is a journal read back honestly.
 type RunState struct {
-	ID       string      `json:"id"`
-	Status   string      `json:"status"` // the end line's status, else INTERRUPTED
+	ID     string `json:"id"`
+	Status string `json:"status"` // the end line's status, else INTERRUPTED
+	// Word is the run's one word under policy.value (value.RunWord): the loop's status when it did
+	// not close DONE, else the agent's own @S word. Empty on a journal older than the field.
+	Word     string      `json:"word,omitempty"`
 	As       string      `json:"as"`
 	Ask      string      `json:"ask,omitempty"`
 	Provider string      `json:"provider,omitempty"`
@@ -114,7 +117,7 @@ func State(path string, events []Event) RunState {
 				st.Context = c
 			}
 		case "end":
-			st.Status = str(e, "status")
+			st.Status, st.Word = str(e, "status"), str(e, "word")
 		case "gate":
 			s := step(id)
 			s.Tool, s.Class = str(e, "tool"), str(e, "effective")

@@ -34,7 +34,7 @@ type Theme struct {
 	// title, a key in a key-value grid) one step brighter than dim; magenta is the HUD's second
 	// accent — the human's own marks (the ask's bar, the waiting chip), never a second accent
 	// in a region that already holds the primary cyan
-	label, magenta            lipgloss.Style
+	label, magenta, plan      lipgloss.Style
 	classes                   map[string]lipgloss.Style
 	ranks                     map[string]lipgloss.Style
 	lanes                     map[string]color.Color
@@ -48,6 +48,7 @@ type Theme struct {
 	// on while the frame owns the window on a truecolor terminal; the scrollback stays flat.
 	Depth bool
 	dep   depthScale
+	pal   Roles // the palette's variant the theme was built from
 }
 
 // Words are the labels a distribution renames (agent-one says Subagent, Operator, Workspace).
@@ -69,88 +70,76 @@ func DefaultWords() Words {
 	return Words{Subagent: "subagent", Subagents: "subagents", Workspace: "workspace", Human: "the operator", Gate: "gate", Dist: "agent-one", ConfigRel: ".agent-one/config.local.yaml", SessionName: "orchestrator"}
 }
 
-// NewTheme builds the palette for a dark or light background.
-func NewTheme(dark bool) Theme {
-	p := colorprofile.Detect(os.Stdout, os.Environ())
-	t := Theme{Dark: dark, Color: p != colorprofile.Ascii && p != colorprofile.NoTTY, TrueColor: p == colorprofile.TrueColor}
-	t.dep = newDepthScale(dark, defaultGround(dark))
-	c := func(dark, light string) color.Color {
-		if t.Dark {
-			return lipgloss.Color(dark)
-		}
-		return lipgloss.Color(light)
-	}
-	// the palette, by role (the dashboard's Neon HUD carried to the cell grid): the ground is
-	// the terminal's own; borders sit quieter than any text; text, then label, then dim carry
-	// the hierarchy; cyan is the primary (brand, focus, the live state), magenta the human's
-	// accent; ok/warn/bad say verdicts. Dark holds the neons softened to read as text; light
-	// holds their deep-ink twins (every text role ≥ 4.5:1 on its ground).
-	t.dim = lipgloss.NewStyle().Foreground(c("#9ca7b6", "#56606c"))
-	t.label = lipgloss.NewStyle().Foreground(c("#bcc6d2", "#36404b"))
-	t.text = lipgloss.NewStyle()
-	t.accent = lipgloss.NewStyle().Foreground(c("#4fe3ee", "#00707c"))  // neon cyan, softened / deep teal
-	t.magenta = lipgloss.NewStyle().Foreground(c("#f67fee", "#a0168f")) // neon magenta, softened / deep plum
-	t.user = lipgloss.NewStyle().Foreground(c("#d5dde6", "#1f2730"))
-	t.ok = lipgloss.NewStyle().Foreground(c("#5fcf86", "#1b7034"))
-	t.bad = lipgloss.NewStyle().Foreground(c("#fe877f", "#a82e1b"))
-	t.warn = lipgloss.NewStyle().Foreground(c("#e8b955", "#8a5a00"))
-	t.border = lipgloss.NewStyle().Foreground(c("#3d4a5a", "#b3bdc8"))
+// NewTheme builds the theme for a dark or light background from the default palette.
+func NewTheme(dark bool) Theme { return NewThemeFrom(Cyberpunk, dark) }
+
+// laneAlias maps the names that ride another rank's lane onto it: agent-one's ranks, the
+// role hats (analyst reads in the zone worker's ground-truth hue, judge verdicts in the domain owner's,
+// drafter drafts in the coordinator's) and the promoted ranks.
+var laneAlias = map[string]string{
+	"orchestrator": "orchestrator", "coord": "coord", "domain": "domain", "zone": "zone", "service": "service", "auditor": "auditor",
+	"analyst": "zone", "judge": "domain", "drafter": "coord",
+	"principal-domain-owner": "domain",
+}
+
+// NewThemeFrom builds the theme from a palette — the one constructor that reads a palette's
+// roles; nothing else in the package names a colour of the scheme.
+func NewThemeFrom(p Palette, dark bool) Theme {
+	pr := colorprofile.Detect(os.Stdout, os.Environ())
+	t := Theme{Dark: dark, Color: pr != colorprofile.Ascii && pr != colorprofile.NoTTY, TrueColor: pr == colorprofile.TrueColor}
+	r := p.roles(dark)
+	t.pal = r
+	t.dep = newDepthScale(dark, r)
+	fg := func(hex string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)) }
+	// the roles: borders sit quieter than any text; text, then label, then dim carry the
+	// hierarchy; the primary is the brand, the focus and the live state, the accent the human's
+	// marks; ok/warn/bad say verdicts; plan is the deck's own family
+	t.dim = fg(r.Muted)
+	t.label = fg(r.Label)
+	t.text = fg(r.Text)
+	t.accent = fg(r.Primary)
+	t.magenta = fg(r.Accent)
+	t.user = fg(r.User)
+	t.ok = fg(r.OK)
+	t.bad = fg(r.Danger)
+	t.warn = fg(r.Warn)
+	t.plan = fg(r.Plan)
+	t.border = fg(r.Border)
 	t.tag = lipgloss.NewStyle().Bold(true)
-	t.add = lipgloss.NewStyle().Foreground(c("#5fcf86", "#1f7a3a"))
-	t.del = lipgloss.NewStyle().Foreground(c("#f0716a", "#b8341f"))
-	t.ctxLine = lipgloss.NewStyle().Foreground(c("#8a94a3", "#5c6672"))
-	t.lineNo = lipgloss.NewStyle().Foreground(c("#5b6675", "#8a94a3"))
-	t.sel = lipgloss.NewStyle().Background(c("#1d4a5a", "#bfeef2")).Foreground(c("#eaffff", "#0b1424"))
-	t.classes = map[string]lipgloss.Style{
-		"read":        lipgloss.NewStyle().Foreground(c("#4db8dd", "#1a7fa3")),
-		"write":       lipgloss.NewStyle().Foreground(c("#9a86e8", "#5c3fc9")),
-		"outward":     lipgloss.NewStyle().Foreground(c("#e0b04f", "#8a6600")).Bold(true),
-		"destructive": lipgloss.NewStyle().Foreground(c("#e06c5f", "#b8341f")).Bold(true),
+	t.add = fg(r.OK)
+	t.del = fg(r.Danger)
+	t.ctxLine = fg(toRGB(lipgloss.Color(r.Muted)).mix(hexRGB(r.Ground), 0.15).hex())
+	t.lineNo = fg(toRGB(lipgloss.Color(r.Muted)).mix(hexRGB(r.Ground), 0.4).hex())
+	t.sel = lipgloss.NewStyle().Background(lipgloss.Color(r.Selection)).Foreground(lipgloss.Color(r.SelText))
+	t.classes = map[string]lipgloss.Style{}
+	for k, h := range r.Classes {
+		st := fg(h)
+		if k == "outward" || k == "destructive" {
+			st = st.Bold(true)
+		}
+		t.classes[k] = st
 	}
-	t.ranks = map[string]lipgloss.Style{
-		"zone":                   lipgloss.NewStyle().Foreground(c("#2695bd", "#1a7fa3")),
-		"domain":                 lipgloss.NewStyle().Foreground(c("#7c5cd6", "#5c3fc9")),
-		"coord":                  lipgloss.NewStyle().Foreground(c("#bd8c24", "#8a6600")),
-		"service":                lipgloss.NewStyle().Foreground(c("#c53d34", "#a12e26")),
-		"auditor":                lipgloss.NewStyle().Foreground(c("#d6402a", "#b8341f")),
-		"principal-domain-owner": lipgloss.NewStyle().Foreground(c("#8a7300", "#6b7400")),
-		"principal-coordinator":  lipgloss.NewStyle().Foreground(c("#bd8c24", "#8a6600")),
-		"orchestrator":           lipgloss.NewStyle().Foreground(c("#eaf2ff", "#0b1424")),
+	// the rank lanes: the colour a Subagent's slab, chip and motion hold, the files it wrote, its
+	// share of the work; a rank's ◆ and name hold the same hue
+	t.lanes = map[string]color.Color{}
+	t.ranks = map[string]lipgloss.Style{}
+	for k, h := range r.Lanes {
+		t.lanes[k] = lipgloss.Color(h)
+		t.ranks[k] = fg(h)
 	}
-	// the rank pulse lanes (N16 slice 1): the colour a live Subagent row's motion holds — the
-	// shimmer's principles, the tool spinner's glyph, the gate-wait bob, the landing flash. Distinct
-	// from the rank token that colours the ◆ and the name: the lane says "alive", the token says
-	// "who".
-	t.lanes = map[string]color.Color{
-		"orchestrator": c("#e8b545", "#b88b1a"), // golden
-		"coord":        c("#e88030", "#b25c18"), // orange
-		"domain":       c("#6fae5a", "#3f7f33"), // green
-		"zone":         c("#58b7f0", "#1f78b8"), // blue
-		"service":      c("#c53d34", "#a12e26"), // red
-		"auditor":      c("#9a86e8", "#5c3fc9"), // violet
-		// the role hats ride lane colours too — the plan card and per-card titles hold them:
-		// analyst (findings/reads) is the zone-shared blue of the ground truth, judge
-		// (verdicts) the domain owner's gate greens, drafter (drafts) the coordinator's cross-domain orange
-		"analyst": c("#58b7f0", "#1f78b8"),
-		"judge":   c("#6fae5a", "#3f7f33"),
-		"drafter": c("#e88030", "#b25c18"),
+	for k, to := range laneAlias {
+		if h, ok := r.Lanes[to]; ok {
+			t.lanes[k] = lipgloss.Color(h)
+			t.ranks[k] = fg(h)
+		}
 	}
 	return t
 }
 
-// OnGround re-steps the depth's surfaces from the terminal's own background (its answer to the
-// background query); a background that contradicts the theme's darkness keeps the default.
-func (t Theme) OnGround(bg color.Color) Theme {
-	if bg == nil {
-		return t
-	}
-	g := toRGB(bg)
-	if (g.lum() < 0.25) != t.Dark {
-		return t
-	}
-	t.dep = newDepthScale(t.Dark, g)
-	return t
-}
+// OnGround is the terminal's answer about its background. The palette owns the frame's ground
+// (the depth paints every cell of the frame), so the answer no longer re-steps the surfaces:
+// it only told the theme dark from light, which the caller already settled.
+func (t Theme) OnGround(bg color.Color) Theme { return t }
 
 // Ground is the background the depth's scale was stepped from.
 func (t Theme) Ground() color.Color { return t.dep.ground.col() }
@@ -169,12 +158,7 @@ func (t Theme) Lane(rank string) color.Color { return t.lane(rank) }
 
 // paneBg is the sidebar's background: one honest solid step off the session background —
 // painted cell by cell, never a transparency story.
-func (t Theme) paneBg() color.Color {
-	if t.Dark {
-		return lipgloss.Color("#12161d")
-	}
-	return lipgloss.Color("#eef1f4")
-}
+func (t Theme) paneBg() color.Color { return t.dep.side.col() }
 
 // paneArt re-holds the pane's background behind the mascot's foreground pixels: lipgloss'
 // per-glyph full resets (\x1b[m / \x1b[0m) would otherwise drop the background mid-line, so
@@ -190,9 +174,9 @@ func (t Theme) paneArt(art string) string {
 // on the light theme's deep teal.
 func (t Theme) onAccent() color.Color {
 	if t.Dark {
-		return lipgloss.Color("#06121a")
+		return t.dep.ground.col()
 	}
-	return lipgloss.Color("#ffffff")
+	return t.dep.float.col()
 }
 
 // chip is a small tag held in a hue: the hue as its face over a tint of itself sunk into the
@@ -234,19 +218,15 @@ func (t Theme) laneLegend(dist string) string {
 	return strings.Join(parts, " ")
 }
 
-// Brand is the distribution's name on its gradient, tuned to the background: agent-one holds the
-// HUD's cyan → magenta (deep-ink twins on a light ground); another distribution keeps its
-// sprite's own stops.
+// Brand is the distribution's name on its gradient: agent-one holds the palette's primary → plan
+// violet → accent (the scheme's cyan → smog → rose); another distribution keeps its sprite's
+// own stops.
 func (t Theme) Brand(dist string) string {
 	if !t.Color {
 		return "✦ " + dist
 	}
 	if dist == "agent-one" {
-		stops := []color.Color{lipgloss.Color("#4fe3ee"), lipgloss.Color("#8fb4ff"), lipgloss.Color("#ef6fe6")}
-		if !t.Dark {
-			stops = []color.Color{lipgloss.Color("#00707c"), lipgloss.Color("#3f4fb0"), lipgloss.Color("#a0168f")}
-		}
-		return Gradient("✦ "+dist, true, stops...)
+		return Gradient("✦ "+dist, true, t.accent.GetForeground(), t.plan.GetForeground(), t.magenta.GetForeground())
 	}
 	return Title(dist)
 }

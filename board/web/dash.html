@@ -87,6 +87,7 @@
           <div class="stack" data-gap="s">
             <div id="net"></div>
             <div class="net-legend"><span><i data-bond="reports"></i><span data-word="bond.reports">reports to</span></span><span><i data-bond="verdict"></i><span data-word="bond.verdict">verdict</span></span><span><i data-bond="truth"></i><span data-word="bond.truth">truth</span></span><span><i data-bond="implied"></i>implied</span><span><i data-bond="holds"></i><span data-word="bond.holds">holds</span></span><span title="each tile is four weeks of the agent's work, a cell a day; a bond is as thick as the commissions it carried"><b class="net-key"></b>4 weeks of work</span></div>
+            <div class="net-vkey" aria-label="the value key"><span title="each member's ring is its rank's own measure, banded by config (ranks.<rank>.value.meter)"><i data-band="ok"></i>ok</span><span><i data-band="warn"></i>warn</span><span><i data-band="bad"></i>bad</span><span title="an agent under its rank's minimum record is shown, never ranked"><i data-dash></i>below its record</span><span title="a tile's size is the code its ownership holds (lines of source, tests and generated code left out)">size = code owned (lines)</span></div>
             <div id="net-findings"></div>
           </div>
           <aside class="net-side" aria-label="the focused neuron"><div id="kcard"></div></aside>
@@ -121,7 +122,8 @@
       <div class="panel-body">
         <div class="stack">
           <div class="kpis" id="kpis"></div>
-          <div class="stack" data-gap="s"><h3 class="panel-note" id="leaderboard-note">the members, by work</h3><div id="leaderboard"></div></div>
+          <div class="stack" data-gap="s"><h3 class="panel-note" id="rank-kpis-note">each rank, by its own measure</h3><div class="kpis" id="rank-kpis"></div></div>
+          <div class="stack" data-gap="s"><h3 class="panel-note" id="leaderboard-note">the members, by value</h3><div id="leaderboard"></div></div>
           <div class="switcher">
             <div class="stack" data-gap="s"><h3 class="panel-note">tokens by day</h3><div id="by-day"></div></div>
             <div class="stack" data-gap="s"><h3 class="panel-note">by model</h3><div class="bars" id="by-model"></div></div>

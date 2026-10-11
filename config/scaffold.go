@@ -112,6 +112,9 @@ stress:
                         # 0/-1 = the council is off (no warrants, no ledger)
   maxConsults: 3        # warrants an agent may carry across re-dispatches; past this the run
                         # hardens to ESCALATE and rises to the human; a clean landing clears the ledger
+forge:
+  demandAtSteps: 12     # a run this long is asked once, at its close, to name a @FORGE draft
+                        # (or say the path was one-off); 0 = off, reported as switched off
 `
 	scaffoldAgents["budgets"] = fmt.Sprintf(localHead, "budgets.local.yaml") + `
 # budgets — spend ceilings (the VALUE of the budgets section). Off = 0.

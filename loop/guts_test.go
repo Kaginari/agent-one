@@ -100,23 +100,23 @@ func TestGutsPipedBenchCounted(t *testing.T) {
 	// the 18-of-63 unclassifiable class: a bench piped through a filter loses its exit
 	// status and its FAIL text — muted, never green; FAIL text that survives the pipe
 	// still reads red.
-	bench, piped := gutsBenchCall(provider.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"go test -count=1 ./onto 2>&1 | grep -E \"FAIL|ok\""}`)})
+	bench, piped := (*Guts)(nil).isBench(provider.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"go test -count=1 ./onto 2>&1 | grep -E \"FAIL|ok\""}`)})
 	if !bench || !piped {
 		t.Fatalf("a piped go test must read as a piped bench: bench=%v piped=%v", bench, piped)
 	}
-	if red, green := gutsBenchOutcome(tool.Result{Output: "workspace_test.go:571: class (f)"}); red || green {
+	if red, green := (*Guts)(nil).benchOutcome(nil, tool.Result{Output: "workspace_test.go:571: class (f)"}); red || green {
 		t.Fatalf("a signal-less bench outcome is muted, never green: red=%v green=%v", red, green)
 	}
-	if red, _ := gutsBenchOutcome(tool.Result{Output: "--- FAIL: TestX\nFAIL\t./onto\t0.1s"}); !red {
+	if red, _ := (*Guts)(nil).benchOutcome(nil, tool.Result{Output: "--- FAIL: TestX\nFAIL\t./onto\t0.1s"}); !red {
 		t.Fatal("FAIL text surviving the pipe still reads red")
 	}
-	if _, green := gutsBenchOutcome(tool.Result{Output: "ok  \tgithub.com/Kaginari/agent-one/onto\t0.2s"}); !green {
+	if _, green := (*Guts)(nil).benchOutcome(nil, tool.Result{Output: "ok  \tgithub.com/Kaginari/agent-one/onto\t0.2s"}); !green {
 		t.Fatal("a clean ok bench reads green")
 	}
-	if bench, _ := gutsBenchCall(provider.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"echo hello"}`)}); bench {
+	if bench, _ := (*Guts)(nil).isBench(provider.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"echo hello"}`)}); bench {
 		t.Fatal("a command with neither go test nor go vet is not a bench")
 	}
-	if bench, _ := gutsBenchCall(provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"go test.go"}`)}); bench {
+	if bench, _ := (*Guts)(nil).isBench(provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"go test.go"}`)}); bench {
 		t.Fatal("a read tool is never a bench — bench calls ride shell tools")
 	}
 }
@@ -161,5 +161,74 @@ func TestGutsDigestRidesEveryNSteps(t *testing.T) {
 	}
 	if digests != 1 || others != 0 {
 		t.Fatalf("exactly one digest at step 10, no guts note on a smooth run: digests=%d guts=%d", digests, others)
+	}
+}
+
+// The benches are language-neutral: a pytest bench reads red on its own lexemes and pins red
+// (TDD's signal, neutral), a configured bench replaces the shipped list, and a journal reading
+// carries a stable class code.
+func TestGutsBenchesLanguageNeutral(t *testing.T) {
+	var g *Guts
+	pytest := provider.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"python -m pytest tests/test_auth.py"}`)}
+	b, _ := g.benchOf(pytest)
+	if b == nil || b.Name != "pytest" {
+		t.Fatalf("pytest is a bench: %+v", b)
+	}
+	out := "tests/test_auth.py::test_login FAILED\n=== 1 failed, 3 passed in 0.12s ==="
+	if red, green := g.benchOutcome(b, tool.Result{Output: out}); !red || green {
+		t.Fatal("a failing pytest reads red, red beats green")
+	}
+	v, why, classes := g.value(&StepRecord{Tool: "bash"}, pytest, tool.Result{Output: out}, "")
+	if v != 0 || !strings.Contains(why, "red pin") || len(classes) != 1 || classes[0] != ClassRedPin {
+		t.Fatalf("a red pytest bench pins red: v=%d why=%q classes=%v", v, why, classes)
+	}
+	cargo := provider.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"cargo test"}`)}
+	if b, _ := g.benchOf(cargo); b == nil || b.Name != "cargo" {
+		t.Fatal("cargo test is a bench")
+	}
+	// a configured bench list replaces the shipped one; weights and the clamp are config's
+	own := &Guts{Benches: []Bench{{Name: "mix", Match: []string{"mix test"}, Red: []string{"failure"}}}, Weights: &GutsWeights{Fail: -3}, ClampMin: -3, ClampMax: 1}
+	if b, _ := own.benchOf(pytest); b != nil {
+		t.Fatal("pytest is not on a list that does not name it")
+	}
+	if v, _, cls := own.value(&StepRecord{Tool: "bash"}, cargo, tool.Result{Err: true}, ""); v != -3 || cls[0] != ClassFail {
+		t.Fatalf("the fail weight is config's: v=%d %v", v, cls)
+	}
+	// a non-bench act reading like failure is the neg-lexeme class
+	if _, _, cls := g.value(&StepRecord{Tool: "read"}, provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"x"}`)}, tool.Result{Output: "Traceback (most recent call last)"}, ""); len(cls) != 1 || cls[0] != ClassNegative {
+		t.Fatalf("neg-lexeme class: %v", cls)
+	}
+}
+
+// A guts floor of zero is honoured when config set it (FloorExact); a bare Guts{} keeps -2.
+func TestGutsFloorExact(t *testing.T) {
+	if (&Guts{}).floor() != -2 || (&Guts{Floor: 0, FloorExact: true}).floor() != 0 || (&Guts{Floor: -4}).floor() != -4 {
+		t.Fatal("floor")
+	}
+}
+
+// Holes are split by kind: the harness's catches of the agent's discipline cost it, the workspace's
+// faults do not, the agent's own @? are counted apart.
+func TestHoleKinds(t *testing.T) {
+	for h, want := range map[string]string{
+		"answer off the wire — sent back (1 of 1)":                      HoleHarness,
+		"report carries no @U line — sent back (1 of 1)":                HoleHarness,
+		"gate failed and was sent back (1 of 1): fail":                  HoleHarness,
+		"closed with an open plan: 2 of 3 open":                         HoleHarness,
+		"the provider refused the request":                              HoleInfra,
+		"the model's answer was cut by the output ceiling (max_tokens)": HoleInfra,
+		"drain failed: boom":                                            HoleInfra,
+		"recall: memory: index stale":                                   HoleInfra,
+		"policy.gate is off — the turn's writes were not checked":       HoleInfra,
+		"forge note: disk full":                                         HoleInfra,
+	} {
+		if got := HoleKind(h); got != want {
+			t.Errorf("%q → %s, want %s", h, got, want)
+		}
+	}
+	r := &Result{IsWire: true, Holes: []string{"the provider refused the request", "answer off the wire — sent back (1 of 1)"}}
+	r.Report.Holes = []string{"unknown a", "unknown b"}
+	if i, h, s := r.HoleCount(); i != 1 || h != 1 || s != 2 {
+		t.Fatalf("HoleCount %d %d %d", i, h, s)
 	}
 }

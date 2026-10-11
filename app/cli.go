@@ -157,6 +157,7 @@ var commands = []struct{ name, summary string }{
 	{"memory", "the memory instrument (status, index, recall, remember, forget)"},
 	{"toolbox", "the toolbox instrument (index, brief, pick, load, status)"},
 	{"onto", "the ontology (check, project, query)"},
+	{"forge", "the forge working notes — the drafts subagents carried home: forge list | show <id> | register <id> [--yes] [--version] [--force] | reject <id> --why <reason>"},
 	{"housekeep", "the chain policy: audit member homes and links, heal the mechanical classes — housekeep [--heal] [--spawn]"},
 	{"usage", "the usage journal: usage [--session <id>] [--since <date>]"},
 	{"lessons", "the guts' readings ranked — the autopsy instrument: lessons [<journal dir|bench run dir>] [<top N>]"},
@@ -221,7 +222,7 @@ func Main(dist string, args []string, io IO, v Version) int {
 	helpFlag, versionFlag, replNamed := asked(args, "-h", "--help"), asked(args, "--version"), named(args, "repl")
 	name, args := command(args)
 	switch {
-	case name == "version" || versionFlag:
+	case name == "version" || versionFlag && name != "forge": // forge register --version is the working notes's own flag
 		fmt.Fprintln(io.Out, versionLine(dist, v))
 		return 0
 	case name == "help" || helpFlag && name == "repl" && !replNamed:
@@ -374,6 +375,8 @@ func Main(dist string, args []string, io IO, v Version) int {
 		return a.cmdSessions(io)
 	case "status":
 		return a.cmdStatus(io)
+	case "forge":
+		return a.cmdForge(leftover, io)
 	case "usage":
 		return a.cmdUsage(f, io)
 	case "lessons":
@@ -705,6 +708,9 @@ func (a *App) cmdStatus(io IO) int {
 		fmt.Fprintln(io.Out, l)
 	}
 	fmt.Fprintf(io.Out, "workspace: %s · %s · %d members · %d skills · %d commands · %d foreign agents\n", a.Root, a.Lex.Vocab, len(a.Workspace.Members), len(a.Found.Skills), len(a.Found.Commands), len(a.Found.Agents))
+	for _, h := range a.Found.Holes {
+		fmt.Fprintln(io.Out, "@? "+h)
+	}
 	if dir := a.journalDir(); dir != "-" {
 		if dir == "" {
 			dir = filepath.Join(a.Root, a.Cfg.Dist.WorkspaceDir, "instruments", "loop")

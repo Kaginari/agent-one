@@ -1,15 +1,15 @@
-▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖ 
-▏        ▀▀          ✦ agent-one v0.1.5                                       ▕ 
-▏    █▀▀▀▀▀▀▀▀█      one agent, a whole team · the workspace remembers        ▕ 
-▏    ██▀▀██▀▀██                                                               ▕ 
-▏    ▀▀█▀▀▀▀█▀▀       orchestrator   coord   domain   zone                    ▕ 
-▏                                                                             ▕ 
-▏ ᴡᴏʀᴋꜱᴘᴀᴄᴇ  /home/monta/kaginari/pfcli                                       ▕ 
-▏ ᴍᴏᴅᴇʟ      gemini/gemini-3.8-flash                                          ▕ 
-▏ ʀᴏʟᴇꜱ      1 · analyst → gemini-3.8-flash                                   ▕ 
-▏ ꜱᴇꜱꜱɪᴏɴ    20260926-171200-a1b2c3                                           ▕ 
-▏                                                                             ▕ 
-▏ ▲ GEMINI_API_KEY is not set — the mount has no key                          ▕ 
-▏                                                                             ▕ 
-▏ ⏎ ask   / commands   ctrl+k palette   ? keys   ctrl+t agents                ▕ 
-▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
+▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖  
+▏        ▀▀          ✦ agent-one v0.1.5                                      ▕▄▖
+▏    █▀▀▀▀▀▀▀▀█      one agent, a whole team · the workspace remembers       ▕ ▌
+▏    ██▀▀██▀▀██                                                              ▕ ▌
+▏    ▀▀█▀▀▀▀█▀▀       orchestrator   coord   domain   zone                   ▕ ▌
+▏                                                                            ▕ ▌
+▏ ᴡᴏʀᴋꜱᴘᴀᴄᴇ  /home/monta/kaginari/pfcli                                      ▕ ▌
+▏ ᴍᴏᴅᴇʟ      gemini/gemini-3.8-flash                                         ▕ ▌
+▏ ʀᴏʟᴇꜱ      1 · analyst → gemini-3.8-flash                                  ▕ ▌
+▏ ꜱᴇꜱꜱɪᴏɴ    20260926-171200-a1b2c3                                          ▕ ▌
+▏                                                                            ▕ ▌
+▏ ▲ GEMINI_API_KEY is not set — the mount has no key                         ▕ ▌
+▏                                                                            ▕ ▌
+▏ ⏎ ask   / commands   ctrl+k palette   ? keys   ctrl+t agents               ▕ ▌
+▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▘

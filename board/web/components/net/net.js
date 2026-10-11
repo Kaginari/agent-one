@@ -14,8 +14,9 @@
     for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(typeof kid === 'string' ? document.createTextNode(kid) : kid);
     return n;
   }
-  const PORTRAITS = new Set(['orchestrator', 'coord', 'domain', 'zone', 'service', 'auditor', 'principal-coordinator', 'principal-domain-owner']);
-  const BRAIN = 'M0 -6 C-3.2 -6 -5.6 -4.4 -5.6 -1.6 C-7.2 -0.6 -7.2 1.8 -5.4 2.8 C-6 4.6 -4.2 6.2 -2.2 6.2 C-1.1 6.2 -0.4 5.4 0 4.4 C0.4 5.4 1.1 6.2 2.2 6.2 C4.2 6.2 6 4.6 5.4 2.8 C7.2 1.8 7.2 -0.6 5.6 -1.6 C5.6 -4.4 3.2 -6 0 -6 Z';
+  // the icons are the board's: a node's icon (/api/team) is its portrait or its family's glyph,
+  // resolved once in Go; a skill holds the sprite's brain (Lucide brain-circuit, web/icons/SOURCE)
+  const SPRITE = 'web/icons/icons.svg';
   const UP_BONDS = ['truth', 'verdict', 'reports', 'above'];
   const RANK_ORDER = ['orchestrator', 'coord', 'principal-coordinator', 'auditor', 'service', 'domain', 'principal-domain-owner', 'zone'];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -81,7 +82,24 @@
       cells.set(n.id, v);
       for (const x of v) peak = Math.max(peak, x);
     }
-    return { byId, orchestrator, members, skills, kids, parent, depth, order, tree, holds, maxDepth, cells, peak, act, days: (activity && activity.days) || [], word, relates: team.relates || [], recent: (activity && activity.recent) || [] };
+    // size: the code a member owns (its mass, lines of source; the server walks it), normalised
+    // over the workspace — a leaf by the square root of its own, a member with a subtree by the cube
+    // root of its subtree's (a gentler curve), the orchestrator capped, a skill by how many hold it.
+    // Activity never enters it: work shows as glow and cells, not size.
+    const massK = new Map();
+    const norm = (ids, f) => {
+      const v = ids.map(id => f(byId.get(id).mass || 0));
+      const lo = Math.min(...v), hi = Math.max(...v);
+      ids.forEach((id, i) => massK.set(id, hi > lo ? (v[i] - lo) / (hi - lo) : 0.5));
+    };
+    const leafIds = members.filter(n => n !== orchestrator && !(kids.get(n.id) || []).length).map(n => n.id);
+    const innerIds = members.filter(n => n !== orchestrator && (kids.get(n.id) || []).length).map(n => n.id);
+    if (leafIds.length) norm(leafIds, Math.sqrt);
+    if (innerIds.length) norm(innerIds, Math.cbrt);
+    if (skills.length) norm(skills.map(n => n.id), Math.sqrt);
+    if (orchestrator) massK.set(orchestrator.id, 1);
+    const sized = all.some(n => n.mass > 0);
+    return { byId, orchestrator, members, skills, kids, parent, depth, order, tree, holds, maxDepth, cells, peak, act, days: (activity && activity.days) || [], word, relates: team.relates || [], recent: (activity && activity.recent) || [], massK, sized };
   }
 
   // ancestors (the path to the orchestrator) and descendants (the subtree) of a node
@@ -455,6 +473,9 @@
       const L = layout2d(st.m, W, availH, f);
       st.L = L;
       const m = st.m;
+      // a tile keeps its slot and shrinks by its mass (70%–100% of the slot), so the layout never
+      // moves and the bonds still meet the tile's edge
+      if (m.sized) for (const [id, p] of L.pos) { const n = m.byId.get(id); if (n && !n.orchestrator) p.size *= 0.7 + 0.3 * (m.massK.get(id) || 0); }
       const g = s('svg', { viewBox: `0 0 ${L.W} ${L.H}`, style: L.W > W ? `inline-size:${L.W}px` : false, role: 'group', 'aria-label': 'the ' + word('workspace', 'workspace') + ' as a neural net — ' + m.members.length + ' ' + word('members', 'members') + ', ' + m.skills.length + ' ' + word('skills', 'skills'), 'aria-describedby': 'net-keys' });
       const defs = s('defs');
       g.append(defs);
@@ -521,15 +542,19 @@
       for (const id of [...m.order, ...m.skills.map(n => n.id)]) {
         const p = L.pos.get(id);
         if (!p) continue;
-        const n = m.byId.get(id), skill = n.kind === 'skill', S = p.size, x0 = p.x - S / 2, y0 = p.y - S / 2;
+        const n = m.byId.get(id), skill = n.kind === 'skill';
+        const S = p.size, x0 = p.x - S / 2, y0 = p.y - S / 2;
         const a = m.act[n.name];
         const rank = skill ? n.lane : (n.rank || 'plain');
-        const node = s('g', { class: 'net-node', 'data-id': id, 'data-rank': rank, 'data-kind': skill ? 'skill' : 'agent', 'data-orchestrator': n.orchestrator || false,
+        const node = s('g', { class: 'net-node', 'data-id': id, 'data-rank': rank, 'data-family': n.family || false, 'data-kind': skill ? 'skill' : 'agent', 'data-orchestrator': n.orchestrator || false,
           'data-stress': n.workingNotes && n.workingNotes.stress && n.workingNotes.stress !== 'ok' ? n.workingNotes.stress : false, 'data-compact': p.hide || false, tabindex: -1, role: 'button', 'aria-label': aria(n, a) });
         node.append(s('rect', { class: 'net-halo', x: x0 - 6, y: y0 - 6, width: S + 12, height: S + 12, rx: S * 0.3 + 4 }));
         node.append(s('rect', { class: 'net-tile', x: x0, y: y0, width: S, height: S, rx: S * 0.22 }));
+        // the value band ring: the rank's own meter, banded by config
+        if (!skill && n.value && n.value.band && n.value.band !== 'none') node.append(s('rect', { class: 'net-band', 'data-band': n.value.band, 'data-confidence': n.value.confidence, x: x0 - 3.5, y: y0 - 3.5, width: S + 7, height: S + 7, rx: S * 0.22 + 3 }));
         if (skill) {
-          node.append(s('g', { transform: `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) scale(${(S * 0.06).toFixed(2)})` }, s('path', { class: 'net-brain', d: BRAIN }), s('path', { class: 'net-brain-fold', d: 'M0 -6 L0 4.4' })));
+          const b = S * 0.72;
+          node.append(s('use', { class: 'net-brain', href: SPRITE + '#skill', x: (p.x - b / 2).toFixed(1), y: (p.y - b / 2).toFixed(1), width: b.toFixed(1), height: b.toFixed(1) }));
         } else {
           // the activity tile: 4 weeks × 7 days, oldest top-left; blank when no instrument saw it
           const pad = S * 0.14, cw = (S - 2 * pad) / 7, ch = (S - 2 * pad) / 4;
@@ -540,14 +565,22 @@
             const o = val && m.peak > 0 ? 0.3 + 0.7 * Math.log1p(val) / Math.log1p(m.peak) : 0.13;
             node.append(s('rect', { class: 'net-cell', 'data-on': val ? true : false, x: (x0 + pad + (j % 7) * cw + 0.35).toFixed(2), y: (y0 + pad + Math.floor(j / 7) * ch + 0.35).toFixed(2), width: (cw - 0.7).toFixed(2), height: (ch - 0.7).toFixed(2), rx: 0.6, opacity: o.toFixed(2) }));
           }
-          // the rank's portrait as a badge on the tile's corner
-          if (PORTRAITS.has(n.rank) && (p.d <= 2 || L.narrow)) {
-            const r = n.orchestrator ? 11 : 8, cx = x0 + 1, cy = y0 + 1, cid = 'netp-' + (k++);
-            defs.append(s('clipPath', { id: cid }, s('circle', { cx, cy, r: r - 1.2 })));
+          // the rank's icon as a badge on the tile's corner: its portrait, else its family's glyph
+          const icon = n.icon || null;
+          if (icon) {
+            // every depth holds its face, scaled to the neuron (never below legible)
+            const r = n.orchestrator ? 11 : clamp(S * 0.34, 6, 10), cx = x0 + 1, cy = y0 + 1;
             node.append(s('circle', { class: 'net-ring', cx, cy, r }));
-            const img = s('image', { class: 'net-portrait', href: 'web/portraits/' + n.rank + '.png', x: cx - r, y: cy - r, width: r * 2, height: r * 2, preserveAspectRatio: 'xMidYMid slice', 'clip-path': `url(#${cid})` });
-            img.addEventListener('error', () => img.remove());
-            node.append(img);
+            if (icon.kind === 'portrait') {
+              const cid = 'netp-' + (k++);
+              defs.append(s('clipPath', { id: cid }, s('circle', { cx, cy, r: r - 1.2 })));
+              const img = s('image', { class: 'net-portrait', href: icon.url, x: cx - r, y: cy - r, width: r * 2, height: r * 2, preserveAspectRatio: 'xMidYMid slice', 'clip-path': `url(#${cid})` });
+              img.addEventListener('error', () => img.remove());
+              node.append(img);
+            } else {
+              const g2 = r * 1.2;
+              node.append(s('use', { class: 'net-glyph', href: icon.url, x: cx - g2 / 2, y: cy - g2 / 2, width: g2, height: g2 }));
+            }
           }
         }
         if (p.hide) {
@@ -586,6 +619,8 @@
         if (kids) bits.push(kids + ' below');
       }
       bits.push(a && a.total ? a.total + ' run' + (a.total === 1 ? '' : 's') + ' in 4 weeks' : 'no journaled work in 4 weeks');
+      if (n.value && n.value.meter) bits.push('score ' + Math.round(n.value.score) + (n.value.confidence === 'low' ? ' (below its record)' : '') + ', ' + n.value.meter.label + ' ' + n.value.meter.text + ' (' + n.value.band + ')');
+      if (n.mass) bits.push(n.kind === 'skill' ? n.mass + ' holding it' : n.mass.toLocaleString() + ' lines of code owned');
       return bits.join(', ');
     }
 
@@ -788,7 +823,7 @@
       st.mode = v;
       if (v === '3d') {
         if (!st.three) {
-          st.three = window.agentOneNet3D.create(stage, { probes, word, onPick: id => pin(id || st.focus), onHover: id => preview(id), onKey: keys3d, onBlur: () => preview(''), reduced: () => reducedQ.matches });
+          st.three = window.agentOneNet3D.create(stage, { probes, word, meters: () => (opts.meters ? opts.meters() : {}), onPick: id => pin(id || st.focus), onHover: id => preview(id), onKey: keys3d, onBlur: () => preview(''), reduced: () => reducedQ.matches });
           if (!st.three) { st.mode = '2d'; return mode('2d'); }
         }
         stage.dataset.mode = '3d';

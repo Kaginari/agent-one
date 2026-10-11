@@ -36,7 +36,7 @@ func TestRankTable(t *testing.T) {
 	if !rs.GateAbove("zone") || rs.GateAbove("coord") || !rs.GateAbove("service") {
 		t.Error("GateAbove")
 	}
-	if strings.Join(rs.Tools("zone"), ",") != "read,write,edit,bash,glob,grep,policy" || strings.Join(rs.Tools("principal_domain_owner"), ",") != strings.Join(AllTools, ",") || strings.Join(rs.Tools("nobody"), ",") != strings.Join(AllTools, ",") {
+	if strings.Join(rs.Tools("zone"), ",") != "read,write,edit,bash,glob,grep,policy" || strings.Join(rs.Tools("principal-domain-owner"), ",") != strings.Join(AllTools, ",") || strings.Join(rs.Tools("nobody"), ",") != strings.Join(AllTools, ",") {
 		t.Error("Tools")
 	}
 	az := Ranks(DefaultRanks(Default()))

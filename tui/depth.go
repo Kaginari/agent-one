@@ -74,95 +74,115 @@ func contrast(a, b rgb) float64 {
 	return la / lb
 }
 
-// surf is one surface as the grid draws it: its face, the lit top face and shaded bottom edge
-// of its bevel, the shadow it casts (nil: it casts none, or sits in the plane), and a spine down
-// its left edge in a hue (nil: none).
+// surf is one surface as the grid draws it: its face (the gradient's middle), the gloss of its
+// lit top face, the crisp lit left bevel and the two-tone shaded right and bottom bevel, the
+// shadow it casts (nil: none) and the shadow's far, fading column, a spine down its left edge
+// in a hue (nil: none), and the rim glow an active surface holds (nil: none).
 type surf struct {
 	face, lit, shade, shadow, spine color.Color
 	// band is the lit header strip's colour (a tile's title row); nil holds lit
 	band color.Color
+	// top and bot are the face's gradient: the first row a step lit, the last a step shaded
+	top, bot color.Color
+	// edge is the right bevel's inner half-tone (the shade's first tone); gloss the bright
+	// half-row under the top edge
+	edge, gloss color.Color
+	// shadow2 is the shadow's far column: a half-tone toward the plane it falls on
+	shadow2 color.Color
+	glow    color.Color
 }
 
-// depthScale is the theme's tonal scale, derived once from the ground.
+// shadowW is the columns a raised surface's shadow takes right of it: the near one dark, the
+// far one a half-width fade.
+const shadowW = 2
+
+// depthScale is the theme's tonal scale, taken from the palette's anchors.
 type depthScale struct {
 	ground, plane, side, well, card, float rgb
 	shadow, deep                           rgb // the cast shadow on a plane; a float's
-	lift                                   rgb // the colour a closer surface moves toward
+	lift, sink                             rgb // the tones a lit edge and a shaded one move toward
 }
 
-// defaultGround is the ground assumed until the terminal answers: VS Code's own dark and
-// light editor backgrounds, the owner's terminal.
-func defaultGround(dark bool) rgb {
-	if dark {
-		return hexRGB("#1f1f1f")
+// newDepthScale reads the palette's tonal anchors: the well below the plane, the ground, the
+// planes, the card, the float; the shadows are stepped from the plane toward the shade.
+func newDepthScale(dark bool, r Roles) depthScale {
+	d := depthScale{
+		ground: hexRGB(r.Ground), plane: hexRGB(r.Plane), side: hexRGB(r.Side), well: hexRGB(r.Well),
+		card: hexRGB(r.Card), float: hexRGB(r.Float), lift: hexRGB(r.Lift), sink: hexRGB(r.Shade),
 	}
-	return hexRGB("#ffffff")
-}
-
-// newDepthScale steps the surfaces off the ground. Dark: each elevation a few percent toward a
-// cool light (the HUD's slate), the well toward black. Light: the planes a soft grey under the
-// paper, the cards and floats paper-white over them, the well a step darker than its plane.
-func newDepthScale(dark bool, ground rgb) depthScale {
-	d := depthScale{ground: ground}
 	if dark {
-		// a ground too light to step lighter from (a mid-grey "dark" theme) is deepened first
-		if ground.lum() > 0.06 {
-			ground = ground.mix(hexRGB("#0b0e14"), 0.4)
-			d.ground = ground
-		}
-		d.lift = hexRGB("#c4d4f0")
-		d.plane = ground.mix(d.lift, 0.022)
-		d.side = ground.mix(d.lift, 0.03).mix(hexRGB("#4fe3ee"), 0.01)
-		d.card = ground.mix(d.lift, 0.06)
-		d.float = ground.mix(d.lift, 0.075)
-		d.well = ground.mix(hexRGB("#05070b"), 0.38)
-		d.shadow = d.plane.mix(hexRGB("#04060b"), 0.36)
-		d.deep = d.plane.mix(hexRGB("#020308"), 0.58)
-		return d
+		d.shadow = d.plane.mix(d.sink, 0.78)
+		d.deep = d.plane.mix(d.sink, 0.95)
+	} else {
+		d.shadow = d.plane.mix(d.sink, 0.22)
+		d.deep = d.plane.mix(d.sink, 0.34)
 	}
-	// light: a ground darker than paper (a grey light theme) keeps its own grey for the planes
-	d.lift = hexRGB("#ffffff")
-	grey := hexRGB("#cfd6df")
-	d.plane = ground.mix(grey, 0.32)
-	d.side = ground.mix(grey, 0.40).mix(hexRGB("#00707c"), 0.015)
-	d.card = ground.mix(d.lift, 0.85)
-	d.float = d.lift
-	d.well = ground.mix(grey, 0.55)
-	d.shadow = d.plane.mix(hexRGB("#5d6a7c"), 0.30)
-	d.deep = d.plane.mix(hexRGB("#4a5668"), 0.45)
 	return d
 }
 
-// raise builds a raised surface over the base face b: the lit top face a step closer, the
-// shaded edge a step into the plane's own shadow, tinted k toward hue.
-func (t Theme) raise(b rgb, hue color.Color, k float64, shadow rgb, spine color.Color) surf {
+// raise builds a raised surface over the base face b, tinted k toward hue, casting shadow on
+// plane: the gradient a step lit at the top and shaded at the bottom, the gloss a closer step
+// still, the right bevel two tones deep, the shadow's far column fading into the plane.
+func (t Theme) raise(b rgb, hue color.Color, k float64, shadow, plane rgb, spine color.Color) surf {
 	if hue != nil {
 		b = b.mix(toRGB(hue), k)
 	}
-	s := surf{face: b.col(), shadow: shadow.col(), spine: spine}
+	d := t.dep
+	s := surf{face: b.col(), shadow: shadow.col(), shadow2: shadow.mix(plane, 0.5).col(), spine: spine}
+	var top, bot, lit, gloss, shade, band rgb
 	if t.Dark {
-		s.lit = b.mix(t.dep.lift, 0.12).col()
-		s.shade = b.mix(hexRGB("#000000"), 0.16).col()
-		s.band = b.mix(t.dep.lift, 0.025).col()
+		top, bot = b.mix(d.lift, 0.065), b.mix(d.sink, 0.2)
+		lit = b.mix(d.lift, 0.2)
+		gloss = b.mix(d.lift, 0.3)
+		shade = b.mix(d.sink, 0.42)
+		band = b.mix(d.lift, 0.035)
 	} else {
-		s.lit = b.mix(hexRGB("#ffffff"), 0.9).col()
-		s.shade = b.mix(hexRGB("#6b7789"), 0.2).col()
-		s.band = b.mix(t.dep.plane, 0.45).col()
+		top, bot = b.mix(d.lift, 0.8), b.mix(d.sink, 0.045)
+		lit = b.mix(d.lift, 0.9)
+		gloss = d.lift
+		shade = b.mix(d.sink, 0.3)
+		band = b.mix(d.plane, 0.45)
 	}
 	if hue != nil {
-		// the band carries a breath more of the hue: the tile's name sits in its own colour
-		s.band = toRGB(s.band).mix(toRGB(hue), k*0.5).col()
+		h := toRGB(hue)
+		// the band carries a breath more of the hue (the tile's name sits in its own colour),
+		// the gloss a touch (a lit face in its own light)
+		band = band.mix(h, k*0.6)
+		gloss = gloss.mix(h, k*1.2)
+		lit = lit.mix(h, k)
 	}
+	s.top, s.bot, s.lit, s.gloss, s.shade, s.band = top.col(), bot.col(), lit.col(), gloss.col(), shade.col(), band.col()
+	s.edge = b.mix(shade, 0.4).col()
+	return s
+}
+
+// glowing turns a surface's rim to light in hue: the gloss and the lit bevel lean into it and
+// the shadow becomes its spill on the plane — an active surface (a running Subagent, a fresh
+// toast) gives off its colour instead of a shade.
+func (t Theme) glowing(s surf, hue color.Color, plane rgb) surf {
+	if hue == nil || !t.Depth {
+		return s
+	}
+	h := toRGB(hue)
+	s.glow = hue
+	s.gloss = toRGB(s.gloss).mix(h, 0.35).col()
+	s.lit = toRGB(s.lit).mix(h, 0.3).col()
+	k := 0.2
+	if !t.Dark {
+		k = 0.16
+	}
+	s.shadow = plane.mix(h, k).col()
+	s.shadow2 = plane.mix(h, k*0.45).col()
 	return s
 }
 
 // card is a raised card on a plane; floatSurf a float over the frame (the deepest shadow).
 func (t Theme) card(hue color.Color, k float64, spine color.Color) surf {
-	return t.raise(t.dep.card, hue, k, t.dep.shadow, spine)
+	return t.raise(t.dep.card, hue, k, t.dep.shadow, t.dep.plane, spine)
 }
 
 func (t Theme) floatSurf(hue color.Color, k float64, spine color.Color) surf {
-	return t.raise(t.dep.float, hue, k, t.dep.deep, spine)
+	return t.raise(t.dep.float, hue, k, t.dep.deep, t.dep.plane, spine)
 }
 
 // sgrBg is the escape that sets a background.
@@ -316,35 +336,39 @@ func gls(glyph string, n int, fg, bg color.Color) string {
 	return gl(strings.Repeat(glyph, n), fg, bg)
 }
 
-// slabOpt shapes a slab: top draws the lit top face (a half row); band is how many of the first
-// rows sit on the surface's lit band (a header strip); grad blends the face toward a second
-// colour across the rows (the hero's gradient); padR is the right inner padding.
+// slabOpt shapes a slab: top draws the lit top face (a half row of gloss); band is how many of
+// the first rows sit on the surface's lit band (a header strip); grad blends the face toward a
+// second colour across the rows (the hero's gradient); flat keeps one face down every row (an
+// answer, whose pieces join into one slab); padR is the right inner padding.
 type slabOpt struct {
 	top  bool
 	band int
 	grad color.Color
+	flat bool
 	padR int
 }
 
 // slabInner is the content width of a slab w cells wide (the spine or the lit left edge and
-// the left padding, the right padding and the shaded right edge, and the shadow's column taken
-// off).
+// the left padding, the right padding and the shaded right edge, and the shadow's columns
+// taken off).
 func slabInner(s surf, w int, o slabOpt) int {
 	n := w - 2 - max(o.padR, 1) - 1 // the right edge's bevel cell
 	if s.shadow != nil {
-		n--
+		n -= shadowW
 	}
 	return max(n, 1)
 }
 
-// slab raises rows on a surface, exactly w cells wide: the lit top face (opt), each row on the
-// face behind the spine and the padding, the shaded bottom edge, and the shadow one cell right
-// and half a row down. The half-block corners round the slab where they can.
+// slab raises rows on a surface, exactly w cells wide, with volume: the gloss of its lit top
+// face (opt), each row on a face that steps from lit at the top to shaded at the bottom behind
+// the spine (or a crisp lit left bevel) and the padding, the right bevel two tones deep, the
+// shaded bottom edge, and the shadow — two cells right and half a row down, dark near the slab
+// and fading away, its corners quarter blocks so it falls soft.
 func (t Theme) slab(s surf, rows []string, w int, o slabOpt) string {
 	sh := s.shadow != nil
 	bw := w
 	if sh {
-		bw = w - 1
+		bw = w - shadowW
 	}
 	inner := slabInner(s, w, o)
 	padR := max(o.padR, 1)
@@ -356,42 +380,60 @@ func (t Theme) slab(s surf, rows []string, w int, o slabOpt) string {
 		if o.grad != nil && n > 1 {
 			return toRGB(s.face).mix(toRGB(o.grad), float64(i)/float64(n-1)).col()
 		}
-		return s.face
+		if o.flat || s.top == nil {
+			return s.face
+		}
+		// the volume: the rows below the band step from the lit top to the shaded bottom
+		k, m := i-o.band, n-o.band
+		if m <= 1 {
+			return s.face
+		}
+		return toRGB(s.top).mix(toRGB(s.bot), float64(k)/float64(m-1)).col()
 	}
+	gloss := s.gloss
+	if gloss == nil {
+		gloss = s.lit
+	}
+	edge := s.edge
 	var out []string
 	if o.top {
 		top := ""
 		if s.spine != nil {
-			top = gls("▄", bw, s.lit, nil)
+			top = gls("▄", bw, gloss, nil)
 		} else {
-			top = gl("▗", s.lit, nil) + gls("▄", bw-2, s.lit, nil) + gl("▖", s.lit, nil)
+			top = gl("▗", gloss, nil) + gls("▄", bw-2, gloss, nil) + gl("▖", gloss, nil)
 		}
 		if sh {
-			top += " "
+			top += "  "
 		}
 		out = append(out, top)
 	}
 	for i, r := range rows {
 		face := faceAt(i)
-		// the bevel's side edges: lit on the left (a spine takes its place), shaded on the right
+		// the bevel's side edges: lit on the left (a spine takes its place), two tones of shade
+		// on the right — the inner half-tone under the outer edge
 		left := gl("▏", s.lit, face)
 		if s.spine != nil {
 			left = gl("▌", s.spine, face)
 		}
+		eb := face
+		if edge != nil {
+			eb = toRGB(face).mix(toRGB(s.shade), 0.4).col()
+		}
 		agent := " " + fit(r, inner) + strings.Repeat(" ", padR)
-		line := left + paintBg(agent, face) + gl("▕", s.shade, face)
+		line := left + paintBg(agent, face) + gl("▕", s.shade, eb)
 		if sh {
-			if i == 0 && !o.top {
-				line += gl("▄", s.shadow, nil)
+			if i == 0 {
+				line += gl("▄", s.shadow, nil) + gl("▖", s.shadow2, nil)
 			} else {
-				line += gl(" ", nil, s.shadow)
+				line += gl(" ", nil, s.shadow) + gl("▌", s.shadow2, nil)
 			}
 		}
 		out = append(out, line)
 	}
 	bot := ""
 	if sh {
-		bot = gl("▝", s.shade, nil) + gls("▀", bw-1, s.shade, s.shadow) + gl(" ", nil, s.shadow)
+		bot = gl("▝", s.shade, nil) + gl("▀", s.shade, s.shadow2) + gls("▀", bw-2, s.shade, s.shadow) + gl(" ", nil, s.shadow) + gl("▘", s.shadow2, nil)
 	} else {
 		bot = gl("▝", s.shade, nil) + gls("▀", bw-2, s.shade, nil) + gl("▘", s.shade, nil)
 	}
@@ -400,23 +442,45 @@ func (t Theme) slab(s surf, rows []string, w int, o slabOpt) string {
 }
 
 // well sinks rows into the plane: the top edge in shadow, the left edge dark, the right and
-// bottom edges lit — the inverse of a raised slab. It is exactly w cells wide and rows+2 tall.
-func (t Theme) well(rows []string, w int) []string {
+// bottom edges lit — the inverse of a raised slab; its face steps from shaded under the top lip
+// to a breath lighter at the bottom. glow (nil: none) lights its rim in a hue — the ask's well
+// while the human types. It is exactly w cells wide and rows+2 tall.
+func (t Theme) well(rows []string, w int, glow color.Color) []string {
 	d := t.dep
 	face := d.well
 	var dark, light rgb
 	if t.Dark {
-		dark = face.mix(hexRGB("#000000"), 0.45)
-		light = d.plane.mix(d.lift, 0.06)
+		dark = face.mix(d.sink, 0.6)
+		light = d.plane.mix(d.lift, 0.1)
 	} else {
-		dark = face.mix(hexRGB("#5d6a7c"), 0.35)
-		light = hexRGB("#ffffff")
+		dark = face.mix(d.sink, 0.3)
+		light = d.lift
+	}
+	if glow != nil {
+		h := toRGB(glow)
+		dark = dark.mix(h, 0.3)
+		light = light.mix(h, 0.38)
 	}
 	out := []string{gl("▗", dark.col(), nil) + gls("▄", w-2, dark.col(), nil) + gl("▖", dark.col(), nil)}
-	for _, r := range rows {
-		out = append(out, gl("▐", dark.col(), face.col())+paintBg(" "+fit(r, w-4)+" ", face.col())+gl("▌", light.col(), face.col()))
+	for i, r := range rows {
+		f := t.wellFace(i, len(rows))
+		out = append(out, gl("▐", dark.col(), f)+paintBg(" "+fit(r, w-4)+" ", f)+gl("▌", light.col(), f))
 	}
 	return append(out, gl("▝", light.col(), nil)+gls("▀", w-2, light.col(), nil)+gl("▘", light.col(), nil))
+}
+
+// wellFace is the well's face on row i of n: the first row in the lip's shade, the rest
+// climbing back to the well's own tone.
+func (t Theme) wellFace(i, n int) color.Color {
+	face := t.dep.well
+	deep := face.mix(t.dep.sink, 0.35)
+	if !t.Dark {
+		deep = face.mix(t.dep.sink, 0.08)
+	}
+	if n <= 1 {
+		return face.col()
+	}
+	return deep.mix(face, min(float64(i)/float64(max(n-2, 1)), 1)).col()
 }
 
 // pill is a verdict as a small rounded pill: the hue's tint as its face, half-block caps
@@ -425,14 +489,27 @@ func (t Theme) pillChip(hue color.Color, text string) string {
 	if !t.Depth {
 		return t.chip(hue, text)
 	}
-	base := t.dep.card
-	face := base.mix(toRGB(hue), 0.22)
+	face := t.chipFace(hue)
 	fg := toRGB(hue)
-	if !t.Dark {
-		face = base.mix(toRGB(hue), 0.14)
-		fg = fg.mix(hexRGB("#000000"), 0.3)
-	}
 	return gl("▐", face.col(), nil) + lipgloss.NewStyle().Foreground(fg.col()).Background(face.col()).Bold(true).Render(text) + gl("▌", face.col(), nil)
+}
+
+// chipFace is a chip's face in a hue: the card's tone tinted toward it.
+func (t Theme) chipFace(hue color.Color) rgb {
+	if t.Dark {
+		return t.dep.card.mix(toRGB(hue), 0.16)
+	}
+	return t.dep.card.mix(toRGB(hue), 0.12)
+}
+
+// chipAround sets already styled text on a rounded chip in a hue: half-block caps, the face
+// the hue's tint (the text keeps its own colours).
+func (t Theme) chipAround(hue color.Color, styled string) string {
+	if !t.Depth || hue == nil {
+		return styled
+	}
+	f := t.chipFace(hue).col()
+	return gl("▐", f, nil) + paintBg(styled, f) + gl("▌", f, nil)
 }
 
 // decor are the block elements the depth draws with: a selection copies text, never a bevel,
@@ -464,53 +541,76 @@ func isDecorRow(s string) bool {
 
 // the surfaces, by role — the renderers and the contrast policy read the same constructors
 
-// surfUser is the human's ask: a card in the human's magenta, its spine magenta.
+// surfUser is the human's ask: a card in the human's accent, its spine the accent.
 func (t Theme) surfUser() surf {
-	return t.card(t.magenta.GetForeground(), 0.07, t.magenta.GetForeground())
+	return t.card(t.magenta.GetForeground(), 0.08, t.magenta.GetForeground())
 }
 
 // surfAnswer is the model's answer: a card a breath toward the primary, its spine the primary.
+// Its face stays flat (slabOpt.flat): a turn's pieces join into one slab.
 func (t Theme) surfAnswer() surf {
 	return t.card(t.accent.GetForeground(), 0.045, t.accent.GetForeground())
 }
 
-// surfTool is a tool chip in its class's hue; surfSubagent a Subagent chip in its rank's lane.
+// surfTool is a tool chip in its class's hue: a light tint, the class's spine.
 func (t Theme) surfTool(class string) surf {
 	h := t.class(class).GetForeground()
-	return t.card(h, 0.06, h)
+	return t.card(h, 0.05, h)
 }
 
+// surfSubagent is a Subagent's card: unlike a tool's chip, it holds its rank's lane as a real slab
+// tint, its band (the header) deeper in the lane, the lane's spine.
 func (t Theme) surfSubagent(rank string, lane color.Color) surf {
 	h := lane
 	if h == nil {
 		h = t.rank(rank).GetForeground()
 	}
-	return t.card(h, 0.06, h)
+	s := t.card(h, 0.09, h)
+	s.band = toRGB(s.face).mix(toRGB(h), 0.05).col()
+	return s
+}
+
+// surfPlan is the plan's own family: a slab tinted in the plan's violet with its spine, in the
+// chat (the plan tool's card) and in the sidebar (the plan tile).
+func (t Theme) surfPlan() surf {
+	h := t.plan.GetForeground()
+	s := t.card(h, 0.09, h)
+	s.band = toRGB(s.face).mix(toRGB(h), 0.05).col()
+	return s
 }
 
 // surfTile is a sidebar tile: raised off the sidebar's plane, tinted toward its section's hue.
 func (t Theme) surfTile(hue color.Color) surf {
-	base := t.dep.side.mix(t.dep.card, 0.75)
+	base := t.dep.side.mix(t.dep.card, 0.8)
 	if !t.Dark {
 		base = t.dep.card
 	}
-	return t.raise(base, hue, 0.06, t.dep.side.mix(t.dep.shadow, 0.85), nil)
+	return t.raise(base, hue, 0.06, t.dep.side.mix(t.dep.shadow, 0.85), t.dep.side, nil)
 }
 
-// surfHero is the welcome: the hero card, its face blended primary → magenta across its rows.
+// surfHero is the welcome: the hero card, its face blended primary → accent across its rows.
 func (t Theme) surfHero() (surf, color.Color) {
 	s := t.card(t.accent.GetForeground(), 0.05, nil)
 	return s, toRGB(t.dep.card.col()).mix(toRGB(t.magenta.GetForeground()), 0.06).col()
 }
 
-// surfToast is a notification: a float in its verdict's hue with the deepest shadow.
+// surfToast is a notification: a float in its verdict's hue, glowing — it is fresh.
 func (t Theme) surfToast(hue color.Color) surf {
-	return t.floatSurf(hue, 0.05, hue)
+	return t.glowing(t.floatSurf(hue, 0.05, hue), hue, t.dep.plane)
 }
 
-// surfFloat is the ask card and the popups: a float a breath toward the primary.
+// surfFloat is the ask card and the popups: a float a breath toward the primary, the deepest
+// shadow lit at its rim by a faint halo of the primary.
 func (t Theme) surfFloat() surf {
-	return t.floatSurf(t.accent.GetForeground(), 0.035, nil)
+	s := t.floatSurf(t.accent.GetForeground(), 0.035, nil)
+	if !t.Depth {
+		return s
+	}
+	h := toRGB(t.accent.GetForeground())
+	s.gloss = toRGB(s.gloss).mix(h, 0.25).col()
+	s.shadow = toRGB(s.shadow).mix(h, 0.12).col()
+	s.shadow2 = toRGB(s.shadow2).mix(h, 0.18).col()
+	return s
 }
 
 // codeBg is a code block's ground: the panel's step flat, sunk into the answer's slab (an inset
@@ -589,7 +689,7 @@ func (t Theme) insetCode(md string, width int) string {
 
 // answerSeam is the row two joined pieces of an answer meet on: an empty row of the slab.
 func (t Theme) answerSeam(w int) string {
-	return strings.Split(t.slab(t.surfAnswer(), []string{""}, w, slabOpt{top: true}), "\n")[1]
+	return strings.Split(t.slab(t.surfAnswer(), []string{""}, w, slabOpt{top: true, flat: true}), "\n")[1]
 }
 
 // headerTints are the header bar's two ends: a card's tone a breath toward the primary on the

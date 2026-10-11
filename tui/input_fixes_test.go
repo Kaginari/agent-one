@@ -65,9 +65,31 @@ func TestInputGrowsWithAWrappedLine(t *testing.T) {
 	if h := m.input.Height(); h != 8 {
 		t.Fatalf("the box caps at 8 rows, got %d", h)
 	}
+	if n := len([]rune(m.input.Value())); n < 1150 {
+		t.Fatalf("the box stopped taking text at %d characters: past 8 rows it scrolls inside", n)
+	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if h := m.input.Height(); h != 3 {
+		t.Fatalf("a cleared box under the frame is its three rows again, got %d", h)
+	}
+}
+
+// The ask's well under the frame starts at three rows and the conversation gives them up; the
+// inline box starts at one.
+func TestInputWellStartsAtThreeRows(t *testing.T) {
+	m := New(&fakeHost{}, NewTheme(true), DefaultWords())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 34})
+	m.Render()
+	if h := m.input.Height(); h != 3 || m.lay.inputN != 3 {
+		t.Fatalf("the well is %d rows (layout %d), want 3", h, m.lay.inputN)
+	}
+	if v := ansi.Strip(m.input.View()); !strings.Contains(v, "sk anything") {
+		t.Fatalf("the empty well shows no placeholder: %q", v)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+	m.Render()
 	if h := m.input.Height(); h != 1 {
-		t.Fatalf("a cleared box is one row again, got %d", h)
+		t.Fatalf("the inline box is %d rows, want 1", h)
 	}
 }
 

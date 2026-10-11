@@ -205,10 +205,50 @@ func ownersOf(owns map[string][]string, rel string) []string {
 	return who
 }
 
-// importGraph walks root's source (tests, vendored and generated trees left out) and returns each
-// file's in-repo imports as root-relative paths: a Go package's directory, a Python module's file
-// or package, a JS/TS module's resolved path.
-func importGraph(root string) map[string][]string {
+// importGraph is the source walk's import half (see sourceWalk).
+func importGraph(root string) map[string][]string { return sourceOf(root).imports }
+
+// sourceIndex is one walk of a workspace's source: each file's in-repo imports and its line count.
+type sourceIndex struct {
+	imports map[string][]string
+	lines   map[string]int
+}
+
+// sources are a walk of the workspace: kept a minute per root, so the team's polling stays cheap.
+var sourceMemo struct {
+	sync.Mutex
+	root string
+	at   time.Time
+	val  sourceIndex
+}
+
+// sourceOf is sourceWalk, remembered for a minute.
+func sourceOf(root string) sourceIndex {
+	sourceMemo.Lock()
+	defer sourceMemo.Unlock()
+	if sourceMemo.root == root && time.Since(sourceMemo.at) < time.Minute {
+		return sourceMemo.val
+	}
+	v := sourceWalk(root)
+	sourceMemo.root, sourceMemo.at, sourceMemo.val = root, time.Now(), v
+	return v
+}
+
+// generated reads a file's head for the generator's mark (Go's "Code generated … DO NOT EDIT",
+// and the same words in any language's header).
+func generated(b []byte) bool {
+	head := b
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	return bytes.Contains(head, []byte("Code generated")) || bytes.Contains(head, []byte("@generated")) || bytes.Contains(head, []byte("DO NOT EDIT"))
+}
+
+// sourceWalk walks root's source (tests, vendored and generated trees left out — the same cut
+// init's survey makes) and returns each file's in-repo imports as root-relative paths (a Go
+// package's directory, a Python module's file or package, a JS/TS module's resolved path) and
+// each file's lines.
+func sourceWalk(root string) sourceIndex {
 	mod := ""
 	if b, err := os.ReadFile(filepath.Join(root, "go.mod")); err == nil {
 		if m := regexp.MustCompile(`(?m)^module[ \t]+(\S+)`).FindSubmatch(b); m != nil {
@@ -216,6 +256,7 @@ func importGraph(root string) map[string][]string {
 		}
 	}
 	out := map[string][]string{}
+	lines := map[string]int{}
 	files := 0
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -242,12 +283,16 @@ func importGraph(root string) map[string][]string {
 			return nil
 		}
 		b, err := os.ReadFile(p)
-		if err != nil {
+		if err != nil || generated(b) {
 			return nil
 		}
 		files++
 		rel, _ := filepath.Rel(root, p)
 		rel = filepath.ToSlash(rel)
+		lines[rel] = bytes.Count(b, []byte("\n"))
+		if len(b) > 0 && b[len(b)-1] != '\n' {
+			lines[rel]++
+		}
 		dir := path.Dir(rel)
 		var tgts []string
 		switch ext {
@@ -288,7 +333,83 @@ func importGraph(root string) map[string][]string {
 		}
 		return nil
 	})
-	return out
+	return sourceIndex{imports: out, lines: lines}
+}
+
+// Masses sizes the team: each member's own lines (the files whose deepest owner it is — the
+// rule relates count by), its mass the own lines of its whole subtree, the orchestrator's the whole
+// workspace's source; a skill's mass is how many hold it. Activity never enters it.
+func Masses(root string, c *Team) {
+	if c == nil || root == "" {
+		return
+	}
+	owns := map[string][]string{}
+	parent := map[string]string{}
+	for _, n := range c.Nodes {
+		if n.Kind == "skill" {
+			continue
+		}
+		parent[n.ID] = n.Parent
+		for _, o := range n.Owns {
+			o = strings.Trim(path.Clean(strings.ToLower(filepath.ToSlash(o))), "/")
+			if o != "" && o != "." {
+				owns[n.ID] = append(owns[n.ID], o)
+			}
+		}
+	}
+	above := func(a, b string) bool {
+		for p, guard := parent[b], 0; p != "" && guard < 64; p, guard = parent[p], guard+1 {
+			if p == a {
+				return true
+			}
+		}
+		return false
+	}
+	own := map[string]int{}
+	total := 0
+	for file, n := range sourceOf(root).lines {
+		total += n
+		ids := ownersOf(owns, file)
+		var deep []string
+		for _, a := range ids {
+			keep := true
+			for _, b := range ids {
+				if above(a, b) {
+					keep = false
+					break
+				}
+			}
+			if keep {
+				deep = append(deep, a)
+			}
+		}
+		for _, id := range deep {
+			own[id] += n / len(deep)
+		}
+	}
+	mass := map[string]int{}
+	for id, n := range own {
+		for cur, guard := id, 0; cur != "" && guard < 64; cur, guard = parent[cur], guard+1 {
+			mass[cur] += n
+		}
+	}
+	holders := map[string]int{}
+	for _, e := range c.Edges {
+		if e.Bond == "holds" {
+			holders[e.To]++
+		}
+	}
+	for i := range c.Nodes {
+		n := &c.Nodes[i]
+		switch {
+		case n.Kind == "skill":
+			n.Mass = holders[n.ID]
+		case n.Orchestrator:
+			n.Mass, n.Own = total, own[n.ID]
+		default:
+			n.Mass, n.Own = mass[n.ID], own[n.ID]
+		}
+	}
 }
 
 // pyTarget resolves a Python import to a root-relative path when it names this repo's code.

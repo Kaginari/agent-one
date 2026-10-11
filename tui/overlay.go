@@ -433,11 +433,7 @@ func (t Theme) pill(kind string) lipgloss.Style {
 	case "bad":
 		bg = t.bad.GetForeground()
 	}
-	fg := lipgloss.Color("#0d1117")
-	if !t.Dark {
-		fg = lipgloss.Color("#ffffff")
-	}
-	return lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(true)
+	return lipgloss.NewStyle().Background(bg).Foreground(t.onAccent()).Bold(true)
 }
 
 // toastCard is a toast under the depth: a float slab, its verdict's hue as the spine and the
@@ -452,5 +448,5 @@ func (t Theme) toastCard(tt toast) string {
 		fg = fg.mix(hexRGB("#000000"), 0.25)
 	}
 	text := lipgloss.NewStyle().Foreground(fg.col()).Bold(true).Render(tt.text)
-	return t.slab(t.surfToast(hue), []string{" " + text}, lipgloss.Width(tt.text)+8, slabOpt{top: true, padR: 2})
+	return t.slab(t.surfToast(hue), []string{" " + text}, lipgloss.Width(tt.text)+7+shadowW, slabOpt{top: true, padR: 2})
 }

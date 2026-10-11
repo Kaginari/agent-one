@@ -13,13 +13,12 @@ import (
 	"github.com/Kaginari/agent-one/instrument"
 	"github.com/Kaginari/agent-one/loop"
 	"github.com/Kaginari/agent-one/provider"
+	"github.com/Kaginari/agent-one/rank"
 	"github.com/Kaginari/agent-one/workspace"
 )
 
-// designRank folds config's rank spelling (principal-coordinator) to the workspace's (principal_coordinator).
-func designRank(name string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), "-", "_")
-}
+// canonRank is the one spelling of a rank (rank.Canon): config's, the workspace's, the board's.
+func canonRank(name string) string { return rank.Canon(name) }
 
 // ranksFor turns config's resolved rank table into the workspace's: builtin ranks take their dirs
 // and prefixes from the lexicon (agent-one renames them), a custom rank its own dir (its name
@@ -31,10 +30,11 @@ func ranksFor(cfg *config.Config, lex workspace.Lexicon) workspace.Ranks {
 	}
 	var out workspace.Ranks
 	for _, r := range cfg.Ranks() {
-		name := designRank(r.Name)
-		wr := workspace.Rank{Name: name, ReportsTo: designRank(r.ReportsTo), Job: r.Job, Authors: r.Authors, HoldsGate: r.HoldsGate, Sideways: r.Sideways,
-			Role: r.Role, Tools: append([]string(nil), r.Tools...), Base: designRank(r.PromotesFrom), Layer: r.Layer,
-			DivineRules: append([]string(nil), r.DivineRules...), PromotesWhen: r.PromotesWhen}
+		name := canonRank(r.Name)
+		wr := workspace.Rank{Name: name, ReportsTo: canonRank(r.ReportsTo), Job: r.Job, Authors: r.Authors, HoldsGate: r.HoldsGate, Sideways: r.Sideways,
+			Role: r.Role, Tools: append([]string(nil), r.Tools...), Base: canonRank(r.PromotesFrom), Layer: r.Layer,
+			DivineRules: append([]string(nil), r.DivineRules...), PromotesWhen: r.PromotesWhen,
+			Family: r.Family, Score: r.Value.Score, Meter: r.Value.Meter, MinRecord: r.Value.MinRecord, Portrait: r.Portrait}
 		if d, ok := def[name]; ok && r.Builtin {
 			wr.Dir, wr.Prefix = d.Dir, d.Prefix
 			if wr.ReportsTo == "" {
@@ -79,7 +79,16 @@ func openWorkspace(cfg *config.Config, root string, lex workspace.Lexicon) (*wor
 		Instructions: workspace.InstructionOptions{Enabled: cfg.Discovery.Instructions.Enabled, Files: cfg.Discovery.Instructions.Files, Global: cfg.Discovery.Instructions.Global, WalkUp: cfg.Discovery.Instructions.WalkUp},
 		Ontology:     cfg.Ontology.Enabled,
 		Ranks:        ranksFor(cfg, lex),
+		Value:        valueOptions(cfg),
 	})
+}
+
+// valueOptions is policy.value as the workspace reads it: the one definition of success, the window,
+// the council's strain line and the session meters.
+func valueOptions(cfg *config.Config) workspace.ValueOptions {
+	meters, _ := cfg.Meters()
+	return workspace.ValueOptions{Off: !cfg.Policy.Value.Enabled, Def: cfg.ValueDef(), Window: cfg.ValueWindow(), WindowText: cfg.Policy.Value.Window,
+		ReopenTurns: cfg.Policy.Value.ReopenTurns, MinRecord: cfg.Policy.Value.MinRecord, EscalateAt: cfg.Policy.Stress.EscalateAt, Meters: meters}
 }
 
 // foreignAgents turns discovered agent files into agents on the roster: the rank from the
@@ -178,8 +187,20 @@ func policyGuts(cfg *config.Config) *loop.Guts {
 	if !cfg.Policy.Guts.Enabled {
 		return nil
 	}
-	return &loop.Guts{Window: cfg.Policy.Guts.Window, Floor: cfg.Policy.Guts.Floor,
-		BenchThrashVisits: cfg.Policy.Guts.BenchThrashVisits, DigestEvery: cfg.Policy.Guts.DigestEvery}
+	g := cfg.Policy.Guts
+	out := &loop.Guts{Window: g.Window, Floor: g.Floor, FloorExact: true,
+		BenchThrashVisits: g.BenchThrashVisits, DigestEvery: g.DigestEvery,
+		Negative: g.Lexemes.Negative, Positive: g.Lexemes.Positive, Ring: g.Ring}
+	for _, b := range g.Benches {
+		out.Benches = append(out.Benches, loop.Bench{Name: b.Name, Match: b.Match, Red: b.Red, Green: b.Green})
+	}
+	if w := g.Weights; w != nil {
+		out.Weights = &loop.GutsWeights{Fail: w.Fail, Negative: w.Negative, Positive: w.Positive, Repeat: w.Repeat, Echo: w.Echo, Thrash: w.Thrash}
+	}
+	if c := g.Clamp; c != nil {
+		out.ClampMin, out.ClampMax = c.Min, c.Max
+	}
+	return out
 }
 
 // policyDoom: the notes-stress auto-relief ladder (policy.yaml doomLoop). An agent's guts spoke

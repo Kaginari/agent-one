@@ -1,11 +1,17 @@
  agent-one                          
  kimi-3-conduit                     
- ▌▌▌░░░░░ 42% / 128k                
- 15k tok · $0.0123                  
- orchestrator 8.2k coord 2.3k       
- domain 3.3k zone 1.6k              
-─ ▾ subagents · 3 ──────────────────
- ● coord-agent-one   THINKING 1m12s 
+ ○ idle                             
+─ vitals ───────────────────────────
+ ᴄᴛx   ━━━━━━━────────── 42% / 128k 
+ ᴛᴏᴋ   15k                          
+ ᴄᴏꜱᴛ  $0.0123                      
+─ ▾ ranks · 4 ──────────────────────
+ ● orchestrat… ━━━━━━━───────  8.2k 
+ ● coord       ━━────────────  2.3k 
+ ● domain      ━━━───────────  3.3k 
+ ● zone        ━─────────────  1.6k 
+─ ▾ subagents · 3 · 1 live ─────────
+ ● coord-agent-one         THINKING 
  ● domain-security           ✗ DONE 
  ● zone-auth                 ✓ DONE 
 ─ ▾ files · 3 ──────────────────────

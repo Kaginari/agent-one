@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/Kaginari/agent-one/value"
 	"sort"
 	"strings"
 )
@@ -9,21 +10,24 @@ import (
 // RankDef is a rank as config writes it; every field is optional and overrides the built-in
 // table's field of the same name (rankSet: extend) or defines a new rank outright.
 type RankDef struct {
-	ReportsTo    string   `json:"reportsTo"`
-	Job          string   `json:"job"`
-	Authors      *bool    `json:"authors"`
-	HoldsGate    *bool    `json:"holdsGate"`
-	Agent        string   `json:"agent"` // read by nothing: every dispatched agent is a Subagent (a set value is a hole)
-	Role         string   `json:"role"`
-	Tools        []string `json:"tools"` // globs over tool names
-	Model        ModelRef `json:"model"`
-	Dir          string   `json:"dir"`
-	Prefix       string   `json:"prefix"`
-	PromotesFrom string   `json:"promotesFrom"`
-	Sideways     *bool    `json:"sideways"`     // may speak to its own rank (domain owner ↔ domain owner) and name its layer-mates
-	Layer        int      `json:"layer"`        // a layer, 0 when unset; two ranks share a layer iff equal and nonzero
-	DivineRules  []string `json:"divineRules"`  // a promoted rank's absolute rules, laced into the base rank's prompt
-	PromotesWhen string   `json:"promotesWhen"` // the ASL condition under which a body of this rank promotes ("" = never)
+	ReportsTo    string     `json:"reportsTo"`
+	Job          string     `json:"job"`
+	Authors      *bool      `json:"authors"`
+	HoldsGate    *bool      `json:"holdsGate"`
+	Agent        string     `json:"agent"` // read by nothing: every dispatched agent is a Subagent (a set value is a hole)
+	Role         string     `json:"role"`
+	Tools        []string   `json:"tools"` // globs over tool names
+	Model        ModelRef   `json:"model"`
+	Dir          string     `json:"dir"`
+	Prefix       string     `json:"prefix"`
+	PromotesFrom string     `json:"promotesFrom"`
+	Sideways     *bool      `json:"sideways"`     // may speak to its own rank (domain owner ↔ domain owner) and name its layer-mates
+	Layer        int        `json:"layer"`        // a layer, 0 when unset; two ranks share a layer iff equal and nonzero
+	DivineRules  []string   `json:"divineRules"`  // a promoted rank's absolute rules, laced into the base rank's prompt
+	PromotesWhen string     `json:"promotesWhen"` // the ASL condition under which a body of this rank promotes ("" = never)
+	Family       string     `json:"family"`       // the value family (rank.Families); unset = derived from the flags
+	Portrait     string     `json:"portrait"`     // a portrait file, relative to the workspace root, before the embedded one
+	Value        *RankValue `json:"value"`        // the rank's own value policy over its family's
 }
 
 // Rank is one resolved rank with the origin of each field ("policy" for the built-in table).
@@ -43,8 +47,12 @@ type Rank struct {
 	Layer        int
 	DivineRules  []string
 	PromotesWhen string
-	Origins      map[string]string // field → origin
-	Builtin      bool
+	Family       string
+	Portrait     string
+	// Value is the rank's resolved value policy: its own score/meter/minRecord over its family's.
+	Value   value.Spec
+	Origins map[string]string // field → origin (value.score, value.meter, value.minRecord, family included)
+	Builtin bool
 }
 
 // RootRank is the session's rank: the tree's root, never configured.
@@ -118,7 +126,7 @@ func (c *Config) buildRanks() error {
 				r.Origins[field] = c.Where(path)
 			}
 		}
-		set("reportsTo", func() { r.ReportsTo = def.ReportsTo })
+		set("reportsTo", func() { r.ReportsTo = canonicalRank(def.ReportsTo) })
 		set("job", func() { r.Job = def.Job })
 		set("authors", func() { r.Authors = *def.Authors })
 		set("holdsGate", func() { r.HoldsGate = *def.HoldsGate })
@@ -132,11 +140,13 @@ func (c *Config) buildRanks() error {
 		set("model", func() { r.Model = def.Model })
 		set("dir", func() { r.Dir = def.Dir })
 		set("prefix", func() { r.Prefix = def.Prefix })
-		set("promotesFrom", func() { r.PromotesFrom = def.PromotesFrom })
+		set("promotesFrom", func() { r.PromotesFrom = canonicalRank(def.PromotesFrom) })
 		set("sideways", func() { r.Sideways = *def.Sideways })
 		set("layer", func() { r.Layer = def.Layer })
 		set("divineRules", func() { r.DivineRules = def.DivineRules })
 		set("promotesWhen", func() { r.PromotesWhen = def.PromotesWhen })
+		set("family", func() { r.Family = strings.ToLower(strings.TrimSpace(def.Family)) })
+		set("portrait", func() { r.Portrait = def.Portrait })
 		// models.ranks.<r> and ranks.<r>.model are one slot.
 		if mr, ok := c.Models.Ranks[name]; ok && def.Model.Model != "" && mr.Model != def.Model.Model {
 			return fmt.Errorf("%s: ranks.%s.model %q conflicts with models.ranks.%s %q (%s) — one slot, one value",
@@ -255,15 +265,16 @@ func (c *Config) buildRanks() error {
 	return nil
 }
 
-var rankFields = []string{"reportsTo", "job", "authors", "holdsGate", "role", "tools", "model", "dir", "prefix", "promotesFrom", "sideways", "layer", "divineRules", "promotesWhen"}
+var rankFields = []string{"reportsTo", "job", "authors", "holdsGate", "role", "tools", "model", "dir", "prefix", "promotesFrom", "sideways", "layer", "divineRules", "promotesWhen", "family", "portrait"}
 
 func (c *Config) rankWhere(name, field string) string { return c.Where("ranks." + name + "." + field) }
 
 // Ranks returns the resolved hierarchy in policy order then config order; Orchestrator is implicit.
 func (c *Config) Ranks() []Rank { return append([]Rank(nil), c.ranks...) }
 
-// Rank finds one rank by name.
+// Rank finds one rank by any spelling of its name (rank.Canon).
 func (c *Config) Rank(name string) (Rank, bool) {
+	name = canonicalRank(name)
 	for _, r := range c.ranks {
 		if r.Name == name {
 			return r, true
@@ -287,7 +298,8 @@ func (c *Config) Deviations() []string {
 		fields := sortedKeys(r.Origins)
 		for _, f := range fields {
 			o := r.Origins[f]
-			if o != "policy" && !strings.HasPrefix(o, "promotes:") {
+			// a derived family and a family's own policy are the policy's; a rank's own value is not
+			if o != "policy" && !strings.HasPrefix(o, "promotes:") && !strings.HasPrefix(o, "derived:") && !(strings.HasPrefix(o, "family:") && !strings.Contains(o, "(")) {
 				out = append(out, fmt.Sprintf("rank %s.%s: %s", r.Name, f, o))
 			}
 		}

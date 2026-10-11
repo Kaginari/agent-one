@@ -20,26 +20,38 @@ func defaultFg(dark bool) rgb {
 	return hexRGB("#3b3b3b")
 }
 
-// faces is every surface a text sits on, by name, in a theme.
+// faces is every surface a text sits on, by name, in a theme: each slab's band and every row
+// of its gradient (sampled top to bottom), the glowing variants, the planes and the frame's bars.
 func faces(t Theme) map[string]color.Color {
+	t.Depth = true
 	out := map[string]color.Color{
 		"plane": t.dep.plane.col(), "side": t.dep.side.col(), "well": t.dep.well.col(),
-		"card": t.dep.card.col(), "float": t.dep.float.col(),
+		"card": t.dep.card.col(), "float": t.dep.float.col(), "ground": t.dep.ground.col(),
 	}
 	add := func(name string, s surf) {
 		out[name] = s.face
 		out[name+".band"] = s.band
+		if s.top != nil {
+			for i := 0; i <= 10; i++ {
+				out[fmt.Sprintf("%s.row%02d", name, i)] = toRGB(s.top).mix(toRGB(s.bot), float64(i)/10).col()
+			}
+		}
 	}
 	add("user", t.surfUser())
 	add("answer", t.surfAnswer())
+	add("plan", t.surfPlan())
 	for _, c := range []string{"read", "write", "outward", "destructive"} {
 		add("tool."+c, t.surfTool(c))
 	}
 	for _, r := range []string{"orchestrator", "coord", "domain", "zone", "service", "auditor"} {
 		add("subagent."+r, t.surfSubagent(r, t.lane(r)))
+		add("subagent.live."+r, t.glowing(t.surfSubagent(r, t.lane(r)), t.lane(r), t.dep.plane))
 		add("tile."+r, t.surfTile(t.lane(r)))
 	}
 	add("tile", t.surfTile(nil))
+	for _, h := range []color.Color{t.accent.GetForeground(), t.plan.GetForeground(), t.magenta.GetForeground(), t.warn.GetForeground()} {
+		add("tile."+toRGB(h).hex(), t.surfTile(h))
+	}
 	h, g := t.surfHero()
 	add("hero", h)
 	out["hero.end"] = g
@@ -51,24 +63,65 @@ func faces(t Theme) map[string]color.Color {
 	out["header.from"], out["header.to"] = from.col(), to.col()
 	out["veil"] = t.veil()
 	out["status"] = t.statusBg()
-	t.Depth = true
 	out["code"] = t.codeBg()
+	// the well's rows: its shaded first row to its face
+	for i, r := range t.well([]string{"", "", "", ""}, 20, nil)[1:5] {
+		_ = r
+		out[fmt.Sprintf("well.row%d", i)] = t.wellFace(i, 4)
+	}
 	return out
 }
 
-// The contrast policy: every text role holds 4.5:1 on every surface it can sit on, dark and light.
+// The contrast policy: every text role holds 4.5:1 on every surface it can sit on (every row of
+// every gradient), dark and light; every rank lane, tool class and the plan's hue as text on
+// the surfaces that hold them.
 func TestDepthContrast(t *testing.T) {
 	for _, dark := range []bool{true, false} {
 		th := NewTheme(dark)
-		roles := map[string]rgb{"text": defaultFg(dark), "dim": toRGB(th.dim.GetForeground()), "label": toRGB(th.label.GetForeground()),
+		roles := map[string]rgb{"term": defaultFg(dark), "text": toRGB(th.text.GetForeground()), "dim": toRGB(th.dim.GetForeground()), "label": toRGB(th.label.GetForeground()),
 			"user": toRGB(th.user.GetForeground()), "accent": toRGB(th.accent.GetForeground()), "magenta": toRGB(th.magenta.GetForeground()),
-			"ok": toRGB(th.ok.GetForeground()), "bad": toRGB(th.bad.GetForeground()), "warn": toRGB(th.warn.GetForeground())}
-		for fname, f := range faces(th) {
-			for rname, r := range roles {
-				if c := contrast(r, toRGB(f)); c < 4.5 {
-					t.Errorf("dark=%v: %s on %s (%s) is %.2f:1", dark, rname, fname, toRGB(f).hex(), c)
+			"ok": toRGB(th.ok.GetForeground()), "bad": toRGB(th.bad.GetForeground()), "warn": toRGB(th.warn.GetForeground()), "plan": toRGB(th.plan.GetForeground())}
+		for _, r := range []string{"orchestrator", "coord", "domain", "zone", "service", "auditor"} {
+			roles["lane."+r] = toRGB(th.lane(r))
+		}
+		for _, c := range []string{"read", "write", "outward", "destructive"} {
+			roles["class."+c] = toRGB(th.class(c).GetForeground())
+		}
+		// a chip's face: its own hue as the word, the quiet and agent tones beside it
+		th.Depth = true
+		hues := map[string]color.Color{"ok": th.ok.GetForeground(), "bad": th.bad.GetForeground(), "accent": th.accent.GetForeground(),
+			"magenta": th.magenta.GetForeground(), "plan": th.plan.GetForeground(), "warn": th.warn.GetForeground()}
+		for _, r := range []string{"orchestrator", "coord", "domain", "zone", "service", "auditor"} {
+			hues["lane."+r] = th.lane(r)
+		}
+		for hn, h := range hues {
+			f := th.chipFace(h)
+			for rn, r := range map[string]rgb{hn: toRGB(h), "dim": roles["dim"], "text": roles["text"], "label": roles["label"]} {
+				if c := contrast(r, f); c < 4.5 {
+					t.Errorf("dark=%v: %s (%s) on the %s chip (%s) is %.2f:1", dark, rn, r.hex(), hn, f.hex(), c)
 				}
 			}
+		}
+		for fname, f := range faces(th) {
+			for rname, r := range roles {
+				if rname == "term" && dark != (toRGB(f).lum() < 0.25) {
+					continue
+				}
+				if c := contrast(r, toRGB(f)); c < 4.5 {
+					t.Errorf("dark=%v: %s (%s) on %s (%s) is %.2f:1", dark, rname, r.hex(), fname, toRGB(f).hex(), c)
+				}
+			}
+		}
+	}
+}
+
+// The palette's report: each role's contrast on the ground and the card, for the eye (go test -v).
+func TestPaletteReport(t *testing.T) {
+	for _, dark := range []bool{true, false} {
+		th := NewTheme(dark)
+		for name, c := range map[string]color.Color{"text": th.text.GetForeground(), "muted": th.dim.GetForeground(), "primary": th.accent.GetForeground(),
+			"accent": th.magenta.GetForeground(), "ok": th.ok.GetForeground(), "warn": th.warn.GetForeground(), "danger": th.bad.GetForeground(), "plan": th.plan.GetForeground()} {
+			t.Logf("dark=%v %-8s %s  ground %.1f:1  card %.1f:1", dark, name, toRGB(c).hex(), contrast(toRGB(c), th.dep.ground), contrast(toRGB(c), th.dep.card))
 		}
 	}
 }
@@ -88,23 +141,29 @@ func checkSlab(t *testing.T, name, block string, w, x0 int, top bool) {
 		}
 		strip[i] = []rune(ansi.Strip(r))
 	}
-	bw := w - x0 - 1 // the slab's face; its shadow takes the last cell
+	bw := w - x0 - shadowW // the slab's face; its shadow takes the last columns
 	first := 0
 	if top {
 		first = 1
 		f := string(strip[0][x0 : x0+bw])
-		if strings.Trim(f, "▗▄▖") != "" || strip[0][x0+bw] != ' ' {
+		if strings.Trim(f, "▗▄▖") != "" || strings.TrimSpace(string(strip[0][x0+bw:])) != "" {
 			t.Fatalf("%s: the top face is open: %q", name, string(strip[0]))
 		}
 	}
 	last := strip[len(strip)-1]
-	if last[x0] != '▝' || strings.Trim(string(last[x0+1:x0+bw]), "▀") != "" || last[x0+bw] != ' ' {
+	if last[x0] != '▝' || strings.Trim(string(last[x0+1:x0+bw]), "▀") != "" || string(last[x0+bw:]) != " ▘" {
 		t.Fatalf("%s: the bottom edge is open: %q", name, string(last))
 	}
 	for i := first; i < len(strip)-1; i++ {
-		// a chip without a top face drops its shadow half a row: its first row's shadow is ▄
-		if c := strip[i][x0+bw]; c != ' ' && !(i == 0 && !top && c == '▄') {
-			t.Fatalf("%s: row %d spills into the shadow's column: %q", name, i, string(strip[i]))
+		// the shadow falls half a row down: its first row ▄ and a soft ▖, then a full near
+		// column and a half-width fade
+		sh := string(strip[i][x0+bw:])
+		if want := " ▌"; i == first {
+			if sh != "▄▖" {
+				t.Fatalf("%s: row %d: the shadow's top is %q: %q", name, i, sh, string(strip[i]))
+			}
+		} else if sh != want {
+			t.Fatalf("%s: row %d spills into the shadow's columns: %q", name, i, string(strip[i]))
 		}
 	}
 }
@@ -131,16 +190,48 @@ func TestDepthBlocksClosed(t *testing.T) {
 			cw := min(w, 84)
 			checkSlab(t, n("welcome"), th.Welcome(Welcome{Dist: "agent-one", Version: "v0.2.0", Workspace: "/home/monta/kaginari/pfcli", Model: "gemini/x", Session: "s"}, w), cw, 0, true)
 			ch := th.Choice(ChoiceView{Title: "Approval", Class: "outward", Tool: "bash", Summary: "git push", Why: "outward", Options: []string{"Yes", "No"}}, w)
-			checkSlab(t, n("choice"), ch, min(w-5, 96)+5, 0, true)
+			checkSlab(t, n("choice"), ch, min(w-4-shadowW, 96)+4+shadowW, 0, true)
 			checkSlab(t, n("panel"), th.panel(th.title("roles"), []string{"a", "b"}, w), w, 0, true)
 			tc := th.toastCard(toast{text: "✓ zone-auth done", style: th.pill("ok")})
-			checkSlab(t, n("toast"), tc, ansi.StringWidth("✓ zone-auth done")+8, 0, true)
+			checkSlab(t, n("toast"), tc, ansi.StringWidth("✓ zone-auth done")+7+shadowW, 0, true)
 		}
 		// the sidebar's tiles: each a closed slab inside the column
-		for _, rw := range []int{28, 36, 50} {
+		art, _ := mascotArt("agent-one", false)
+		for rw := 28; rw <= 60; rw += 2 {
 			rows := th.railRows(RailView{Workspace: "agent-one", Model: "m", CtxKnown: true, CtxPct: 40, Tokens: 10,
 				Subagents: []RailSubagent{{Name: "coord-agent-one", State: "thinking", Lane: th.lane("coord")}},
 				Files:     []RailFile{{Path: "tui/blocks.go", Lane: th.lane("zone")}}}, rw)
+			// every tile of the cockpit, sprite and all: each closed, each inside the column
+			full := th.railRows(RailView{Mascot: art, Workspace: "agent-one", Model: "m", CtxKnown: true, CtxPct: 40, CtxMax: "128k", Tokens: 12000, Cost: "$0.01",
+				Dash: "http://127.0.0.1:7486/", State: "busy", Verb: "running bash",
+				Layers:    []RailLayer{{Rank: "orchestrator", Tokens: 8000, Lane: th.lane("orchestrator")}, {Rank: "coord", Tokens: 4000, Lane: th.lane("coord")}},
+				Subagents: []RailSubagent{{Name: "zone-auth", State: "done", Done: true, Lane: th.lane("zone")}, {Name: "coord-agent-one", State: "thinking", Aged: "7s", Lane: th.lane("coord")}},
+				Plan:      &RailPlan{Agent: "orchestrator", Items: []RailPlanItem{{Text: "read", Status: "done"}, {Text: "survey the toolbox", Status: "in_progress"}, {Text: "verify"}}},
+				Files:     []RailFile{{Path: "tui/blocks.go", Lane: th.lane("zone")}, {Path: "tui/rail.go", Lane: th.lane("coord")}}}, rw)
+			var ft []string
+			fn := 0
+			for _, r := range full {
+				if w := ansi.StringWidth(r.text); w != rw-1 {
+					t.Fatalf("rw=%d: a cockpit row is %d cells: %q", rw, w, ansi.Strip(r.text))
+				}
+				ft = append(ft, r.text)
+				if strings.HasPrefix(ansi.Strip(r.text), "▝") {
+					checkSlab(t, fmt.Sprintf("cockpit tile %d dark=%v rw=%d", fn, dark, rw), strings.Join(ft, "\n"), rw-1, 0, fn == 0)
+					ft, fn = nil, fn+1
+				}
+			}
+			if fn != 6 {
+				t.Fatalf("rw=%d: the cockpit has %d tiles, want 6 (header, vitals, ranks, subagents, plan, files)", rw, fn)
+			}
+			var order []string
+			for _, r := range full {
+				if r.subagent != "" {
+					order = append(order, r.subagent)
+				}
+			}
+			if len(order) != 2 || order[0] != "coord-agent-one" {
+				t.Fatalf("rw=%d: the live subagent is not listed first: %v", rw, order)
+			}
 			var tile []string
 			tiles := 0
 			for _, r := range rows {
@@ -153,8 +244,8 @@ func TestDepthBlocksClosed(t *testing.T) {
 					tile, tiles = nil, tiles+1
 				}
 			}
-			if tiles != 3 || len(tile) != 0 {
-				t.Fatalf("rw=%d: %d tiles (want vitals, subagents, files), %d rows left over", rw, tiles, len(tile))
+			if tiles != 4 || len(tile) != 0 {
+				t.Fatalf("rw=%d: %d tiles (want the header, vitals, subagents, files), %d rows left over", rw, tiles, len(tile))
 			}
 		}
 	}
@@ -233,23 +324,27 @@ func TestDepthNeedsTrueColor(t *testing.T) {
 	}
 }
 
-// The ground follows the terminal's answer; a contradicting answer keeps the default.
-func TestDepthGroundFromTerminal(t *testing.T) {
-	th := NewTheme(true).OnGround(lipgloss.Color("#0d1117"))
-	if th.dep.ground.hex() != "#0d1117" {
-		t.Fatalf("ground %s", th.dep.ground.hex())
+// The palette owns the ground: the terminal's answer never re-steps it, and the elevations climb
+// in order — well, ground, plane, card, float on dark; well, plane, card, float on light.
+func TestDepthGroundFromPalette(t *testing.T) {
+	th := NewTheme(true).OnGround(lipgloss.Color("#1f1f1f"))
+	if th.dep.ground.hex() != strings.ToLower(Cyberpunk.Dark.Ground) {
+		t.Fatalf("ground %s, want the palette's %s", th.dep.ground.hex(), Cyberpunk.Dark.Ground)
 	}
-	if l := NewTheme(true).OnGround(lipgloss.Color("#ffffff")); l.dep.ground.hex() != "#1f1f1f" {
-		t.Fatalf("a light answer re-grounded a dark theme: %s", l.dep.ground.hex())
+	d := th.dep
+	if !(d.well.lum() < d.ground.lum() && d.ground.lum() < d.plane.lum() && d.plane.lum() < d.card.lum() && d.card.lum() < d.float.lum()) {
+		t.Fatalf("dark: the elevations are out of order: well %s ground %s plane %s card %s float %s", d.well.hex(), d.ground.hex(), d.plane.hex(), d.card.hex(), d.float.hex())
 	}
-	for _, g := range []string{"#0d1117", "#1e1e1e", "#282c34"} {
-		d := NewTheme(true).OnGround(lipgloss.Color(g)).dep
-		if !(d.well.lum() < d.ground.lum() && d.ground.lum() < d.plane.lum() && d.plane.lum() < d.card.lum() && d.card.lum() < d.float.lum()) {
-			t.Fatalf("%s: the elevations are out of order: well %s ground %s plane %s card %s float %s", g, d.well.hex(), d.ground.hex(), d.plane.hex(), d.card.hex(), d.float.hex())
-		}
-	}
-	d := NewTheme(false).dep
+	d = NewTheme(false).dep
 	if !(d.well.lum() < d.plane.lum() && d.plane.lum() < d.card.lum() && d.card.lum() <= d.float.lum()) {
 		t.Fatalf("light: the elevations are out of order")
 	}
+}
+
+func railTexts(rows []railRow) []string {
+	var out []string
+	for _, r := range rows {
+		out = append(out, r.text)
+	}
+	return out
 }

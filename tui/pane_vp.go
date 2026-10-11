@@ -121,3 +121,58 @@ func (m *Model) vpWheel(msg tea.MouseWheelMsg) (tea.Cmd, bool) {
 	m.vp, cmd = m.vp.Update(msg)
 	return cmd, true
 }
+
+// barMouse handles the scrollbars' mouse: a left click on the chat's bar (the conversation's
+// right padding column) or on the sidebar's (its right border) jumps the thumb there and holds
+// it, a drag walks it, the release lets go. true when the event was the bar's.
+func (m *Model) barMouse(msg tea.Msg) bool {
+	if !m.paneMode() || m.mouseTerm || m.choice != nil || m.palette != nil || m.board != nil || m.bview != nil {
+		return false
+	}
+	l := m.geom()
+	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		if msg.Button != tea.MouseLeft {
+			return false
+		}
+		switch {
+		case msg.X == l.mc && l.chat.has(l.chat.X, msg.Y) && m.vpOK && len(m.vpLines) > l.chat.H:
+			m.barDrag = "chat"
+		case l.rc > 0 && msg.X == l.W-1 && l.rail.has(l.rail.X, msg.Y) && m.railTotal > l.rail.H:
+			m.barDrag = "rail"
+		default:
+			return false
+		}
+		m.sel = nil
+		m.barTo(l, msg.Y)
+		return true
+	case tea.MouseMotionMsg:
+		if m.barDrag == "" {
+			return false
+		}
+		m.barTo(l, msg.Y)
+		return true
+	case tea.MouseReleaseMsg:
+		if m.barDrag == "" {
+			return false
+		}
+		m.barDrag = ""
+		return true
+	}
+	return false
+}
+
+// barTo centres the dragged bar's thumb on window row y.
+func (m *Model) barTo(l layout, y int) {
+	at := func(r rect, total int) int {
+		frac := (float64(y-r.Y) + 0.5) / float64(max(r.H, 1))
+		top := int(frac*float64(total) - float64(r.H)/2 + 0.5)
+		return min(max(top, 0), max(total-r.H, 0))
+	}
+	switch m.barDrag {
+	case "chat":
+		m.vp.SetYOffset(at(l.chat, len(m.vpLines)))
+	case "rail":
+		m.railScroll = at(l.rail, m.railTotal)
+	}
+}

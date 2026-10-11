@@ -36,8 +36,9 @@ type Member struct {
 // Options is what Open needs beyond the root and the lexicon.
 type Options struct {
 	Instructions InstructionOptions
-	Ontology     bool  // load the ontology (members need it; off = an empty roster)
-	Ranks        Ranks // the rank table; nil = DefaultRanks(lex) (config's `rankSet: replace` passes the whole table)
+	Ontology     bool         // load the ontology (members need it; off = an empty roster)
+	Ranks        Ranks        // the rank table; nil = DefaultRanks(lex) (config's `rankSet: replace` passes the whole table)
+	Value        ValueOptions // policy.value: the one definition of success and the ledger's window
 }
 
 // Workspace is one opened workspace.
@@ -79,9 +80,12 @@ type Workspace struct {
 	// only and never this lane. Bounded per member (subagentWritesBound entries) because an
 	// unbounded map gains an entry every subagent turn forever.
 	subagentWrites map[string]map[string]subagentWrite
-	// promote is the promotion engine: per-agent report metrics and the register when a condition
-	// crosses. nil when no rank declares promotesWhen.
+	// promote is the promotion engine: the watch list and the register when a condition crosses. nil
+	// when no rank declares promotesWhen.
 	promote *promoteState
+	// val is the value ledger (workspace/value.go): every run of every agent, always kept.
+	val    *valueState
+	valOpt ValueOptions
 	// the council ledger: per-agent governance strain — a sum of the runs' sent-backs (failed
 	// acts standing, gate re-asks, wire re-asks) plus one per failed or stalled run, reset by a
 	// clean landing. At policy.stress.escalateAt the dispatcher stamps a council warrant into the
@@ -121,7 +125,7 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 	if st, err := os.Stat(filepath.Join(abs, lex.WorkspaceDir)); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("no %s/ under %s", lex.WorkspaceDir, abs)
 	}
-	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]subagentWrite{}, subagentWrites: map[string]map[string]subagentWrite{}, stress: map[string]int{}, consults: map[string]int{}, stressDeaths: map[string]stressEnd{}, pairMarks: map[string]time.Time{}, gateStreaks: map[string]*gateStreak{}}
+	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, valOpt: opt.Value, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]subagentWrite{}, subagentWrites: map[string]map[string]subagentWrite{}, stress: map[string]int{}, consults: map[string]int{}, stressDeaths: map[string]stressEnd{}, pairMarks: map[string]time.Time{}, gateStreaks: map[string]*gateStreak{}}
 	if w.Ranks == nil {
 		w.Ranks = DefaultRanks(lex)
 	}
@@ -130,7 +134,7 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 	}
 	w.promote = newPromoteState(w.Ranks)
 	w.loadLedgers() // the scars come home before the first agent runs (freeze policy 2026-10-07)
-	w.loadTally()   // and the promotion record: an agent's reports count across sessions
+	w.openValue()   // and the value ledger: an agent's runs count across sessions
 	policyPath := filepath.Join(abs, lex.WorkspaceDir, lex.Policy)
 	if w.Policy, err = LoadPolicy(policyPath, lex.WorkspaceDir+"/"+lex.Policy, lex.Principles); err != nil {
 		w.Notes = append(w.Notes, err.Error())

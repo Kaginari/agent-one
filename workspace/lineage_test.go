@@ -112,7 +112,7 @@ func TestServiceHoldsNoDispatch(t *testing.T) {
 	if !has("domain-a") {
 		t.Error("a domain owner commands its zone workers: dispatch on its shelf")
 	}
-	if Ranks(DefaultRanks(Default())).Commands("service") || !Ranks(DefaultRanks(Default())).Commands("principal_domain_owner") {
+	if Ranks(DefaultRanks(Default())).Commands("service") || !Ranks(DefaultRanks(Default())).Commands("principal-domain-owner") {
 		t.Error("Commands: service owner none; a principal domain owner commands its base's zone workers")
 	}
 }

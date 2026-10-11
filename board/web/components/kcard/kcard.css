@@ -1,4 +1,4 @@
-/* @component kcard — tokens: --surface, --line, --ink, --ink-muted, --radius-m, --space-2xs, --space-xs, --space-s, --step--1, --step-0, --font-code, --hairline, --leading, --weight-bold. The knowledge card of one node: what it is, what it owns, its bonds, the head of its doc. */
+/* @component kcard — tokens: --surface, --line, --ink, --ink-muted, --radius-m, --space-2xs, --space-xs, --space-s, --step--1, --step-0, --font-code, --hairline, --leading, --weight-bold, --radius-l, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --step--2, --tracking-label. The knowledge card of one node: the rank's face (its resolved portrait, else its family's glyph, ringed in the rank's hue), what it is, its value, what it owns, its bonds, the head of its doc. */
 @layer components {
   .kcard { display: grid; gap: var(--space-xs); padding: var(--space-s); background: var(--surface); border: var(--hairline) solid var(--line); border-radius: var(--radius-m); font-size: var(--step--1); }
   .kcard-title { font-size: var(--step-0); font-weight: var(--weight-bold); color: var(--ink); display: flex; flex-wrap: wrap; gap: var(--space-2xs); align-items: center; }
@@ -7,6 +7,25 @@
   .kcard dd { margin: 0; font-family: var(--font-code); overflow-wrap: anywhere; }
   .kcard-row { display: contents; }
   .kcard-close { margin-inline-start: auto; }
+  .kcard-face { margin: 0; display: grid; justify-items: center; gap: var(--space-2xs); }
+  .kcard-portrait, .kcard-glyph { inline-size: 7rem; block-size: 7rem; border-radius: var(--radius-l); border: 0.2rem solid var(--kcard-rank, var(--line)); background: var(--surface); object-fit: cover; }
+  .kcard-glyph { padding: 1.4rem; box-sizing: border-box; color: var(--kcard-rank, var(--ink-muted)); fill: none; stroke: currentColor; stroke-width: 2; }
+  .kcard-face figcaption { font-size: var(--step--2); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--kcard-rank, var(--ink-muted)); }
+  .kcard[data-family="author"] { --kcard-rank: var(--series-1); }
+  .kcard[data-family="gate"] { --kcard-rank: var(--series-2); }
+  .kcard[data-family="steward"] { --kcard-rank: var(--series-3); }
+  .kcard[data-family="planner"] { --kcard-rank: var(--series-4); }
+  .kcard[data-family="auditor"] { --kcard-rank: var(--series-5); }
+  .kcard[data-family="root"], .kcard[data-rank="orchestrator"] { --kcard-rank: var(--series-6); }
+  .kcard[data-rank="zone"] { --kcard-rank: var(--series-1); }
+  .kcard[data-rank="domain"], .kcard[data-rank="principal-domain-owner"] { --kcard-rank: var(--series-2); }
+  .kcard[data-rank="service"] { --kcard-rank: var(--series-3); }
+  .kcard[data-rank="coord"], .kcard[data-rank="principal-coordinator"] { --kcard-rank: var(--series-4); }
+  .kcard[data-rank="auditor"] { --kcard-rank: var(--series-5); }
+  .kcard[data-compact] { grid-template-columns: auto minmax(0, 1fr); }
+  .kcard[data-compact] > :not(.kcard-face) { grid-column: 2; }
+  .kcard[data-compact] .kcard-face { grid-row: 1 / span 3; align-self: start; }
+  .kcard[data-compact] .kcard-portrait, .kcard[data-compact] .kcard-glyph { inline-size: 6rem; block-size: 6rem; }
   /* compact: the card in the cockpit's lower band — its facts flow in columns, the doc stays home */
   .kcard[data-compact] dl { grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr)); gap: var(--space-2xs) var(--space-s); }
   .kcard[data-compact] .kcard-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: var(--space-s); }

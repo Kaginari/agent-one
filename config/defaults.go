@@ -65,9 +65,11 @@ const defaultsJSON = `{
     "log":        { "enabled": true, "path": "[dist-dir]/log.md" },
     "escalation": { "enabled": true, "maxRetries": 2 },
     "budget":     { "contextTokens": 200000, "stressTokens": 180000, "steps": 40, "minutes": 60, "salvageTokens": 4096 },
-    "guts":       { "enabled": true, "benchThrashVisits": 6, "digestEvery": 10 },
+    "guts":       { "enabled": true, "window": 5, "floor": -2, "benchThrashVisits": 6, "digestEvery": 10, "ring": 12 },
+    "value":      { "enabled": true, "window": "28d", "pass": ["DONE", "PASS"], "fail": ["FAIL", "ESCALATE", "CHECKPOINT"], "neutral": ["DENIED", "INTERRUPTED", "DRY", "SUSPENDED"], "reopenTurns": 3, "minRecord": 5, "families": {} },
     "doomLoop":   { "enabled": true, "threshold": 3 },
-    "stress":     { "escalateAt": 5, "maxConsults": 3, "relieveAt": 7 }
+    "stress":     { "escalateAt": 5, "maxConsults": 3, "relieveAt": 7 },
+    "forge":      { "demandAtSteps": 12 }
   },
   "memory": {
     "short":  { "enabled": true, "cacheDir": "[dist-dir]/memory/short" },
@@ -121,6 +123,6 @@ const defaultsJSON = `{
   "undo":   { "enabled": true, "dir": "~/.local/share/[dist]/undo", "keepDays": 7 },
   "output": { "format": "text", "stream": true, "thinking": false, "color": "auto" },
   "budgets": { "session": { "tokens": 0, "usd": 0 }, "subagent": { "tokens": 0, "usd": 0 } },
-  "ui": { "statusLine": true, "announceSubagents": true, "board": { "autostart": true, "port": 7411 } },
+  "ui": { "statusLine": true, "announceSubagents": true, "board": { "autostart": true, "port": 7411 }, "meters": {} },
   "logLevel": "WARN"
 }`

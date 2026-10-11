@@ -11,8 +11,9 @@ import (
 	"strings"
 )
 
-// lessons reads the guts' journals (one reading per act of every run) and ranks the why classes
-// that keep costing ground. It aggregates; it does not consolidate — crystallizing a class into a
+// lessons reads the guts' journals (one reading per act of every run) and ranks the classes that
+// keep costing ground — by the reading's stable class code (fail, neg-lexeme, echo, thrash,
+// repeat), never by its why, which embeds counts. A journal older than the codes groups by why. It aggregates; it does not consolidate — crystallizing a class into a
 // skill or a policy is a writer's act, not the instrument's. Point it at a bench run's dir
 // (`lessons bench/jobs/tb2-…`) to autopsy a grid, or run bare for the workspace's own loops.
 func (a *App) cmdLessons(args []string, io IO) int {
@@ -30,6 +31,7 @@ func (a *App) cmdLessons(args []string, io IO) int {
 		dir = pos[0]
 	}
 	type cls struct {
+		class  string
 		why    string
 		n, sum int
 		spokes int
@@ -61,23 +63,33 @@ func (a *App) cmdLessons(args []string, io IO) int {
 			}
 			readings++
 			why, _ := ev["why"].(string)
-			if why == "" {
-				continue
+			var classes []string
+			if cs, ok := ev["classes"].([]interface{}); ok {
+				for _, c := range cs {
+					if s, _ := c.(string); s != "" && s != "positive" && s != "red-pin" {
+						classes = append(classes, s)
+					}
+				}
+			} else if why != "" {
+				classes = []string{why} // a journal from before the class codes
 			}
-			k := by[why]
-			if k == nil {
-				k = &cls{why: why}
-				by[why] = k
-			}
-			k.n++
-			if v, ok := ev["v"].(float64); ok {
-				k.sum += int(v)
-			}
-			if ev["spoke"] == true {
-				k.spokes++
-			}
-			if at, _ := ev["at"].(string); at > k.lastAt {
-				k.lastAt = at
+			for _, key := range classes {
+				k := by[key]
+				if k == nil {
+					k = &cls{class: key, why: why}
+					by[key] = k
+				}
+				k.n++
+				if v, ok := ev["v"].(float64); ok {
+					k.sum += int(v)
+				}
+				if ev["spoke"] == true {
+					k.spokes++
+				}
+				if at, _ := ev["at"].(string); at > k.lastAt {
+					k.lastAt = at
+					k.why = why
+				}
 			}
 		}
 		return nil
@@ -111,7 +123,11 @@ func (a *App) cmdLessons(args []string, io IO) int {
 		top = len(all)
 	}
 	for _, k := range all[:top] {
-		fmt.Fprintf(io.Out, "@F %-40s ×%-3d value %-3d spoke %-3d last %s\n", k.why, k.n, k.sum, k.spokes, k.lastAt)
+		line := k.class
+		if k.why != "" && k.why != k.class {
+			line += " — " + k.why
+		}
+		fmt.Fprintf(io.Out, "@F %-40s ×%-3d value %-3d spoke %-3d last %s\n", line, k.n, k.sum, k.spokes, k.lastAt)
 	}
 	fmt.Fprintln(io.Out, "@? consolidate the top class into a skill or a policy — the instrument ranks; the crystallization is a writer's act")
 	return 0

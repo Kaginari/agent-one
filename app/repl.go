@@ -183,7 +183,11 @@ func (a *App) REPL(ctx context.Context) int {
 		case <-wake:
 			if turnDone != nil {
 				for _, rep := range a.Subagent.TakeWake() {
-					_ = a.Subagent.Send(workspace.Orchestrator, rep)
+					// the turn may already be closing (its agent reads done): the report then
+					// waits in the inbox for the turn-done drain, never lost
+					if a.Subagent.Send(workspace.Orchestrator, rep) != nil {
+						_ = a.Subagent.Enqueue(workspace.Orchestrator, rep)
+					}
 				}
 				continue
 			}
@@ -266,7 +270,7 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 	case "quit", "exit", "q":
 		return true
 	case "help", "?":
-		fmt.Fprintln(out, "/dash · /agents · /send <agent> <text> · /forge [register n] · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
+		fmt.Fprintln(out, "/dash · /agents · /send <agent> <text> · /forge [show|register|reject <id>] · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
 		var names []string
 		for _, c := range a.Found.Commands {
 			names = append(names, "/"+c.Name)

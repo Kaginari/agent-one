@@ -7,6 +7,7 @@ package wire
 
 import (
 	"fmt"
+	"hash/fnv"
 	"regexp"
 	"sort"
 	"strconv"
@@ -47,13 +48,50 @@ type Enqueue struct {
 }
 
 // Forge is one drafted thing the run proved: `@FORGE <kind>:<name> | <text>`, kind tool or
-// skill. A draft is never registered by the wire — it rides the report up, the manager curates,
-// and the working notes (the human, or the policy.forge leg) registers. The agent's truth, the layer's design.
+// skill. A draft is never registered by the wire — it rides the report up, the harness files it
+// from the report it holds (never re-parsed from a relayed digest), and the working notes (the human,
+// through /forge or `agent-one forge`) registers. The agent's truth, the layer's design.
 type Forge struct {
 	Kind string // tool | skill
 	Name string
 	Text string
 }
+
+// Line is the draft as its wire line's payload: `<kind>:<name> | <text>`.
+func (f Forge) Line() string {
+	if f.Text == "" {
+		return f.Kind + ":" + f.Name
+	}
+	return f.Kind + ":" + f.Name + " | " + f.Text
+}
+
+// Hash is the draft's content address: a short fnv64 over kind, name and text with runs of
+// whitespace folded — a relayed line hashes the same at every hop, so the first filer wins.
+func (f Forge) Hash() string {
+	h := fnv.New64a()
+	h.Write([]byte(strings.ToLower(f.Kind) + ":" + f.Name + "|" + strings.Join(strings.Fields(f.Text), " ")))
+	return fmt.Sprintf("%016x", h.Sum64())[:10]
+}
+
+// ForgesOf reads the @FORGE lines out of any text — a wire report or a prose answer (the
+// orchestrator speaks prose; its drafts still count).
+func ForgesOf(text string) []Forge {
+	var out []Forge
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		rest, ok := strings.CutPrefix(line, "@FORGE ")
+		if !ok {
+			continue
+		}
+		if f, ok := parseForge(rest); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ParseForge reads one `<kind>:<name> | <text>` payload (a filed note's text).
+func ParseForge(payload string) (Forge, bool) { return parseForge(payload) }
 
 // Report is what an agent sends back.
 type Report struct {

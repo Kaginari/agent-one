@@ -1,10 +1,14 @@
  agent-one                          
  kimi-3-conduit                     
- ▌▌▌░░░░░ 42%                       
- 15k tok · $0.0123                  
-─ ▾ subagents · 1 ──────────────────
- ● coord-agent-one   THINKING 1m12s 
+ ○ idle                             
+─ vitals ───────────────────────────
+ ᴄᴛx   ━━━━━━━━────────── 42%       
+ ᴛᴏᴋ   15k                          
+ ᴄᴏꜱᴛ  $0.0123                      
+─ ▾ subagents · 1 · 1 live ─────────
+ ● coord-agent-one         THINKING 
 ─ ▾ plan ▸ coord-agent-one · 4 ─────
+ ━━━━━━────────────────── 1/4       
  ▸ Coordinate the files-panel slic… 
  ✓ Land the token file              
  · Ask domain-db for the store sli… 

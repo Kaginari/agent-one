@@ -529,7 +529,7 @@
       const m = $('#ctx');
       if (s.ctxKnown) {
         m.style.setProperty('--meter-value', s.ctxPct + '%');
-        m.dataset.level = s.ctxPct >= 85 ? 'danger' : s.ctxPct >= 65 ? 'warn' : '';
+        m.dataset.level = ctxLevel(s.ctxPct) || '';
         m.setAttribute('aria-valuenow', s.ctxPct);
       }
       m.querySelector('.meter-label').textContent = s.ctx || 'ctx —';
@@ -575,7 +575,7 @@
       const pct = b.contextLimit ? Math.round(100 * (b.contextTokens || 0) / b.contextLimit) : -1;
       return el('button', { class: 'now-chip', type: 'button', 'data-rank': rankOfName(b.name) || false, title: b.name + ' · ' + b.state + (pct >= 0 ? ' · context ' + pct + '%' : ''),
         onclick: () => { const n = team && team.nodes.find(x => x.name === b.name && x.kind !== 'skill'); if (n) setFocus(n.id); } },
-        labelOf(b.name), pct >= 0 ? el('span', { class: 'now-ctx', 'data-level': pct >= 85 ? 'danger' : pct >= 65 ? 'warn' : false, text: pct + '%' }) : null);
+        labelOf(b.name), pct >= 0 ? el('span', { class: 'now-ctx', 'data-level': ctxLevel(pct), text: pct + '%' }) : null);
     })));
     const gw = $('#gatewait');
     if (!gw.hidden) kids.push(el('button', { class: 'now-wait', type: 'button', 'data-tone': gw.dataset.tone || 'warn', text: gw.textContent, title: gw.title,
@@ -604,7 +604,7 @@
     const others = stack.getBoundingClientRect().height - netBox.getBoundingClientRect().height;
     return Math.floor(netAgent.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - others);
   };
-  const net = window.agentOneNet.create(netBox, { word, onFocus: id => setFocus(id, true), fit: netFit });
+  const net = window.agentOneNet.create(netBox, { word, onFocus: id => setFocus(id, true), fit: netFit, meters: () => meters.session });
   let fitT = 0, fitH = 0;
   new ResizeObserver(() => { const h = netAgent.clientHeight; if (Math.abs(h - fitH) < 8) return; fitH = h; clearTimeout(fitT); fitT = setTimeout(netDraw, 120); }).observe(netAgent);
   function netDraw() { if (team) net.redraw(); }
@@ -668,7 +668,16 @@
     const docPath = n.doc || (n.workingNotes && n.workingNotes.src) || '';
     const doc = el('pre', { class: 'kcard-doc', text: docPath ? 'reading ' + docPath + '…' : 'no doc — the ontology notes it' });
     const plan = el('pre', { class: 'kcard-doc', text: '' });
-    box.append(el('article', { class: 'kcard', 'data-compact': main.dataset.view === 'overview' },
+    if (!isSkill(n) && n.value) row('value', 'score ' + Math.round(n.value.score) + (n.value.confidence === 'low' ? ' (below its record — unranked)' : '') + ' · ' + n.value.meter.label + ' ' + n.value.meter.text + ' · strain ' + n.value.strain);
+    if (n.mass) row('size', isSkill(n) ? n.mass + ' holding it' : num(n.mass) + ' lines of code owned');
+    // the rank's face: its resolved portrait, else its family's glyph — large, ringed in the rank's hue
+    const icon = n.icon || null;
+    const face = icon ? el('figure', { class: 'kcard-face' },
+      icon.kind === 'portrait' ? el('img', { class: 'kcard-portrait', src: icon.url, alt: word('rank.' + n.rank, n.rank || 'agent'), width: 112, height: 112 })
+        : svg('svg', { class: 'kcard-glyph', viewBox: '0 0 24 24', 'aria-hidden': 'true' }, svg('use', { href: icon.url })),
+      el('figcaption', { text: isSkill(n) ? word('skill', 'skill') : word('rank.' + n.rank, n.rank || 'agent') + (n.family ? ' · ' + n.family : '') })) : null;
+    box.append(el('article', { class: 'kcard', 'data-compact': main.dataset.view === 'overview', 'data-rank': n.orchestrator ? 'orchestrator' : (isSkill(n) ? false : n.rank || false), 'data-family': n.family || false },
+      face,
       el('div', { class: 'kcard-title' }, n.orchestrator ? (n.label || n.name) : n.name, el('span', { class: 'pill', 'data-tone': 'info', text: isSkill(n) ? word('skill', 'skill') : word('rank.' + n.rank, n.rank || 'agent') }), liveNames.has(n.name) ? pill('running') : null,
         el('button', { class: 'button kcard-close', 'data-size': 's', 'data-variant': 'quiet', type: 'button', text: 'close', 'aria-label': 'clear the focus', onclick: () => setFocus('') })),
       el('dl', {}, rows), doc, isSkill(n) ? null : plan));
@@ -957,33 +966,81 @@
     $('#rel-note').textContent = nodes.length + ' × ' + nodes.length + ' · ' + team.edges.length + ' bonds' + ((team.findings || []).length ? ' · ' + team.findings.length + ' findings' : '');
   }
 
-  // ---------- the leaderboard: the members ranked by their work (runs in four weeks) ----------
+  // ---------- the value policy: meters, bands, the leaderboard ----------
+  // /api/meters is the one source of every band: the session's ctx and plan meters (ctx derived
+  // from policy.budget) and each rank's meter (policy.value's family, or the rank's own). Nothing here
+  // carries a threshold of its own.
+  let meters = { session: {}, ranks: {} }, valueRep = null;
+  function loadValue() {
+    return Promise.all([getJSON('api/meters').catch(() => null), getJSON('api/value').catch(() => null)]).then(([m, v]) => {
+      if (m) meters = { session: m.session || {}, ranks: m.ranks || {} };
+      valueRep = v && v.lit ? v.report : null;
+      leaderboard(); rankKpis();
+    });
+  }
+  // a reading against a meter's bands: ok · warn · bad (direction down: lower is better)
+  function bandOf(def, v) {
+    if (!def || !def.bands || v === null || v === undefined || isNaN(v)) return 'none';
+    const b = def.bands;
+    if (def.direction === 'down') return v <= b.ok ? 'ok' : v <= b.warn ? 'warn' : 'bad';
+    return v >= b.ok ? 'ok' : v >= b.warn ? 'warn' : 'bad';
+  }
+  // the context level the header meter and the chips hold, from the ctx meter's bands
+  function ctxLevel(pct) {
+    const band = bandOf(meters.session.ctx, pct);
+    return band === 'bad' ? 'danger' : band === 'warn' ? 'warn' : false;
+  }
+  const toneOf = band => band === 'bad' ? 'danger' : band === 'warn' ? 'warn' : band === 'ok' ? 'ok' : false;
+  const pctText = v => (v === null || v === undefined || isNaN(v)) ? '—' : Math.round(v) + '%';
+  // the per-rank KPI row: each rank by its own meter (the mean of its confident agents)
+  function rankKpis() {
+    const box = $('#rank-kpis');
+    if (!box) return;
+    if (!valueRep) { box.replaceChildren(kpi('value', '—', 'silent: no session keeps the value ledger', true)); return; }
+    const ranks = (valueRep.ranks || []).filter(r => r.agents > 0);
+    if (!ranks.length) { box.replaceChildren(kpi('value', '—', 'no agent on the roster yet', true)); return; }
+    $('#rank-kpis-note').textContent = 'each rank, by its own measure — window ' + (valueRep.window || 'all');
+    box.replaceChildren(...ranks.map(r => {
+      const sure = r.confident > 0;
+      return kpi(word('rank.' + r.rank, r.rank) + ' · ' + (r.meter.label || r.meter.signal), sure ? r.reading.text : '—',
+        sure ? 'score ' + Math.round(r.mean) + ' · ' + r.confident + ' of ' + r.agents + ' ranked' : r.agents + ' below the ' + r.minRecord + '-report record', !sure, sure ? toneOf(r.reading.band) : false);
+    }));
+  }
+  // the leaderboard: the members ranked by their rank's value score; an agent under its rank's
+  // record is listed hatched and unranked, never placed by a number it has not earned
   function leaderboard() {
     const box = $('#leaderboard');
     if (!box || !team || main.dataset.view !== 'metrics') return;
     const m = net.model();
     const agents = (activity && activity.agents) || {};
-    const rows = team.nodes.filter(n => n.kind !== 'skill' && agents[n.name] && agents[n.name].total)
-      .map(n => { const a = agents[n.name]; return { n, a, tokens: (a.tokens || []).reduce((x, y) => x + y, 0) }; })
-      .sort((x, y) => y.a.total - x.a.total || y.tokens - x.tokens || x.n.name.localeCompare(y.n.name));
+    const vals = new Map(((valueRep && valueRep.agents) || []).map(b => [b.agent, b]));
+    const rows = team.nodes.filter(n => n.kind !== 'skill' && (vals.has(n.name) && vals.get(n.name).signals && vals.get(n.name).signals.runs || agents[n.name] && agents[n.name].total))
+      .map(n => { const a = agents[n.name] || { total: 0, tokens: [] }; const v = vals.get(n.name) || null; return { n, a, v, sure: !!v && v.confidence === 'ok', tokens: (a.tokens || []).reduce((x, y) => x + y, 0) || (v && v.signals.tokens) || 0 }; })
+      .sort((x, y) => (y.sure - x.sure) || ((y.v ? y.v.score : -1) - (x.v ? x.v.score : -1)) || y.a.total - x.a.total || x.n.name.localeCompare(y.n.name));
     const quiet = team.nodes.filter(n => n.kind !== 'skill').length - rows.length;
-    $('#leaderboard-note').textContent = 'the members, by work — ' + rows.length + ' with journaled runs in four weeks' + (quiet > 0 ? ', ' + quiet + ' quiet' : '');
-    if (!rows.length) { box.replaceChildren(el('p', { class: 'leaderboard-empty', text: 'no journaled work in four weeks — a Subagent lands here once it reports' })); return; }
-    const lead = rows[0].a.total;
+    const window = (valueRep && valueRep.window) || 'four weeks';
+    $('#leaderboard-note').textContent = 'the members, by value — ' + rows.filter(r => r.sure).length + ' ranked, ' + rows.filter(r => !r.sure).length + ' below their record' + (quiet > 0 ? ', ' + quiet + ' quiet' : '') + ' · window ' + window;
+    if (!rows.length) { box.replaceChildren(el('p', { class: 'leaderboard-empty', text: 'no recorded work in the window — a Subagent lands here once it reports' })); return; }
     const th = (t, num, cls) => el('th', { scope: 'col', 'data-num': !!num, class: cls || false, text: t });
+    let place = 0;
     box.replaceChildren(el('div', { class: 'leaderboard-wrap' }, el('table', { class: 'leaderboard' },
-      el('thead', {}, el('tr', {}, th('Rank'), th('Member'), th('Work', true), th('Pass', true), th('Tokens', true, 'leaderboard-col-tokens'), th('Status'))),
-      el('tbody', {}, rows.map((r, i) => {
-        const pass = Math.round(100 * (r.a.total - (r.a.failed || 0)) / r.a.total);
+      el('thead', {}, el('tr', {}, th('Rank'), th('Member'), th('Score', true), th('Measure', true), th('Strain', true), th('Work', true), th('Tokens', true, 'leaderboard-col-tokens'), th('Status'))),
+      el('tbody', {}, rows.map(r => {
         const p = m && m.parent.get(r.n.id);
         const liveNow = liveNames.has(r.n.name);
         const focusIt = () => setFocus(r.n.id);
-        return el('tr', { 'data-rank': r.n.rank || false, tabindex: 0, onclick: focusIt, onkeydown: ev => { if (ev.key === 'Enter') focusIt(); },
-          'aria-label': labelOf(r.n.name) + ', ' + r.a.total + ' runs, ' + pass + '% passed, ' + (liveNow ? 'live' : 'idle') },
-          el('td', { class: 'leaderboard-rank', text: String(i + 1).padStart(2, '0') }),
+        const meter = r.v ? r.v.meter : null;
+        const work = r.v ? r.v.signals.runs : r.a.total;
+        if (r.sure) place++;
+        return el('tr', { 'data-rank': r.n.rank || false, 'data-family': r.n.family || false, 'data-confidence': r.sure ? 'ok' : 'low', tabindex: 0, onclick: focusIt, onkeydown: ev => { if (ev.key === 'Enter') focusIt(); },
+          'aria-label': labelOf(r.n.name) + ', ' + (r.sure ? 'score ' + Math.round(r.v.score) : 'unranked, below its record') + (meter ? ', ' + meter.label + ' ' + meter.text : '') + ', ' + (liveNow ? 'live' : 'idle') },
+          el('td', { class: 'leaderboard-rank', text: r.sure ? String(place).padStart(2, '0') : '—', title: r.sure ? false : 'below its rank\'s record: not ranked' }),
           el('td', {}, el('span', { class: 'leaderboard-name', text: labelOf(r.n.name) }), el('span', { class: 'leaderboard-sub', text: word('rank.' + r.n.rank, r.n.rank || 'agent') + (p ? ' · under ' + nameOf(p) : '') })),
-          el('td', { class: 'leaderboard-num', 'data-lead': r.a.total === lead, text: num(r.a.total) }),
-          el('td', { class: 'leaderboard-num', 'data-tone': pass < 50 ? 'danger' : pass < 90 ? 'warn' : false, text: pass + '%' }),
+          el('td', { class: 'leaderboard-num', 'data-lead': r.sure && place === 1, text: r.v ? String(Math.round(r.v.score)) : '—' }),
+          el('td', { class: 'leaderboard-num', 'data-tone': r.sure && meter ? toneOf(meter.band) : false, title: meter ? meter.label : false },
+            meter ? el('span', { class: 'leaderboard-unit', text: meter.label }) : null, meter ? meter.text : '—'),
+          el('td', { class: 'leaderboard-num', 'data-tone': r.v && r.v.strain > 0 ? 'warn' : false, title: 'council strain (0 after a clean landing)', text: r.v ? String(r.v.strain) : '—' }),
+          el('td', { class: 'leaderboard-num', text: num(work) }),
           el('td', { class: 'leaderboard-num leaderboard-col-tokens', text: r.tokens ? num(r.tokens) : '—' }),
           el('td', { class: 'leaderboard-status', 'data-live': liveNow, text: liveNow ? 'live' : 'idle' }));
       })))));
@@ -1009,12 +1066,13 @@
       const t = u.total || {};
       $('#metrics-note').textContent = u.reading || '';
       const ctx = live.ctxKnown ? live.ctxPct + '%' : '—';
+      rankKpis();
       $('#kpis').replaceChildren(
         kpi('tokens', num(tokens(t)), num(t.input) + ' in · ' + num(t.output) + ' out', !t.calls),
         kpi('cost', t.calls ? priced(t) : '—', t.unpriced ? t.unpriced + ' calls unpriced (a floor)' : 'priced from config', !t.calls, 'second'),
         kpi('calls', num(t.calls), 'range ' + (u.range || range), !t.calls),
-        kpi('context', ctx, live.ctxKnown ? 'the session window' : 'silent: no turn yet', !live.ctxKnown, live.ctxPct >= 85 ? 'warn' : false),
-        kpi(word('bodies', 'agents') + ' live', String(live.live || 0), court.length + ' in this session', !live.session),
+        kpi('context', ctx, live.ctxKnown ? 'the session window' : 'silent: no turn yet', !live.ctxKnown, ctxLevel(live.ctxPct) ? 'warn' : false),
+        kpi(word('agents', 'agents') + ' live', String(live.live || 0), subagent.length + ' in this session', !live.session),
         cacheKpi(t));
       daySpark(u.byDay || []);
       bars($('#by-model'), (u.byModel || []).map(s => ({ k: s.key, v: tokens(s), s })), r => num(r.v) + ' · ' + priced(r.s));
@@ -1221,8 +1279,8 @@
   // the vendored faces arrive after the first layout: the net measures its labels again
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => netDraw());
   header(); setInterval(header, 1500);
-  loadTeam(); metrics(); subagentPoll(); treeLoad();
-  setInterval(subagentPoll, 2000); setInterval(metrics, 15000);
+  loadValue().finally(() => { loadTeam(); metrics(); subagentPoll(); treeLoad(); });
+  setInterval(subagentPoll, 2000); setInterval(metrics, 15000); setInterval(loadValue, 10000);
   planMeter(); setInterval(planMeter, 15000);
   stream(); boardEvents();
   if (innerWidth >= 1024) field.focus({ preventScroll: true });

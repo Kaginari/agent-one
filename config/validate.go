@@ -14,7 +14,7 @@ var fileLayers = map[string]bool{"global": true, "project": true, "local": true}
 func (c *Config) finish() error {
 	steps := []func() error{
 		c.checkScalars, c.checkProviders, c.checkTools, c.checkMCP, c.checkPermissions,
-		c.resolveRules, c.mergeRegistry, c.buildRanks, c.checkModels, c.checkGate, c.checkCompaction,
+		c.resolveRules, c.mergeRegistry, c.buildRanks, c.resolveValues, c.checkModels, c.checkGate, c.checkCompaction, c.checkGuts,
 	}
 	for _, s := range steps {
 		if err := s(); err != nil {
@@ -144,6 +144,34 @@ func (c *Config) Off() []Finding {
 	if !c.Instruments.Status.ShowOff {
 		add("instruments.status.showOff")
 	}
+	if c.Policy.Forge.DemandAtSteps <= 0 {
+		add("policy.forge.demandAtSteps")
+	}
+	// the numeric and string switches: a zero, a negative or an empty string someone wrote is a
+	// feature turned off, named with its origin like any `enabled: false`
+	if c.Policy.Stress.EscalateAt <= 0 {
+		add("policy.stress.escalateAt")
+	}
+	if c.Policy.Stress.RelieveAt <= 0 {
+		add("policy.stress.relieveAt")
+	}
+	if c.Policy.DoomLoop.Threshold <= 0 {
+		add("policy.doomLoop.threshold")
+	}
+	if c.Policy.Guts.BenchThrashVisits < 0 {
+		add("policy.guts.benchThrashVisits")
+	}
+	if c.Policy.Guts.DigestEvery <= 0 {
+		add("policy.guts.digestEvery")
+	}
+	if c.Policy.Budget.SalvageTokens < 0 {
+		add("policy.budget.salvageTokens")
+	}
+	for _, r := range c.ranks {
+		if r.PromotesFrom != "" && strings.TrimSpace(r.PromotesWhen) == "" {
+			add("ranks." + r.Name + ".promotesWhen")
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }
@@ -209,6 +237,27 @@ func (c *Config) mergeRegistry() error {
 		}
 		if _, ok := prov.Models[id]; !ok {
 			prov.Models[id] = c.Registry.Models[key]
+		}
+	}
+	return nil
+}
+
+// checkGuts refuses a guts floor above zero: the floor is the momentum the gut speaks at, and a
+// positive one would speak on a run that is gaining ground. Zero is a floor like any other.
+func (c *Config) checkGuts() error {
+	g := c.Policy.Guts
+	if g.Floor > 0 {
+		return fmt.Errorf("%s: policy.guts.floor: %d — the gut speaks when the momentum falls to the floor, so the floor is ≤ 0", c.Where("policy.guts.floor"), g.Floor)
+	}
+	if g.Clamp != nil && g.Clamp.Min > g.Clamp.Max {
+		return fmt.Errorf("%s: policy.guts.clamp: min %d over max %d", c.Where("policy.guts.clamp"), g.Clamp.Min, g.Clamp.Max)
+	}
+	if g.Ring < 0 {
+		return fmt.Errorf("%s: policy.guts.ring: %d is below zero", c.Where("policy.guts.ring"), g.Ring)
+	}
+	for i, b := range g.Benches {
+		if len(b.Match) == 0 {
+			return fmt.Errorf("%s: policy.guts.benches[%d]: a bench names the commands it matches (match)", c.Where(fmt.Sprintf("policy.guts.benches[%d]", i)), i)
 		}
 	}
 	return nil

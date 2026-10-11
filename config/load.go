@@ -487,7 +487,29 @@ func normalize(n *yaml.Node) *yaml.Node {
 	if tools := n.Get("tools"); tools != nil {
 		renameKey(tools, "question", "ask")
 	}
+	if models := n.Get("models"); models != nil && models.Kind == yaml.Map {
+		if ranks := models.Get("ranks"); ranks != nil {
+			canonRankKeys(ranks)
+		}
+	}
+	// a rank has one spelling (rank.Canon): ranks.auditor and ranks.Auditor are ranks.auditor,
+	// so every origin, every lookup and every file name agree
+	if ranks := n.Get("ranks"); ranks != nil {
+		canonRankKeys(ranks)
+	}
 	return n
+}
+
+// canonRankKeys renames a rank-keyed map's keys to the canonical spelling.
+func canonRankKeys(m *yaml.Node) {
+	if m == nil || m.Kind != yaml.Map {
+		return
+	}
+	for _, k := range append([]string(nil), m.Keys...) {
+		if to := canonicalRank(k); to != k {
+			renameKey(m, k, to)
+		}
+	}
 }
 
 // foldTimeouts makes `timeout` the one spelling: anywhere in the tree, `timeoutMs` and

@@ -7,13 +7,14 @@ import (
 	"testing"
 
 	"github.com/Kaginari/agent-one/config"
+	"github.com/Kaginari/agent-one/value"
 )
 
 // promoteRanks is the policy's table with a short promotion band, so a fixture can earn it.
 func promoteRanks(when string) Ranks {
 	rs := Ranks(DefaultRanks(Default()))
 	for i := range rs {
-		if rs[i].Name == "principal_domain_owner" {
+		if rs[i].Name == "principal-domain-owner" {
 			rs[i].PromotesWhen = when
 		}
 	}
@@ -50,7 +51,7 @@ func TestPromotionCarriesTheAgentAndRetiresTheBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, frag := range []string{"# principal-domain-auth", "- **Rank:** principal_domain_owner", "**Promoted from:** `domain-auth`", "- **Owns:** `auth/`", "- **Reports to:** coord-core", "`test -d auth`", "tokens expire after one hour", "## Promotion", "reports 3, passes 3"} {
+	for _, frag := range []string{"# principal-domain-auth", "- **Rank:** principal-domain-owner", "**Promoted from:** `domain-auth`", "- **Owns:** `auth/`", "- **Reports to:** coord-core", "`test -d auth`", "tokens expire after one hour", "## Promotion", "reports 3, passes 3"} {
 		if !strings.Contains(string(doc), frag) {
 			t.Errorf("the promoted doc must carry %q:\n%s", frag, doc)
 		}
@@ -66,7 +67,7 @@ func TestPromotionCarriesTheAgentAndRetiresTheBase(t *testing.T) {
 		}
 	}
 	hi := w.Member("principal-domain-auth")
-	if hi == nil || hi.Rank != "principal_domain_owner" || strings.Join(hi.Ownership, ",") != "auth" || hi.Parent != "coord-core" || !hi.VerifyCoded() {
+	if hi == nil || hi.Rank != "principal-domain-owner" || strings.Join(hi.Ownership, ",") != "auth" || hi.Parent != "coord-core" || !hi.VerifyCoded() {
 		t.Fatalf("the risen agent holds the base's ownership, line and verify: %+v", hi)
 	}
 	if sl := w.Member("zone-login"); sl == nil || sl.Parent != "principal-domain-auth" {
@@ -110,19 +111,19 @@ func TestPromotionTallyOutlivesTheSession(t *testing.T) {
 		t.Fatal("two reports do not cross")
 	}
 	w2 := openWorkspaceRanks(t, root, rs)
-	if m := w2.Metrics("domain-auth"); m.Reports != 2 || m.Passes != 2 {
+	if m := w2.Metrics("domain-auth"); m["reports"] != 2 || m["passes"] != 2 {
 		t.Fatalf("the tally replays at Open: %+v", m)
 	}
 	w2.FoldMetrics("domain-auth", "DONE", 0)
 	if got := w2.Promotions(); len(got) != 1 {
 		t.Fatalf("the third report, a session later, crosses: %+v holes %v", got, w2.PromoteHoles())
 	}
-	shelf, err := os.ReadFile(filepath.Join(root, ".agent-one", filepath.FromSlash(promotionShelf)))
-	if err != nil || strings.Count(string(shelf), `"kind":"report"`) != 3 || strings.Count(string(shelf), `"kind":"promote"`) != 1 {
+	shelf, err := os.ReadFile(filepath.Join(root, ".agent-one", filepath.FromSlash(value.Shelf)))
+	if err != nil || strings.Count(string(shelf), `"kind":"run"`) != 3 || strings.Count(string(shelf), `"kind":"promote"`) != 1 {
 		t.Fatalf("the shelf is append-only, one row per report and per promotion: %v\n%s", err, shelf)
 	}
 	w3 := openWorkspaceRanks(t, root, rs)
-	if m := w3.Metrics("domain-auth"); m.Reports != 3 {
+	if m := w3.Metrics("domain-auth"); m["reports"] != 3 {
 		t.Fatalf("replayed again: %+v", m)
 	}
 	w3.FoldMetrics("domain-auth", "DONE", 0)
@@ -136,7 +137,7 @@ func TestPromotionHoleSurfaces(t *testing.T) {
 	root := promoteWorkspace(t)
 	rs := promoteRanks("promote domain when reports >= 1")
 	for i := range rs {
-		if rs[i].Name == "principal_domain_owner" { // the old shape: the promoted rank on its base's dir
+		if rs[i].Name == "principal-domain-owner" { // the old shape: the promoted rank on its base's dir
 			rs[i].Dir, rs[i].Prefix = "domain", "domain-"
 		}
 	}
@@ -164,36 +165,38 @@ func TestPromotionCountsTheBodysVerdict(t *testing.T) {
 	w := openWorkspaceRanks(t, root, promoteRanks("promote domain when reports >= 2 && passRate >= 100%"))
 	w.FoldMetrics("domain-auth", "DONE", 0)
 	w.FoldMetrics("domain-auth", "FAIL", 0)
-	if m := w.Metrics("domain-auth"); m.Passes != 1 || m.Fails != 1 || len(w.Promotions()) != 0 {
+	if m := w.Metrics("domain-auth"); m["passes"] != 1 || m["fails"] != 1 || len(w.Promotions()) != 0 {
 		t.Fatalf("a fail is a fail: %+v", m)
 	}
 }
 
-// The binary's table (config) and the workspace's default table promote on the same conditions, in
-// the promoted ranks' own dirs.
+// Config is the one source of the default promotion conditions; the promoted ranks live in their
+// own dirs.
 func TestDefaultPromotionAgrees(t *testing.T) {
-	if config.DefaultPromoteCoord != DefaultPromoteCoord || config.DefaultPromoteDomain != DefaultPromoteDomain {
-		t.Fatal("config and workspace disagree on the default promotion conditions")
+	for _, r := range DefaultRanks(Default()) {
+		if r.PromotesWhen != "" {
+			t.Fatalf("the workspace carries no default promotion of its own — config is the one source: %s %q", r.Name, r.PromotesWhen)
+		}
 	}
-	for _, s := range []string{DefaultPromoteCoord, DefaultPromoteDomain} {
+	for _, s := range []string{config.DefaultPromoteCoord, config.DefaultPromoteDomain} {
 		if _, err := ParseASL(s); err != nil {
 			t.Fatalf("%q: %v", s, err)
 		}
 	}
 	rs := Ranks(DefaultRanks(Default()))
-	for _, n := range []string{"principal_coordinator", "principal_domain_owner"} {
+	for _, n := range []string{"principal-coordinator", "principal-domain-owner"} {
 		r, _ := rs.Get(n)
 		b, _ := rs.Get(r.Base)
 		if r.Dir == b.Dir || r.Prefix == b.Prefix || r.Prefix != r.Dir+"-" {
 			t.Errorf("%s needs its own dir and prefix: %+v", n, r)
 		}
 	}
-	if r, _ := Ranks(DefaultRanks(Default())).Get("principal_domain_owner"); r.Prefix != "principal-domain-" {
+	if r, _ := Ranks(DefaultRanks(Default())).Get("principal-domain-owner"); r.Prefix != "principal-domain-" {
 		t.Errorf("agent-one's words: %+v", r)
 	}
 	// the conservative band: 19 clean reports do not cross, 20 do; one hole in five blocks it
-	a, _ := ParseASL(DefaultPromoteDomain)
-	if a.Cond.Eval(Metrics{Reports: 19, Passes: 19}) || !a.Cond.Eval(Metrics{Reports: 20, Passes: 20}) || a.Cond.Eval(Metrics{Reports: 20, Passes: 20, Holes: 4}) || a.Cond.Eval(Metrics{Reports: 20, Passes: 17}) {
+	a, _ := ParseASL(config.DefaultPromoteDomain)
+	if a.Cond.Eval(Tally(19, 19, 0, 0)) || !a.Cond.Eval(Tally(20, 20, 0, 0)) || a.Cond.Eval(Tally(20, 20, 0, 4)) || a.Cond.Eval(Tally(20, 17, 0, 0)) {
 		t.Error("the default band")
 	}
 }

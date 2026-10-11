@@ -1,15 +1,13 @@
-                 ▀▀                 
-             █▀▀▀▀▀▀▀▀█             
-             ██▀▀██▀▀██             
-             ▀▀█▀▀▀▀█▀▀             
-                                    
- agent-one                          
- kimi-3-conduit                     
- ▌▌▌▌▌▌▌░ 87% stress                
- 15k tok                            
- ▲ zone near                        
-─ ▾ subagents · 2 ──────────────────
- ● coord-agent-one   THINKING 1m12s 
+        ▀▀         agent-one        
+    █▀▀▀▀▀▀▀▀█     kimi-3-conduit   
+    ██▀▀██▀▀██     ○ idle           
+    ▀▀█▀▀▀▀█▀▀                      
+─ vitals ───────────────────────────
+ ᴄᴛx   ━━━━━━━━━━━━━━━━── 87%       
+       ▲ stress — write to the log  
+ ᴛᴏᴋ   15k                          
+─ ▾ subagents · 2 · 1 live ─────────
+ ● coord-agent-one         THINKING 
  ● zone-auth                 ✓ DONE 
 ─ ▾ files · 1 ──────────────────────
  ╰── tui/                           

@@ -9,7 +9,6 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -127,28 +126,6 @@ type Board struct {
 // via X-Board-Token for every /api/ask /api/answer /api/interrupt request.
 func (b *Board) Token() string { return b.token }
 
-// PortraitNames lists the embedded rank portraits ("orchestrator", "coordinator", "domain owner", "zone worker",
-// "service owner", "auditor", "principal coordinator", "principal domain owner").
-func PortraitNames() []string {
-	return []string{"orchestrator", "coord", "domain", "zone", "service", "auditor", "principal-coordinator", "principal-domain-owner"}
-}
-
-// Portrait returns the embedded rank portrait PNG's bytes; unknown names return an error.
-func Portrait(name string) ([]byte, error) {
-	names := PortraitNames()
-	ok := false
-	for _, n := range names {
-		if n == name {
-			ok = true
-			break
-		}
-	}
-	if !ok {
-		return nil, fmt.Errorf("portrait %q: not one of %v", name, names)
-	}
-	return content.ReadFile("web/portraits/" + name + ".png")
-}
-
 // New builds the board. It starts a watcher goroutine; Close stops it.
 func New(o Options) *Board {
 	if o.WorkspaceDir == "" {
@@ -252,6 +229,9 @@ func (b *Board) routes() {
 	b.mux.HandleFunc("/api/tree/children", guarded(b.apiTreeChildren))
 	b.mux.HandleFunc("/api/subagents", guarded(b.apiSubagents))
 	b.mux.HandleFunc("/api/plan", guarded(b.apiPlan))
+	b.mux.HandleFunc("/api/value", guarded(b.apiValue))
+	b.mux.HandleFunc("/api/meters", guarded(b.apiMeters))
+	b.mux.HandleFunc("/portraits/", guarded(b.apiPortrait))
 	b.liveRoutes()
 	b.workspaceRoutes()
 }
@@ -418,6 +398,9 @@ func (b *Board) apiSubagent(w http.ResponseWriter, r *http.Request) {
 	if agents == nil {
 		agents = []Agent{}
 	}
+	for i := range agents {
+		agents[i].Value = b.valueOf(agents[i].Name)
+	}
 	writeJSON(w, map[string]any{"live": b.liveCrt, "agents": agents, "at": b.opt.Now()})
 }
 
@@ -444,6 +427,22 @@ func (b *Board) apiTeam(w http.ResponseWriter, r *http.Request) {
 	if labels == nil {
 		labels = []laneLabel{}
 	}
+	// each node carries how to draw it (the one icon resolver), its value and its size
+	Masses(b.opt.WorkspaceRoot, c)
+	for i := range c.Nodes {
+		n := &c.Nodes[i]
+		if n.Kind == "skill" {
+			n.Icon = &Icon{Kind: "skill", URL: "web/icons/icons.svg#skill"}
+			continue
+		}
+		ic := b.iconFor(n.Rank)
+		n.Icon = &ic
+		n.Family = b.meta(n.Rank).Family
+		n.Value = b.valueOf(n.Name)
+		if n.Family == "" && n.Value != nil {
+			n.Family = n.Value.Family
+		}
+	}
 	writeJSON(w, struct {
 		*Team
 		Labels  []laneLabel `json:"labels"`
@@ -457,7 +456,7 @@ func (b *Board) apiTeam(w http.ResponseWriter, r *http.Request) {
 func (b *Board) apiActivity(w http.ResponseWriter, r *http.Request) {
 	runs, rr := b.src.Loop()
 	recs, ur := b.src.Usage()
-	a := BuildActivity(runs, recs, b.opt.Now(), ActivityDays)
+	a := BuildActivityDef(runs, recs, b.opt.Now(), b.activityDays(), b.def())
 	a.Reading = rr.String() + " · " + ur.String()
 	a.Lit = rr.Lit || ur.Lit
 	writeJSON(w, a)

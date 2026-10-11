@@ -1,8 +1,6 @@
 package workspace
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,10 +9,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Kaginari/agent-one/value"
 )
 
 // Promotion is the coded answer to "a domain owner with experience evolves": a rank declares
-// promotesWhen (ASL), the workspace keeps a MetricsStore that every Subagent report folds into, and
+// promotesWhen (ASL), the workspace keeps the value ledger every Subagent report folds into, and
 // after each fold the workspace evaluates the divine bonds. A base agent whose snapshot crosses the
 // condition promotes: the harness registers the promoted agent in the promoted rank's own dir under
 // the base's short name (domain-engine → principal-domain-engine), carrying the base's doc whole — every
@@ -23,7 +23,7 @@ import (
 // soil and ownerships stay disjoint. The retired seat keeps its graph memory; members that
 // reported to it now report to its promoted (the roster resolves the succession).
 //
-// Each report folds into an append-only tally (`<workspaceDir>/instruments/promotion.jsonl`)
+// Each report folds into the value ledger (`<workspaceDir>/instruments/value.jsonl`, workspace/value.go)
 // replayed at Open, so a record earned over many sessions counts. Each promotion is appended
 // to log.md with the reading that earned it; each failure is a hole, logged and surfaced to
 // the dispatcher as `@?`.
@@ -31,45 +31,32 @@ import (
 // Nothing here reads a prompt. Evaluation is the ASL condition over the tally, deterministic;
 // the register and the doc write are the workspace's own.
 
-// promotionShelf is the tally's ledger under the workspace dir.
-const promotionShelf = "instruments/promotion.jsonl"
-
 // ascender is one resolved divine bond the workspace watches.
 type ascender struct {
 	To  Rank // the promoted rank (holds PromotesWhen)
 	ASL ASL  // its parsed condition
 }
 
-// promoteState is Workspace's promotion machinery, guarded by its own lock.
+// promoteState is Workspace's promotion machinery, guarded by its own lock. The record it reads is
+// the value ledger (workspace/value.go); it keeps only the watch list and what it registered.
 type promoteState struct {
-	mu      sync.Mutex
-	metrics *MetricsStore
-	watch   map[string]ascender // base rank → what promotes from it
-	done    map[string]bool     // base agents already promoted (replayed from the shelf)
-	Events  []PromoteEvent      // the promotions of this session
-	news    []PromoteEvent      // registered, not yet announced to a dispatcher
-	holes   []string            // register failures, drained by PromoteHoles
+	mu     sync.Mutex
+	watch  map[string]ascender // base rank → what promotes from it
+	done   map[string]bool     // base agents already promoted (replayed from the ledger)
+	Events []PromoteEvent      // the promotions of this session
+	news   []PromoteEvent      // registered, not yet announced to a dispatcher
+	holes  []string            // register failures, drained by PromoteHoles
 }
 
 // PromoteEvent is one registered promotion.
 type PromoteEvent struct {
 	Base  string    `json:"base"` // the ranking agent (domain-auth)
 	New   string    `json:"new"`  // the promoted agent (principal-domain-auth)
-	Rank  string    `json:"rank"` // the promoted rank (principal_domain_owner)
+	Rank  string    `json:"rank"` // the promoted rank (principal-domain-owner)
 	When  string    `json:"when"` // the ASL condition, as config wrote it
 	At    time.Time `json:"at"`
 	Doc   string    `json:"doc"` // the doc the harness wrote for the new agent
 	MetAt string    `json:"met"` // the snapshot line that crossed the condition
-}
-
-// tallyRow is one line of the promotion shelf: a report folded, or a promotion registered.
-type tallyRow struct {
-	Kind   string    `json:"kind"` // report | promote
-	Agent  string    `json:"agent"`
-	Status string    `json:"status,omitempty"`
-	Holes  int       `json:"holes,omitempty"`
-	New    string    `json:"new,omitempty"`
-	At     time.Time `json:"at"`
 }
 
 // newPromoteState builds the watch list from the rank table, or nil when no rank promotes.
@@ -78,7 +65,7 @@ func newPromoteState(rs Ranks) *promoteState {
 	if len(as) == 0 {
 		return nil
 	}
-	st := &promoteState{metrics: NewMetricsStore(), watch: map[string]ascender{}, done: map[string]bool{}}
+	st := &promoteState{watch: map[string]ascender{}, done: map[string]bool{}}
 	for _, a := range as {
 		cond, err := ParseASL(a.When)
 		if err != nil { // Validate has already refused this; belt and braces
@@ -88,71 +75,6 @@ func newPromoteState(rs Ranks) *promoteState {
 		st.watch[a.From] = ascender{To: to, ASL: cond}
 	}
 	return st
-}
-
-// tallyNote appends one row to the shelf (callers hold promote.mu, so the file's order is the
-// tally's order).
-func (w *Workspace) tallyNote(r tallyRow) {
-	if r.At.IsZero() {
-		r.At = time.Now().UTC()
-	}
-	b, err := json.Marshal(r)
-	if err != nil {
-		return
-	}
-	p := filepath.Join(w.Dir(), filepath.FromSlash(promotionShelf))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return
-	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(b, '\n'))
-}
-
-// loadTally replays the shelf: every report folds again, every promotion marks its base done.
-// An unreadable shelf opens the workspace with an empty tally, never blocks it.
-func (w *Workspace) loadTally() {
-	if w.promote == nil {
-		return
-	}
-	f, err := os.Open(filepath.Join(w.Dir(), filepath.FromSlash(promotionShelf)))
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1<<20), 16<<20)
-	w.promote.mu.Lock()
-	defer w.promote.mu.Unlock()
-	for sc.Scan() {
-		var r tallyRow
-		if json.Unmarshal(sc.Bytes(), &r) != nil || r.Agent == "" {
-			continue
-		}
-		switch r.Kind {
-		case "report":
-			w.promote.metrics.Fold(r.Agent, r.Status, r.Holes)
-		case "promote":
-			w.promote.done[r.Agent] = true
-		}
-	}
-}
-
-// FoldMetrics counts one Subagent report — on the shelf and in memory — and runs the promotion
-// pass. The tally belongs to the agent that filed the report; promotion reads its rank, never
-// the dispatcher's.
-func (w *Workspace) FoldMetrics(agent, status string, holes int) {
-	if w.promote == nil {
-		return
-	}
-	w.promote.mu.Lock()
-	w.promote.metrics.Fold(agent, status, holes)
-	w.tallyNote(tallyRow{Kind: "report", Agent: agent, Status: status, Holes: holes})
-	w.promote.mu.Unlock()
-	w.promoteMaybe(agent)
 }
 
 // promoteMaybe evaluates the divine bond over the agent's rank. An agent promotes once: the shelf
@@ -171,8 +93,13 @@ func (w *Workspace) promoteMaybe(agent string) {
 		w.promote.mu.Unlock()
 		return
 	}
-	m := w.promote.metrics.Metrics(agent)
+	w.promote.mu.Unlock()
+	m := w.Metrics(agent)
 	if !watcher.ASL.Cond.Eval(m) {
+		return
+	}
+	w.promote.mu.Lock()
+	if w.promote.done[agent] {
 		w.promote.mu.Unlock()
 		return
 	}
@@ -188,8 +115,12 @@ func (w *Workspace) promoteMaybe(agent string) {
 	w.promote.mu.Lock()
 	w.promote.Events = append(w.promote.Events, ev)
 	w.promote.news = append(w.promote.news, ev)
-	w.tallyNote(tallyRow{Kind: "promote", Agent: agent, New: ev.New, At: ev.At})
 	w.promote.mu.Unlock()
+	if w.val != nil {
+		w.val.mu.Lock()
+		w.appendValue(value.Row{Kind: value.KindPromote, Agent: agent, New: ev.New, At: ev.At})
+		w.val.mu.Unlock()
+	}
 	if err := w.AppendLog(Entry{At: ev.At, Author: ev.New, Title: fmt.Sprintf("promotion — %s rose as %s", agent, ev.New),
 		Task:    "promotesWhen `" + ev.When + "`",
 		Files:   []string{ev.Doc, w.docOf(agent)},
@@ -270,8 +201,8 @@ func (w *Workspace) registerPromoted(base string, a ascender, m Metrics) (Promot
 	}
 	now := time.Now().UTC()
 	date := now.Format("2006-01-02")
-	metAt := fmt.Sprintf("reports %d, passes %d, fails %d, holes %d, passRate %.0f%%, holeRate %.0f%%",
-		m.Reports, m.Passes, m.Fails, m.Holes, m.rate(m.Passes), m.rate(m.Holes))
+	metAt := fmt.Sprintf("reports %.0f, passes %.0f, fails %.0f, holes %.0f, passRate %.0f%%, holeRate %.0f%%, score %.0f",
+		m["reports"], m["passes"], m["fails"], m["holes"], m["passRate"], m["holeRate"], m["score"])
 	when := a.ASL.String()
 	if err := os.WriteFile(abs, []byte(promoteDoc(string(text), newName, a.To, base, when, metAt, date)), 0o644); err != nil {
 		return PromoteEvent{}, err
@@ -367,14 +298,4 @@ func (w *Workspace) promoteLines() []string {
 		out = append(out, "@? promotion hole — "+h)
 	}
 	return out
-}
-
-// Metrics reads one agent's promotion snapshot (for the workspace's self-measure and tests).
-func (w *Workspace) Metrics(agent string) Metrics {
-	if w.promote == nil {
-		return Metrics{}
-	}
-	w.promote.mu.Lock()
-	defer w.promote.mu.Unlock()
-	return w.promote.metrics.Metrics(agent)
 }

@@ -66,7 +66,7 @@ func cli(args []string, stdout, stderr io.Writer, base Options) int {
 		return 2
 	}
 	o.Flags = append(o.Flags, flags...)
-	if sub != "patch" && len(leftover) > 0 {
+	if sub != "patch" && len(leftover) > 0 && !(sub == "explain" && len(leftover) == 1 && leftover[0] == "value") {
 		fmt.Fprintf(stderr, "@S FAIL\n@? unknown argument %q\n", leftover[0])
 		return 2
 	}
@@ -112,6 +112,12 @@ func cli(args []string, stdout, stderr io.Writer, base Options) int {
 		if err != nil {
 			fmt.Fprintf(stderr, "config: %v\n", err)
 			return 1
+		}
+		for _, a := range leftover {
+			if a == "value" {
+				fmt.Fprint(stdout, c.ExplainValue())
+				return 0
+			}
 		}
 		fmt.Fprint(stdout, c.Explain())
 		return 0

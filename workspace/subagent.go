@@ -15,6 +15,7 @@ import (
 	"github.com/Kaginari/agent-one/loop"
 	"github.com/Kaginari/agent-one/provider"
 	"github.com/Kaginari/agent-one/tool"
+	"github.com/Kaginari/agent-one/value"
 	"github.com/Kaginari/agent-one/wire"
 )
 
@@ -114,6 +115,9 @@ type Build struct {
 	Role      string     // the role this engine serves (set by the dispatcher from @ASK; "" = the session's)
 	Guts      *loop.Guts // the per-step value sense the orchestrator already carries — children inherit it here
 	Doom      int        // notes-stress auto-relief threshold (policy.budget doomLoop); 0 = off
+	// ForgeDemandAt is policy.forge.demandAtSteps: a run this long is asked once, at its close, for
+	// its @FORGE draft (or why the path is one-off). 0 = off.
+	ForgeDemandAt int
 }
 
 // providerFor resolves the provider for a route.
@@ -157,7 +161,7 @@ func (w *Workspace) Engine(as string, b Build) *loop.Engine {
 	e := &loop.Engine{
 		Provider: b.providerFor(Route{Role: role, Rank: rank.Name, Member: as, Task: task}), Gate: b.Gate, Root: w.Root, As: as, Budget: b.Budget, Journal: b.Journal, Trace: b.Trace,
 		Lexicon: w.Lex.Loop(), Policy: w.ToolPolicy(as, b.Ownership), Cap: b.Subagent.Cap,
-		Guts: b.Guts, Doom: b.Doom,
+		Guts: b.Guts, Doom: b.Doom, ForgeDemandAt: b.ForgeDemandAt,
 		// every write/edit/delete answers naming its zone's persistent agent — the ownership truth
 		// quoted at the moment of the landing, out of the same w.Owner the gate reads
 		ZoneOwner: func(rel string) string {
@@ -186,6 +190,10 @@ func (w *Workspace) Engine(as string, b Build) *loop.Engine {
 	}
 	e.Tools = shelf.Only(names...)
 	e.Hooks = MergeHooks(w.Hooks(b.Hooks), b.Extra)
+	if b.Depth == 0 {
+		// the orchestrator's turns are the root's record: every human ask folds into the value ledger
+		e.Hooks = MergeHooks(e.Hooks, loop.Hooks{Ended: w.turnEnded(as)})
+	}
 	if closer != nil {
 		w.mu.Lock()
 		w.closers[e] = closer
@@ -495,6 +503,8 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 						holes := w.Land(cr.Name, rep)
 						_ = holes
 					}
+					// the salvage turn's drafts are the dying subagent's too: filed, never lost
+					_ = w.FileForges(cr.Name, e.LastRunID(), forgesOfResult(sr))
 				}
 				w.Close(se)
 			}
@@ -505,6 +515,10 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 		if ps := w.SessionOf(parent); ps != nil {
 			ps.Spend = ps.Spend.Add(r.Usage)
 		}
+		// the subagent's drafts are filed here, from the report the harness holds — before @CAP cuts
+		// it and before the courier envelope folds it to a digest. A relayed line hashes the same
+		// one hop up and is not filed twice: the first filer, the drafting agent, wins.
+		r.Holes = append(r.Holes, w.FileForges(cr.Name, r.RunID, forgesOfResult(r))...)
 		rep := tool.DispatchReport{Text: r.Emit(e.Cap), Status: r.Status, Unsaid: len(r.Report.Unsaid), Failed: r.Status == loop.Fail, Holes: r.Holes, Wrote: wroteOf(r), Journal: r.Journal, Forges: r.Report.Forges}
 		rep.Text += memoLine
 		// the courier policy: substantive reports are filed on the instruments shelf, and what
@@ -514,8 +528,10 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 		if strings.TrimSpace(rep.Text) != "" && len(rep.Text) > reportEnvelopeFloor {
 			rep.ReportPath, rep.ReportBytes, rep.ReportHash = w.fileReport(agent, rep.Text)
 		}
+		warrant := false
 		if stamp, escalate := w.councilLedger(agent, verdictOf(r), r, b.Subagent); stamp != "" {
 			rep.Text += stamp
+			warrant = true
 			if escalate {
 				rep.Status, rep.Failed = "ESCALATE", true
 			}
@@ -534,14 +550,14 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 			}
 		}
 		w.subagentGated(parent, agent, rep.Wrote)
-		// the tally grows before the return: the ranking agent's report is its record, and an
-		// promotion may register off it. A pass is a landed run the agent itself calls DONE: its own
-		// @S FAIL / ESCALATE overrides a clean loop status.
-		status := string(r.Status)
-		if v := verdictOf(r); v != "" && v != "DONE" {
-			status = v
-		}
-		w.FoldMetrics(cr.Name, status, len(r.Holes)) // the roster's name: a short or old name folds into one record
+		// the value ledger grows before the return: the ranking agent's report is its record, and
+		// a promotion may register off it. One definition of success (policy.value): the run's word is
+		// the loop's when the loop did not close DONE, else the agent's own @S — its FAIL /
+		// ESCALATE overrides a clean loop status. The gate verdict credits the agent that held it.
+		w.mu.Lock()
+		strainNow := w.stress[agent]
+		w.mu.Unlock()
+		w.foldResult(cr.Name, parent.As, r, strainNow, warrant, false) // the roster's name: a short or old name folds into one record
 		if lines := w.promoteLines(); len(lines) > 0 {
 			note := strings.Join(lines, "\n")
 			if rep.ReportPath != "" {
@@ -591,12 +607,8 @@ func (w *Workspace) firstChildLine(rank string) string {
 // lifecycle status is not the verdict — a subagent that reports "@S FAIL" landed its run cleanly
 // (the Policy-9 lesson); the journal's status says DONE where the agent says FAIL.
 func verdictOf(r *loop.Result) string {
-	if s := r.Report.Status; s != "" {
-		tok := strings.ToUpper(strings.Fields(s)[0])
-		switch tok {
-		case "DONE", "FAIL", "ESCALATE", "DENIED", "INTERRUPTED":
-			return tok
-		}
+	if r.Report.Status != "" {
+		return value.Word(r.Report.Status)
 	}
 	return ""
 }
@@ -611,21 +623,25 @@ func verdictOf(r *loop.Result) string {
 // (policy.stress.maxConsults); past the bound the warrant hardens: the report ends @S ESCALATE
 // and rises to the human. A clean landing clears the ledger.
 //
-// The loop's DENIED and INTERRUPTED never consult: the human's word and the clock's policy
-// already answered.
+// Landed and struggled are policy.value's one definition (value.Def): a pass word lands, a fail
+// word struggles, a neutral word — the human's DENIED, an INTERRUPTED, a DRY run — never
+// consults: the human's word and the clock's policy already answered.
 func (w *Workspace) councilLedger(agent string, verdict string, r *loop.Result, subagent SubagentOptions) (stamp string, escalate bool) {
+	word := value.RunWord(r.Status, verdict)
+	if r.Interrupted {
+		word = "INTERRUPTED"
+	}
+	outcome := w.ValueOpts().Def.Outcome(word)
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	landed := r.Status == loop.Done && verdict == "DONE"
-	if landed { // a clean landing clears the ledger — management by exception
+	if outcome == value.Pass { // a clean landing clears the ledger — management by exception
 		delete(w.stress, agent)
 		delete(w.consults, agent)
 		w.ledgerNote(ledgerRow{Kind: "stressClear", Agent: agent})
 		return "", false
 	}
-	struggled := r.Status == loop.Fail || r.Status == loop.Checkpoint || verdict == "FAIL" || verdict == "ESCALATE"
-	if !struggled {
-		return "", false // self-DENIED, INTERRUPTED, off-verdict: another policy already spoke
+	if outcome != value.Fail {
+		return "", false // neutral: another policy already spoke
 	}
 	at := subagent.StressEscalateAt
 	if at <= 0 {

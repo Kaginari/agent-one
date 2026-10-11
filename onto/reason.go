@@ -43,7 +43,6 @@ var (
 	kindClass     = map[string]Term{"policy": Ao("Policy"), "team": Ao("Team"), "domain": Ao("Domain")}
 	bondsByHop    = []Term{pTruth, pVerdict, pReports, pAbove}
 	rankClass     = map[string]Term{"coord": Ao("Coordinator"), "domain": Ao("DomainOwner"), "zone": Ao("ZoneWorker"), "service": Ao("ServiceOwner")}
-	skillDirs     = []string{".opencode/skills", ".opencode/skill", ".claude/skills"}
 )
 
 // Orchestrator is the session agent's term: the top of every workspace's tree, the one every bond climbs to.

@@ -164,10 +164,36 @@ func (t Theme) rule(w int, title, aside string) string {
 	return head + dash(w-ansi.StringWidth(head)-ansi.StringWidth(tail)) + tail
 }
 
-// title is a region's name as the frame sets it into a border: small caps, the label tone,
-// bold — the one weight the grid's titles hold.
+// title is a name as the frame sets it into a border: small caps, bold, on a gradient of the
+// palette — the primary into the plan's violet unless the region names its own hues.
 func (t Theme) title(s string) string {
-	return t.label.Bold(true).Render(smallCap(s))
+	return t.titleIn(s, t.accent.GetForeground(), t.plan.GetForeground())
+}
+
+// titleIn is a title on its region's own gradient (a colourless terminal reads the label tone).
+func (t Theme) titleIn(s string, stops ...color.Color) string {
+	if !t.Color || len(stops) == 0 {
+		return t.label.Bold(true).Render(smallCap(s))
+	}
+	if len(stops) == 1 {
+		return lipgloss.NewStyle().Foreground(stops[0]).Bold(true).Render(smallCap(s))
+	}
+	return Gradient(smallCap(s), true, stops...)
+}
+
+// regionTitle is each region's title in its own hues: the conversation in the primary's cyan
+// into the zone worker's blue, the session in the orchestrator's amber into the human's rose, the ask in
+// the human's rose into the plan's violet.
+func (t Theme) regionTitle(region string) string {
+	switch region {
+	case "conversation":
+		return t.titleIn(region, t.accent.GetForeground(), t.lane("zone"))
+	case "session":
+		return t.titleIn(region, t.lane("orchestrator"), t.magenta.GetForeground())
+	case "ask":
+		return t.titleIn(region, t.magenta.GetForeground(), t.plan.GetForeground())
+	}
+	return t.title(region)
 }
 
 // railRow is one row of the sidebar column: a content row (rc-2 cells, the frame pads it), or a
@@ -218,9 +244,22 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 	rows = append(rows, g("╭")+rule(l.W-2, "", "")+g("╮"))
 	rows = append(rows, g("│")+headP(" "+fit(header, l.W-4)+" ")+g("│"))
 	if l.rc > 0 {
-		rows = append(rows, g("├")+rule(l.mc, t.title("conversation"), convAside)+g("┬")+rule(l.rc, t.title("session"), "")+g("┤"))
+		rows = append(rows, g("├")+rule(l.mc, t.regionTitle("conversation"), convAside)+g("┬")+rule(l.rc, t.regionTitle("session"), "")+g("┤"))
 	} else {
-		rows = append(rows, g("├")+rule(l.mc, t.title("conversation"), convAside)+g("┤"))
+		rows = append(rows, g("├")+rule(l.mc, t.regionTitle("conversation"), convAside)+g("┤"))
+	}
+	// the scrollbars: the chat's in its right padding column, the sidebar's on its border —
+	// only while the content overflows
+	var chatBar, railBar []rune
+	if m.vpOK {
+		chatBar = scrollThumb(l.chat.H, len(m.vpLines), m.vp.YOffset())
+	}
+	if l.rc > 0 {
+		railBar = scrollThumb(l.rail.H, m.railTotal, m.railScroll)
+	}
+	planeBg := color.Color(nil)
+	if t.Depth {
+		planeBg = t.dep.plane.col()
 	}
 	// the sidebar's part of a row y (content or rule), the divider glyph it asks for, and the
 	// right border
@@ -237,16 +276,15 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 			row = rail[r]
 		}
 		right := g("│")
-		arrow := func(a string) string {
+		if r >= 0 && r < len(railBar) && railBar[r] != '▕' {
+			// the sidebar's scrollbar rides its right border: the border is the track, the
+			// thumb a heavy line in the primary, half-row ends
+			glyph := map[rune]string{'▐': "┃", '▗': "╻", '▝': "╹"}[railBar[r]]
 			if t.Depth {
-				return gl(a, t.dim.GetForeground(), t.dep.ground.col())
+				right = gl(glyph, t.accent.GetForeground(), t.dep.ground.col())
+			} else {
+				right = t.accent.Render(glyph)
 			}
-			return t.dim.Render(a)
-		}
-		if r == 0 && m.railScroll > 0 {
-			right = arrow("▲")
-		} else if r == l.rail.H-1 && m.railMore {
-			right = arrow("▼")
 		}
 		if row.sep {
 			div := "├"
@@ -272,17 +310,26 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 		if i < len(chat) {
 			c = chat[i]
 		}
-		rows = append(rows, g("│")+plane(" "+fit(c, l.chat.W)+" ")+side(l.chat.Y+i, false))
+		pad := plane(" ")
+		if i < len(chatBar) {
+			pad = t.scrollGlyph(chatBar[i], planeBg)
+		}
+		rows = append(rows, g("│")+plane(" "+fit(c, l.chat.W))+pad+side(l.chat.Y+i, false))
 	}
 	rows = append(rows, g("├")+rule(l.mc, askTitle, askAside)+side(l.inputSepY, true))
 	if l.well > 0 {
+		// the well's rim glows in the primary while the human types into it
+		var wellGlow color.Color
+		if m.choice == nil && m.input.Value() != "" {
+			wellGlow = t.accent.GetForeground()
+		}
 		rs := make([]string, l.inputN)
 		for i := range rs {
 			if i < len(input) {
 				rs[i] = input[i]
 			}
 		}
-		for i, w := range t.well(rs, l.mc) {
+		for i, w := range t.well(rs, l.mc, wellGlow) {
 			rows = append(rows, g("│")+plane(w)+side(l.inputSepY+1+i, false))
 		}
 	} else {
@@ -409,7 +456,11 @@ func (t Theme) StatusBar(f FooterView, width int) string {
 	var parts []string
 	ctx := t.dim.Render("ctx ") + t.dim.Render("—")
 	if f.CtxKnown {
-		ctx = t.dim.Render("ctx ") + t.Meter(f.CtxPct, 10) + " " + t.text.Render(fmt.Sprintf("%d%%", f.CtxPct))
+		meter := t.Meter(f.CtxPct, 10)
+		if t.Depth {
+			meter = t.gauge(float64(f.CtxPct)/100, 10, nil, t.ctxHue)
+		}
+		ctx = t.dim.Render("ctx ") + meter + " " + t.text.Render(fmt.Sprintf("%d%%", f.CtxPct))
 		if f.CtxTokens > 0 && f.CtxLimit > 0 && width >= 100 {
 			ctx += t.dim.Render(fmt.Sprintf(" %s/%s", humanTokens(f.CtxTokens), humanTokens(f.CtxLimit)))
 		}

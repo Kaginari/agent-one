@@ -74,6 +74,14 @@ func (w *Workspace) Hooks(opt HookOptions) loop.Hooks {
 			return w.Record(agentOf(s), st, opt.Record)
 		}
 	}
+	// the orchestrator's own final answer files its drafts; a Subagent's are filed by its dispatcher
+	// (subagent.go), which holds the report whole
+	h.Answer = func(s *loop.Session, r *loop.Result) []string {
+		if s.Engine.Wire {
+			return nil
+		}
+		return w.FileForges(agentOf(s), s.RunID, forgesOfResult(r))
+	}
 	return h
 }
 
@@ -128,6 +136,15 @@ func MergeHooks(base, over loop.Hooks) loop.Hooks {
 	}
 	if over.Stream != nil {
 		out.Stream = over.Stream
+	}
+	if over.Answer != nil {
+		if base.Answer == nil {
+			out.Answer = over.Answer
+		} else {
+			out.Answer = func(s *loop.Session, r *loop.Result) []string {
+				return append(base.Answer(s, r), over.Answer(s, r)...)
+			}
+		}
 	}
 	if over.Record != nil {
 		if base.Record == nil {
@@ -194,6 +211,16 @@ func MergeHooks(base, over loop.Hooks) loop.Hooks {
 	}
 	if over.Budget != nil {
 		out.Budget = over.Budget
+	}
+	if over.Ended != nil {
+		if base.Ended == nil {
+			out.Ended = over.Ended
+		} else {
+			out.Ended = func(s *loop.Session, r *loop.Result) {
+				base.Ended(s, r)
+				over.Ended(s, r)
+			}
+		}
 	}
 	return out
 }
@@ -332,28 +359,6 @@ func (w *Workspace) Record(as string, st *loop.StepRecord, opt RecordOptions) []
 				}
 			}
 			holes = append(holes, w.Land(by, rep)...)
-		}
-	}
-	if strings.Contains(st.Result.Output, "@FORGE") {
-		// a dispatch's carried drafts land as forge notes: filed, never registered — the working notes registers
-		rep, ok := wire.ParseReport(st.Result.Output)
-		if ok {
-			for i := len(rep.Forges) - 1; i >= 0; i-- {
-				f := rep.Forges[i]
-				line := f.Kind + ":" + f.Name
-				if f.Text != "" {
-					line += " | " + f.Text
-				}
-				by := as
-				if st.Tool == "dispatch" {
-					if b := dispatchedAgent(st); b != "" {
-						by = b
-					}
-				}
-				if err := w.Remember(by, "team", line, "forge"); err != nil {
-					holes = append(holes, "forge note: "+err.Error())
-				}
-			}
 		}
 	}
 	if opt.Landed && len(st.Wrote) > 0 {

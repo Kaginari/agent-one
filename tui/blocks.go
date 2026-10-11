@@ -244,7 +244,7 @@ func (t Theme) Assistant(md string, width int) string {
 }
 
 func (t Theme) answer(md string, width int, first bool) string {
-	s, o, full := t.surfAnswer(), slabOpt{top: true}, width
+	s, o, full := t.surfAnswer(), slabOpt{top: true, flat: true}, width
 	if t.Depth {
 		width = slabInner(s, width, o)
 	}
@@ -304,11 +304,18 @@ type ToolView struct {
 // header line, the status line, the output or the diff.
 func (t Theme) Tool(v ToolView, width int) string {
 	if t.Depth {
-		// a raised chip in its class's hue: the header on the lit band, the status under it
+		// a raised chip in its class's hue: the header on the lit band, the status under it;
+		// the plan tool's card holds the plan's own family
 		s, o := t.surfTool(v.Class), slabOpt{band: 1}
+		if v.Name == "plan" {
+			s = t.surfPlan()
+		}
 		return t.slab(s, strings.Split(t.toolBody(v, slabInner(s, width, o)), "\n"), width, o)
 	}
 	edge := t.class(v.Class).Render("▎")
+	if v.Name == "plan" {
+		edge = t.plan.Render("▎")
+	}
 	lines := strings.Split(t.toolBody(v, width-2), "\n")
 	for i, l := range lines {
 		lines[i] = edge + " " + l
@@ -328,7 +335,19 @@ func (t Theme) toolBody(v ToolView, width int) string {
 		dot = t.warn.Render("●")
 	}
 	tag := t.class(v.Class).Render(v.Class)
-	head := dot + " " + t.text.Bold(true).Render(v.Name)
+	// the card's title holds its class's hue (the plan's violet on the plan's card)
+	name := t.class(v.Class).Bold(true)
+	if v.Name == "plan" {
+		tag, name = t.plan.Render("plan"), t.plan.Bold(true)
+	}
+	head := dot + " " + name.Render(v.Name)
+	if v.Name == "plan" {
+		// the deck's size, never the raw JSON the call carried
+		v.Summary, v.Link = "", ""
+		if items := planItems(v.Output); len(items) > 0 {
+			v.Summary = fmt.Sprintf("%d step%s", len(items), plural(len(items)))
+		}
+	}
 	if v.Agent != "" {
 		head += t.dim.Render(" (" + v.Agent + ")")
 	}
@@ -373,6 +392,12 @@ func (t Theme) toolBody(v ToolView, width int) string {
 		st = t.dim.Render("⎿ " + v.Status)
 	}
 	b.WriteString(indent + ansi.Truncate(st, width-2, "…"))
+	if v.Name == "plan" && v.Status == "done" {
+		// the deck at a glance: its progress and the step in hand, always shown
+		if items := planItems(v.Output); len(items) > 0 {
+			b.WriteString("\n" + indent + t.planProgress(items, width-2))
+		}
+	}
 	// the agent rides only under ctrl+o: logs are for the asking, never by default
 	if v.Diff != nil && v.Status == "done" {
 		if d := t.diffLines(*v.Diff, width-4, v.Expand); v.Expand && d != "" {
@@ -516,6 +541,10 @@ func (t Theme) Subagent(v SubagentView, width int, pulses ...Pulse) string {
 	co := slabOpt{band: 1}
 	if t.Depth {
 		cs = t.surfSubagent(v.Rank, p.Lane)
+		if live && v.State != "done" {
+			// the running Subagent glows at its rim in its lane
+			cs = t.glowing(cs, p.Lane, t.dep.plane)
+		}
 		tw = slabInner(cs, cw, co)
 	}
 	word := v.Word
@@ -615,6 +644,19 @@ func (t Theme) Subagent(v SubagentView, width int, pulses ...Pulse) string {
 				stS += " " + replay.Render(" "+word+" ")
 			}
 		}
+	}
+	// the state as a chip: the lane's while the Subagent runs, the verdict's once it lands
+	if t.Depth {
+		hue := p.Lane
+		switch {
+		case v.State == "done" && failed:
+			hue = t.bad.GetForeground()
+		case v.State == "done":
+			hue = t.ok.GetForeground()
+		case hue == nil:
+			hue = t.rank(v.Rank).GetForeground()
+		}
+		stS = t.chipAround(hue, stS)
 	}
 	gap := tw - ansi.StringWidth(head) - ansi.StringWidth(stS) - 2 - bob
 	if gap < 2 {
@@ -818,7 +860,11 @@ type RailView struct {
 	Subagents    []RailSubagent
 	MaxFiles     int
 	MaxSubagents int
-	Collapsed    map[string]bool // card key ("subagents" | "plan" | "files") → collapsed to its header
+	Collapsed    map[string]bool // card key ("ranks" | "subagents" | "plan" | "files") → collapsed to its header
+	// State is the session's state as the header tile's chip says it: "idle", "busy" (Verb
+	// names what it does) or "wait" (an ask waits for the human)
+	State string
+	Verb  string
 }
 
 const railFilesMax = 10
@@ -871,6 +917,49 @@ func filesTree(files []RailFile, t Theme) string {
 		root.Child(sub)
 	}
 	return root.String()
+}
+
+// planItems reads a deck back off the plan tool's output ("- [status] text (id → who)").
+func planItems(out string) []RailPlanItem {
+	var items []RailPlanItem
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		if !strings.HasPrefix(l, "- [") {
+			continue
+		}
+		st, rest, ok := strings.Cut(l[3:], "] ")
+		if !ok {
+			continue
+		}
+		if i := strings.LastIndex(rest, " ("); i > 0 {
+			rest = rest[:i]
+		}
+		items = append(items, RailPlanItem{Text: rest, Status: st})
+	}
+	return items
+}
+
+// planProgress is a deck's one-row summary w cells wide: a gauge in the plan's violet, the
+// count done, and the step in hand.
+func (t Theme) planProgress(items []RailPlanItem, w int) string {
+	done, cur := 0, ""
+	for _, it := range items {
+		switch it.Status {
+		case "done":
+			done++
+		case "in_progress":
+			if cur == "" {
+				cur = planLine(it.Text)
+			}
+		}
+	}
+	frac := fmt.Sprintf(" %d/%d", done, len(items))
+	cells := min(12, max(w/5, 4))
+	s := t.gauge(float64(done)/float64(len(items)), cells, t.plan.GetForeground(), nil) + t.label.Render(frac)
+	if cur != "" {
+		s += t.dim.Render("  ") + t.plan.Bold(true).Render("▸ ") + t.text.Render(cur)
+	}
+	return ansi.Truncate(s, w, "…")
 }
 
 // planLine flattens one deck line to plain terminal text: one line, markdown noise
@@ -941,291 +1030,6 @@ func (t Theme) Rail(v RailView, widths ...int) string {
 		}
 	}
 	return strings.Join(out, "\n")
-}
-
-// railRows lays the sidebar out as rows for a column rw cells wide: the session's vitals (the
-// workspace's sprite beside them where it fits), then a ruled section each for the subagents, the
-// plan deck and the files touched. A section's rule carries its title, a fold glyph and its
-// count; a folded section is its rule alone (alt+c/p/f, or a click on the rule).
-func (t Theme) railRows(v RailView, rw int) []railRow {
-	inner := rw - 2
-	tileW := inner
-	if t.Depth {
-		// a tile spans the column but its left margin: its shadow falls on the last cell
-		tileW = rw - 1
-		inner = slabInner(t.surfTile(nil), tileW, slabOpt{band: 1})
-	}
-	// the sections as they are built: the vitals (no header), then one per section — flat they
-	// read as rules between rows, under the depth as stacked raised tiles
-	type section struct {
-		key, head string
-		hue       color.Color
-		rows      []railRow
-	}
-	secs := []*section{{}}
-	cur := secs[0]
-	var out []railRow
-	line := func(s string) { cur.rows = append(cur.rows, railRow{text: s}) }
-	rule := func(key, title string, hue lipgloss.Style, count int) {
-		fold := "▾"
-		if v.Collapsed[key] {
-			fold = "▸"
-		}
-		head := t.dim.Render(fold+" ") + hue.Bold(true).Render(title)
-		if count >= 0 {
-			head += t.dim.Render(fmt.Sprintf(" · %d", count))
-		}
-		cur = &section{key: key, head: head, hue: hue.GetForeground()}
-		secs = append(secs, cur)
-	}
-	assemble := func() []railRow {
-		if !t.Depth {
-			for _, sc := range secs {
-				if sc.key != "" {
-					out = append(out, railRow{text: t.rule(rw, sc.head, ""), sep: true, key: sc.key})
-				}
-				out = append(out, sc.rows...)
-			}
-			return out
-		}
-		for i, sc := range secs {
-			hue := sc.hue
-			if hue == t.label.GetForeground() {
-				hue = nil
-			}
-			if i == 0 {
-				hue = t.accent.GetForeground()
-			}
-			ts, o := t.surfTile(hue), slabOpt{band: 1}
-			var texts []string
-			var meta []railRow
-			if sc.key != "" {
-				texts, meta = append(texts, sc.head), append(meta, railRow{key: sc.key})
-			} else {
-				o = slabOpt{top: true}
-			}
-			for _, r := range sc.rows {
-				texts, meta = append(texts, r.text), append(meta, r)
-			}
-			lines := strings.Split(t.slab(ts, texts, tileW, o), "\n")
-			k := 0
-			if o.top {
-				out = append(out, railRow{text: lines[0]})
-				k = 1
-			}
-			for j, m := range meta {
-				m.text = lines[k+j]
-				out = append(out, m)
-			}
-			out = append(out, railRow{text: lines[len(lines)-1]})
-		}
-		return out
-	}
-
-	// vitals: who and where, the context, the spend
-	var id []string
-	if v.Workspace != "" {
-		id = append(id, t.label.Bold(true).Render(v.Workspace))
-	}
-	if v.Model != "" {
-		id = append(id, t.dim.Render(v.Model))
-	}
-	ctx := t.dim.Render("ctx —")
-	if v.CtxKnown {
-		cellsN := 8
-		if t.Depth {
-			// the tile's padding narrows the facts' column: the meter yields before the cap does
-			factsW := inner
-			if len(v.Mascot) > 0 {
-				factsW = inner - ansi.StringWidth(v.Mascot[0]) - 2
-			}
-			cellsN = min(max(factsW-12, 4), 8)
-		}
-		ctx = t.Meter(v.CtxPct, cellsN) + " " + t.text.Render(fmt.Sprintf("%d%%", v.CtxPct))
-		if v.Stress {
-			ctx += " " + t.bad.Render("stress")
-		}
-	}
-	if v.CtxMax != "" {
-		ctx += t.dim.Render(" / " + ansi.Truncate(v.CtxMax, 5, ""))
-	}
-	id = append(id, ctx)
-	usage := t.text.Render(humanTokens(v.Tokens)) + t.dim.Render(" tok")
-	if strings.HasPrefix(v.Cost, "$") {
-		usage += t.dim.Render(" · ") + t.text.Render(v.Cost)
-	}
-	id = append(id, usage)
-	art := v.Mascot
-	artW := 0
-	for _, l := range art {
-		artW = max(artW, ansi.StringWidth(l))
-	}
-	switch {
-	case len(art) > 0 && (inner >= artW+2+18 || t.Depth && inner >= artW+2+14):
-		// the sprite beside the facts: a portrait and its caption
-		for i := 0; i < max(len(art), len(id)); i++ {
-			a := strings.Repeat(" ", artW)
-			if i < len(art) {
-				a = art[i] + padRight(art[i], artW)
-			}
-			r := ""
-			if i < len(id) {
-				r = ansi.Truncate(id[i], inner-artW-2, "…")
-			}
-			line(a + "  " + r)
-		}
-	case len(art) > 0 && inner >= artW:
-		for _, a := range art {
-			line(centre(a, inner))
-		}
-		line("")
-		for _, r := range id {
-			line(r)
-		}
-	default:
-		for _, r := range id {
-			line(r)
-		}
-	}
-	if len(v.Layers) > 0 {
-		// each rank's spend as a chip in its lane; chips wrap whole, never cut
-		cur := ""
-		for _, l := range v.Layers {
-			c := t.chip(l.Lane, l.Rank+" "+humanTokens(l.Tokens))
-			if cur != "" && ansi.StringWidth(cur)+1+ansi.StringWidth(c) > inner {
-				line(cur)
-				cur = ""
-			}
-			if cur != "" {
-				cur += " "
-			}
-			cur += c
-		}
-		if cur != "" {
-			line(cur)
-		}
-	}
-	switch v.Zone {
-	case "NEAR":
-		line(t.warn.Render("▲ zone near"))
-	case "STRESS":
-		line(t.bad.Render("▲ zone stress — write to the log"))
-	}
-	if v.Dash != "" {
-		// the board rides as a terminal hyperlink (OSC 8): the terminal's link modifier opens it
-		shown := ansi.Truncate(strings.TrimPrefix(v.Dash, "http://"), max(inner-7, 8), "…")
-		line(t.dim.Render("dash ↗ ") + lipgloss.NewStyle().Hyperlink(v.Dash).Underline(true).Foreground(t.accent.GetForeground()).Render(shown))
-	}
-
-	// subagents: a roster, the state a chip on the right edge
-	subagents := v.Subagents
-	rule("subagents", "subagents", t.label, len(subagents))
-	if !v.Collapsed["subagents"] {
-		maxSubagents := v.MaxSubagents
-		if maxSubagents <= 0 {
-			maxSubagents = 8
-		}
-		if len(subagents) == 0 {
-			line(t.dim.Render("· none yet"))
-		}
-		if len(subagents) > maxSubagents {
-			subagents = subagents[:maxSubagents]
-		}
-		for _, c := range subagents {
-			hue := lipgloss.NewStyle().Foreground(c.Lane)
-			if c.Lane == nil {
-				hue = t.dim
-			}
-			word := strings.ToUpper(c.State)
-			if word == "" && c.Done {
-				word = "DONE"
-			}
-			var state string
-			switch {
-			case c.Done && c.Failed:
-				state = t.bad.Render("✗ " + word)
-			case c.Done:
-				state = t.ok.Render("✓ " + word)
-			default:
-				state = hue.Render(word)
-			}
-			if c.Aged != "" && inner-ansi.StringWidth(c.Name)-ansi.StringWidth(state) > 10 {
-				state += t.dim.Render(" " + c.Aged)
-			}
-			dot := hue.Render("●")
-			if c.Done {
-				dot = t.dim.Render("●")
-			}
-			nameW := max(inner-2-ansi.StringWidth(state)-1, 4)
-			name := ansi.Truncate(c.Name, nameW, "…")
-			row := dot + " " + t.text.Render(name)
-			row += strings.Repeat(" ", max(inner-ansi.StringWidth(row)-ansi.StringWidth(state), 1)) + state
-			cur.rows = append(cur.rows, railRow{text: row, subagent: c.Name})
-		}
-	}
-
-	// the plan deck, titled in its role's lane — the card's one hue
-	if v.Plan != nil {
-		lane := v.Plan.Lane
-		if lane == nil {
-			lane = t.lane("drafter")
-		}
-		hue := lipgloss.NewStyle().Foreground(lane)
-		rule("plan", "plan ▸ "+v.Plan.Agent, hue, len(v.Plan.Items))
-		if !v.Collapsed["plan"] {
-			switch {
-			case v.Plan.Archived:
-				line(t.dim.Render("archived · alt+n for the current deck"))
-			case v.Plan.Stale:
-				line(t.dim.Render("stale · alt+n for the current deck"))
-			}
-			if len(v.Plan.Items) == 0 {
-				line(t.dim.Render("· deck empty"))
-			}
-			for _, it := range v.Plan.Items {
-				var mark string
-				text := t.text
-				switch it.Status {
-				case "in_progress":
-					mark = hue.Render("▸")
-				case "done":
-					mark, text = t.ok.Render("✓"), t.dim
-				case "blocked":
-					mark = t.bad.Render("✗")
-				default:
-					mark = t.dim.Render("·")
-				}
-				line(mark + " " + text.Render(ansi.Truncate(planLine(it.Text), inner-2, "…")))
-			}
-		}
-	}
-
-	// files: the touch ledger as a tree, latest last
-	rule("files", "files", t.label, len(v.Files))
-	if v.Collapsed["files"] {
-		return assemble()
-	}
-	files := append([]RailFile(nil), v.Files...)
-	maxFiles := v.MaxFiles
-	if maxFiles <= 0 {
-		maxFiles = railFilesMax
-	}
-	hidden := 0
-	if len(files) > maxFiles {
-		hidden = len(files) - maxFiles
-		files = files[len(files)-maxFiles:]
-	}
-	if len(files) == 0 {
-		line(t.dim.Render("· nothing written yet"))
-	} else {
-		for _, l := range strings.Split(filesTree(files, t), "\n") {
-			line(l)
-		}
-	}
-	if hidden > 0 {
-		line(t.dim.Render(fmt.Sprintf("… +%d more", hidden)))
-	}
-	return assemble()
 }
 
 // Gate is the one quiet line after a turn that wrote.
@@ -1304,7 +1108,7 @@ type ChoiceView struct {
 func (t Theme) Choice(v ChoiceView, width int) string {
 	inner := min(width-4, 96)
 	if t.Depth {
-		inner = min(width-5, 96) // the float's shadow takes a column
+		inner = min(width-4-shadowW, 96) // the float's shadow takes its columns
 	}
 	var rows []string
 	title := t.accent.Bold(true).Render(v.Title)
@@ -1375,7 +1179,7 @@ func (t Theme) Choice(v ChoiceView, width int) string {
 		for _, r := range rows {
 			out = append(out, strings.Split(r, "\n")...)
 		}
-		return t.slab(s, out, inner+5, slabOpt{top: true, band: 1})
+		return t.slab(s, out, inner+4+shadowW, slabOpt{top: true, band: 1})
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(t.accent.GetForeground()).Padding(0, 1).Width(inner + 4)
 	return box.Render(strings.Join(rows, "\n"))

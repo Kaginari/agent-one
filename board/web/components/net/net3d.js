@@ -169,14 +169,13 @@
     crown: () => torus(1, 0.06, 48, 6),
   };
   // the rank's solid, and whether it holds a crown ring (a promoted rank)
-  const FORM = { orchestrator: ['star', 0], coord: ['coord', 0], principalCoordinator: ['coord', 1], auditor: ['coord6', 1], domain: ['domain', 0], principalDomainOwner: ['domain', 1], zone: ['zone', 0], service: ['service', 0] };
+  const FORM = { orchestrator: ['star', 0], coord: ['coord', 0], 'principal-coordinator': ['coord', 1], 'auditor': ['coord6', 1], domain: ['domain', 0], 'principal-domain-owner': ['domain', 1], zone: ['zone', 0], service: ['service', 0] };
   const formOf = n => n.kind === 'skill' ? ['skill', 0] : n.orchestrator ? ['star', 0] : FORM[n.rank] || ['cube', 0];
   // the key's glyphs (the same forms, flat), drawn in the rank's colour
   const GLYPH = {
     star: 'M12 1.5l2.6 6.9 7.4.3-5.8 4.6 2 7.2L12 16.4l-6.2 4.1 2-7.2L2 8.7l7.4-.3z',
     coord: 'M12 2l5 10-5 10-5-10z', coord6: 'M12 2l5 10-5 10-5-10z', domain: 'M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z',
     zone: 'M12 4.5c4.7 0 8 3 8 7.2S16.7 19.5 12 19.5 4 16 4 11.7 7.3 4.5 12 4.5z', service: 'M12 3l9 17H3z', cube: 'M5 5h14v14H5z',
-    skill: 'M12 5a7 7 0 1 0 .01 0zm0 3.6a3.4 3.4 0 1 1-.01 0z',
   };
 
   // the brain's settle, on unit directions (one shell each): tree springs, region cohesion, relates,
@@ -354,6 +353,8 @@
   const TONES = ['ink', 'muted', 'line', 'surface', 'ok', 'warn', 'danger', 'accent', 's1', 's2', 's3', 's4', 's5', 's6'];
   // a region's tint in the lane colouring, in turn (the series hues the ranks lean on least first)
   const REGION_TONES = ['accent', 's5', 's3', 's1', 's6', 's2', 's4'];
+  // the css token each region tone reads (the legend's swatches name the token, never a colour)
+  const TONE_VAR = { accent: '--accent', s1: '--series-1', s2: '--series-2', s3: '--series-3', s4: '--series-4', s5: '--series-5', s6: '--series-6' };
   const TINTS = ['lane', 'heat', 'health'];
 
   function create(stage, opts) {
@@ -380,7 +381,7 @@
     const tintBtns = TINTS.map(t => {
       const b = el('button', '', t);
       b.type = 'button'; b.dataset.tint = t;
-      b.title = { lane: 'each region its own hue', heat: 'how much work each region did in four weeks', health: 'the share of each region\'s runs that passed' }[t];
+      b.title = { lane: 'each region its own hue: which coordinator\'s subtree it is', heat: 'how much work each region did in four weeks', health: 'the value score of each region\'s ranked agents, banded by config (ui.meters.score)' }[t];
       tintBox.append(b);
       return b;
     });
@@ -388,6 +389,9 @@
     replayBtn.disabled = true;
     const resetBtn = btn('reset view');
     tools.append(tintBox, replayBtn, resetBtn);
+    // the tint's key, beside the switch: what the colour means now, and what a size means
+    const legend = el('div', 'net-vkey net-3d-legend');
+    legend.setAttribute('aria-live', 'polite');
     // the replay bar: play/pause, a scrubber, the time, close
     const bar = el('div', 'net-3d-replay');
     bar.hidden = true;
@@ -470,9 +474,28 @@
       st.tint = t;
       for (const b of tintBtns) b.setAttribute('aria-pressed', String(b.dataset.tint === t));
       try { localStorage.setItem('dash.net3d.tint', t); } catch (_) { /* private mode */ }
-      regionTints(); kick();
+      regionTints(); legendFill(); kick();
       if (!st.run || opts.reduced()) render(performance.now(), true);
     };
+    // the key: lane — each region's swatch and its head; heat — the cold→hot ramp over four weeks;
+    // health — the score bands config sets (ui.meters.score); and always, what a size is
+    function legendFill() {
+      const sw = (attrs, text, title) => { const sp = el('span'); const i = el('i'); for (const [k, v] of Object.entries(attrs)) i.setAttribute(k, v); sp.append(i, text); if (title) sp.title = title; return sp; };
+      const items = [];
+      if (st.tint === 'lane') {
+        for (const r of (st.regions || []).slice(0, 6)) items.push(sw({ 'data-swatch': 'lane', style: '--net-swatch: var(' + TONE_VAR[REGION_TONES[r.i % REGION_TONES.length]] + ')' }, r.caption.toLowerCase(), 'the region under ' + r.caption.toLowerCase()));
+        if (!items.length) items.push(el('span', '', 'one region per coordinator'));
+      } else if (st.tint === 'heat') {
+        items.push(sw({ 'data-swatch': 'heat' }, 'cold → hot', 'runs over the last four weeks'));
+        items.push(el('span', '', 'work, 4 weeks'));
+      } else {
+        const sm = ((opts.meters && opts.meters()) || {}).score || { bands: { ok: 70, warn: 40 } };
+        const b = sm.bands || { ok: 70, warn: 40 };
+        items.push(sw({ 'data-band': 'ok' }, 'score ≥ ' + b.ok), sw({ 'data-band': 'warn' }, '≥ ' + b.warn), sw({ 'data-band': 'bad' }, '< ' + b.warn));
+      }
+      items.push(el('span', '', 'size = code owned (lines)'));
+      legend.replaceChildren(...items);
+    }
     for (const b of tintBtns) b.addEventListener('click', () => setTint(b.dataset.tint));
     for (const b of tintBtns) b.setAttribute('aria-pressed', String(b.dataset.tint === st.tint));
 
@@ -498,7 +521,12 @@
         if (d === 1 && !kidsOf(id).length) return 0.3;
         return 0.46 + 0.5 * (d - 1) / (D - 1);
       };
-      const radius = (n, d) => n.orchestrator ? 0.52 : d === 1 ? 0.36 : d === 2 ? 0.3 : 0.25;
+      // a neuron is small, sized by the code it owns (the model's massK, 0..1 over the workspace): a leaf
+      // on the square root of its own lines, a member with a subtree on the cube root of its
+      // subtree's, the orchestrator capped so it never swallows the scene; the largest leaf is 2.5× the
+      // smallest. Activity never moves a size (it glows and breathes instead).
+      const mk = id => (m.sized && m.massK && m.massK.has(id)) ? m.massK.get(id) : 0.5;
+      const radius = n => n.orchestrator ? 0.3 : kidsOf(n.id).length ? 0.15 * (1 + 0.8 * mk(n.id)) : 0.1 * (1 + 1.5 * mk(n.id));
       // regions: the orchestrator's children with a subtree; the rest sit near the centre
       const regionOf = new Map(), heads = [], small = [];
       for (const k of kidsOf(orchestratorId)) (kidsOf(k).length ? heads : small).push(k);
@@ -526,7 +554,7 @@
       const u = new Map(), f = new Map(), rad = new Map();
       for (const id of members) {
         const n = m.byId.get(id), d = m.depth.get(id) || 1;
-        f.set(id, shell(id)); rad.set(id, radius(n, d));
+        f.set(id, shell(id)); rad.set(id, radius(n));
         const r = regionOf.get(id), c = centre.get(r);
         let th, el;
         if (c) {
@@ -594,11 +622,11 @@
       const workspace = id => { const q = u.get(id), k = f.get(id); return [q[0] * k * A[0], q[1] * k * A[1], q[2] * k * A[2]]; };
       if (orchestratorId) {
         const n = m.byId.get(orchestratorId);
-        st.nodes.set(orchestratorId, { id: orchestratorId, n, p1: [0, 0, 0], d: 0, rad: radius(n, 0), rank: n.rank || 'orchestrator', region: '', form: formOf(n), seed: hash(orchestratorId) });
+        st.nodes.set(orchestratorId, { id: orchestratorId, n, p1: [0, 0, 0], d: 0, rad: radius(n), rank: n.rank || 'orchestrator', family: n.family || '', region: '', form: formOf(n), seed: hash(orchestratorId) });
       }
       for (const id of members) {
         const n = m.byId.get(id);
-        st.nodes.set(id, { id, n, p1: workspace(id), d: m.depth.get(id) || 1, rad: rad.get(id), rank: n.rank || 'plain', region: regionOf.get(id), form: formOf(n), seed: hash(id), u: u.get(id), f: f.get(id) });
+        st.nodes.set(id, { id, n, p1: workspace(id), d: m.depth.get(id) || 1, rad: rad.get(id), rank: n.rank || 'plain', family: n.family || '', region: regionOf.get(id), form: formOf(n), seed: hash(id), u: u.get(id), f: f.get(id) });
       }
       // the skills: a crown above the brain, each over the middle of its holders, spread apart
       st.crown = null;
@@ -616,7 +644,7 @@
         }
         want.forEach(w => {
           const lane = w.n.lane || 'skill:shared';
-          st.nodes.set(w.n.id, { id: w.n.id, n: w.n, p1: [Math.cos(w.a) * mr, my + Math.sin(w.a * 3) * S * 0.05, Math.sin(w.a) * mr], d: -1, rad: 0.27, rank: lane, region: '', form: ['skill', 0], seed: hash(w.n.id) });
+          st.nodes.set(w.n.id, { id: w.n.id, n: w.n, p1: [Math.cos(w.a) * mr, my + Math.sin(w.a * 3) * S * 0.05, Math.sin(w.a) * mr], d: -1, rad: 0.12 * (1 + mk(w.n.id)), rank: lane, region: '', form: ['skill', 0], seed: hash(w.n.id) });
         });
         st.crown = { y: my, r: mr, caption: String(opts.word ? opts.word('skills', 'skills') : 'skills').toUpperCase() + '  ' + m.skills.length };
       }
@@ -676,7 +704,9 @@
       key.replaceChildren(...seenForms.map(s => {
         const sp = el('span');
         sp.dataset.rank = s.rank;
-        sp.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${GLYPH[s.k] || GLYPH.cube}"/>${s.crown ? '<ellipse cx="12" cy="6" rx="8" ry="2.2"/>' : ''}</svg>`;
+        // a skill's key is the board's brain (Lucide brain-circuit, the sprite); a rank's its solid
+        sp.innerHTML = s.k === 'skill' ? '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="web/icons/icons.svg#skill"/></svg>'
+          : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${GLYPH[s.k] || GLYPH.cube}"/>${s.crown ? '<ellipse cx="12" cy="6" rx="8" ry="2.2"/>' : ''}</svg>`;
         sp.append(s.label.replace(' ◌', ''));
         const b = el('b', '', String(s.n));
         sp.append(b);
@@ -730,13 +760,14 @@
     // ---------- the theme ----------
     function palette() {
       const probes = opts.probes;
-      const ranks = new Set();
-      for (const q of st.nodes.values()) ranks.add(q.rank);
+      const ranks = new Set(), famOf = new Map();
+      for (const q of st.nodes.values()) { ranks.add(q.rank); if (q.family) famOf.set(q.rank, q.family); }
       probes.replaceChildren();
       const read = (attr, v) => { const sp = document.createElement('span'); sp.className = 'net-probe'; sp.setAttribute(attr, v); probes.append(sp); return sp; };
       const els = {};
       for (const t of TONES) els['t:' + t] = read('data-tone', t);
-      for (const r of ranks) els['r:' + r] = read('data-rank', r);
+      // a rank with no hue of its own reads its family's (the probe carries both)
+      for (const r of ranks) { els['r:' + r] = read('data-rank', r); if (famOf.has(r)) els['r:' + r].setAttribute('data-family', famOf.get(r)); }
       const pal = { rank: {} };
       for (const t of TONES) pal[t] = rgb(getComputedStyle(els['t:' + t]).color);
       for (const r of ranks) pal.rank[r] = rgb(getComputedStyle(els['r:' + r]).color);
@@ -746,25 +777,28 @@
       st.dark = 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2] < 0.5;
       st.pal = pal;
       regionTints();
+      legendFill();
       fontCache();
       kick();
     }
-    // the regions' tint: their own hue, the work they did, or the share of their runs that passed
+    // the regions' tint: their own hue, the work they did, or their ranked agents' value score
     function regionTints() {
       const pal = st.pal, m = st.m;
       if (!pal || !m) return;
       const act = m.act || {};
       const heat = st.regions.map(r => r.members.reduce((a, id) => a + ((act[m.byId.get(id).name] || {}).total || 0), 0));
       const top = Math.max(1, ...heat);
-      const runs = new Map();
-      for (const x of m.recent || []) { const k = x.as; if (!runs.has(k)) runs.set(k, [0, 0]); const v = runs.get(k); v[1]++; if (/DONE|PASS/i.test(x.status || '')) v[0]++; }
       st.regions.forEach((r, i) => {
         if (st.tint === 'heat') { const h = heat[i] / top; r.tint = mix3(pal.muted, pal.warn, h); r.k = 0.35 + 0.9 * h; r.note = heat[i] + ' runs in 4 weeks'; }
         else if (st.tint === 'health') {
-          let ok = 0, all = 0;
-          for (const id of r.members) { const v = runs.get(m.byId.get(id).name); if (v) { ok += v[0]; all += v[1]; } }
-          r.tint = all ? mix3(pal.danger, pal.ok, ok / all) : pal.muted; r.k = all ? 1 : 0.4;
-          r.note = all ? Math.round(ok / all * 100) + '% of ' + all + ' runs passed' : 'no recent runs';
+          // the value score of the region's ranked agents, banded by the score meter (config)
+          let sum = 0, n = 0;
+          for (const id of r.members) { const v = m.byId.get(id).value; if (v && v.confidence === 'ok') { sum += v.score; n++; } }
+          const sm = ((opts.meters && opts.meters()) || {}).score || { bands: { ok: 70, warn: 40 } };
+          const mean = n ? sum / n : 0, b = (sm.bands || {});
+          const band = !n ? 'none' : mean >= b.ok ? 'ok' : mean >= b.warn ? 'warn' : 'bad';
+          r.tint = band === 'ok' ? pal.ok : band === 'warn' ? pal.warn : band === 'bad' ? pal.danger : pal.muted; r.k = n ? 1 : 0.4;
+          r.note = n ? 'score ' + Math.round(mean) + ' · ' + n + ' ranked' : 'no ranked agent';
         } else { r.tint = pal[REGION_TONES[i % REGION_TONES.length]]; r.k = 1; r.note = ''; }
       });
     }
@@ -1058,6 +1092,9 @@
         put(q.p, c, (dark ? 0.5 : 0.4) * k * (liveN ? 1.3 + 0.3 * breath : on ? 1.4 : 1), q.rad * 5.2 * halo, 0);
         // the bloom: a second, wider and fainter pass
         if (dark) put(q.p, c, 0.12 * k * (liveN ? 1.6 : 1), q.rad * 11, 0);
+        // the value band ring: its rank's own meter, banded by config; faint below its record
+        const v = q.n && q.n.value;
+        if (v && v.band && v.band !== 'none' && q.d !== -1) put(q.p, v.band === 'ok' ? pal.ok : v.band === 'warn' ? pal.warn : pal.danger, (v.confidence === 'ok' ? 0.85 : 0.35) * k, q.rad * 3.4, -0.86);
       }
       const thin = st.slow > 14 ? 2 : 1;
       if (!reduced) {
@@ -1124,6 +1161,20 @@
       labels(focus, lit);
     }
 
+    // the faces, loaded once per rank; a face that has not arrived yet is simply not drawn
+    const faces = new Map();
+    function face(rank) {
+      if (!rank) return null;
+      let f = faces.get(rank);
+      if (!f) {
+        f = { img: new Image(), ok: false };
+        f.img.onload = () => { f.ok = true; kick(); };
+        f.img.src = 'portraits/' + encodeURIComponent(rank);
+        faces.set(rank, f);
+      }
+      return f.ok ? f.img : null;
+    }
+
     // ---------- labels: the orchestrator and first rank always, the rest on hover, focus or while live
     // (every one once 24 or fewer are in view); the regions, the shells and the crown captioned ----------
     function labels(focus, lit) {
@@ -1169,6 +1220,23 @@
         const s = project(q.p);
         if (s.w <= 0 || s.x < -40 || s.x > W + 40 || s.y < -20 || s.y > H + 20) continue;
         onScreen.push({ q, s });
+      }
+      // each member's face as a badge where it fits (its resolved portrait or family glyph,
+      // /portraits/<rank> — the one resolver), scaled to the neuron's size on screen
+      for (const { q, s } of onScreen) {
+        if (q.d < 0 || !q.n.icon) continue;
+        const r = q.rad * 1.2 * st.scale / s.w / dpr;
+        if (r < 6) continue;
+        const img = face(q.n.orchestrator ? 'orchestrator' : q.n.rank);
+        if (!img) continue;
+        const br = clamp(r * 0.62, 6, 16), bx = s.x + r * 0.75, by = s.y - r * 0.75;
+        ctx.globalAlpha = focus && lit && !lit.nodes.has(q.id) ? 0.25 : 0.95;
+        ctx.save();
+        ctx.beginPath(); ctx.arc(bx, by, br, 0, TAU); ctx.fillStyle = F.halo; ctx.fill();
+        ctx.clip(); ctx.drawImage(img, bx - br, by - br, br * 2, br * 2);
+        ctx.restore();
+        ctx.beginPath(); ctx.arc(bx, by, br, 0, TAU); ctx.lineWidth = 1.5; ctx.strokeStyle = F.css(st.pal.rank[q.rank] || st.pal.muted); ctx.stroke();
+        ctx.globalAlpha = 1;
       }
       const few = onScreen.length <= 24;
       const shown = [];
@@ -1385,7 +1453,7 @@
     function flash(id, tone, kind) { st.flashes.set(id, { id, at: performance.now(), tone, kind }); kick(); }
 
     return {
-      elements: [canvas, overlay, tools, key, bar, hint],
+      elements: [canvas, overlay, tools, legend, key, bar, hint],
       model(m) { scene(m); resize(); },
       focus(id, lit, pinned) {
         st.lit = lit; st.shown = id || '';

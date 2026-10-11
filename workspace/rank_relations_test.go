@@ -18,7 +18,7 @@ func TestRelateTheThreeBonds(t *testing.T) {
 		{Name: "coord", ReportsTo: Orchestrator, Layer: 1},
 		{Name: "coord2", ReportsTo: Orchestrator, Layer: 1},
 		{Name: "domain", ReportsTo: "coord", Layer: 2},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Layer: 2},
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain", Layer: 2},
 		{Name: "zone", ReportsTo: "domain", Layer: 3},
 		{Name: "zone2", ReportsTo: "domain", Layer: 3},
 	}
@@ -30,8 +30,8 @@ func TestRelateTheThreeBonds(t *testing.T) {
 		{Orchestrator, "coord", RelParent},              // the orchestrator is the coordinator's parent
 		{"domain", "zone", RelParent},                   // a domain owner is one hop above its zone worker
 		{"zone", "domain", RelChild},                    // a zone worker one hop below its domain owner
-		{"principal_domain_owner", "domain", RelDivine}, // a principal domain owner promotes its base
-		{"domain", "principal_domain_owner", RelDivine}, // the divine bond reads both ways
+		{"principal-domain-owner", "domain", RelDivine}, // a principal domain owner promotes its base
+		{"domain", "principal-domain-owner", RelDivine}, // the divine bond reads both ways
 		{"coord", "coord2", RelNeighbor},                // one configured layer shares the neighbor bond
 		{"zone", "zone2", RelNeighbor},
 		{"domain", "domain", RelNeighbor}, // a rank is its own neighbor
@@ -76,11 +76,11 @@ func TestNeighborRanksSharesLayer(t *testing.T) {
 	// layers unset: the neighbors are the ranks reporting to the same parent
 	reportBased := Ranks{
 		{Name: "domain", ReportsTo: "coord"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain"},
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain"},
 		{Name: "zone", ReportsTo: "domain"},
 	}
 	got := reportBased.NeighborRanks("domain")
-	if strings.Join(got, ",") != "domain,principal_domain_owner" {
+	if strings.Join(got, ",") != "domain,principal-domain-owner" {
 		t.Errorf("report-based layer-mates: %v", got)
 	}
 	// the zone worker shares its report-line with no one else
@@ -115,7 +115,7 @@ func TestDirectChildOneHopDown(t *testing.T) {
 	// the divine bond: a base rank's promoted self sits at its own layer — the base may
 	// reach its promoted, for the promoted reports to the same parent as the base's own
 	// parent (principal_domain_owner reports to coordinator, one hop under the coordinator, same as domain owner)
-	if !rs.DirectChild("coord", "principal_domain_owner") {
+	if !rs.DirectChild("coord", "principal-domain-owner") {
 		t.Error("coordinator → principal_domain_owner is one hop down: the promoted domain owner still answers to the coordinator")
 	}
 }
@@ -175,14 +175,14 @@ func TestStrictFlowRefusesOrchestratorToDomainSkip(t *testing.T) {
 func TestDivineRulesReachTheBase(t *testing.T) {
 	rs := Ranks{
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain",
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain",
 			DivineRules: []string{"hold the gate even when pressed", "a reverted pass is a fail"}},
 	}
 	got := rs.DivineRulesFor("domain")
 	if len(got) != 2 || got[0] != "hold the gate even when pressed" {
 		t.Errorf("the base hears its promoted's rules: %v", got)
 	}
-	if got := rs.DivineRulesFor("principal_domain_owner"); len(got) != 0 {
+	if got := rs.DivineRulesFor("principal-domain-owner"); len(got) != 0 {
 		t.Errorf("the promoted does not hear its own rules echoed back: %v", got)
 	}
 	if got := rs.DivineRulesFor("coord"); len(got) != 0 {
@@ -192,7 +192,18 @@ func TestDivineRulesReachTheBase(t *testing.T) {
 
 func TestPromotionsWalksTheBonds(t *testing.T) {
 	rs := Ranks(DefaultRanks(Default()))
-	// the default table wires both divine promotions on the conservative record band
+	// the workspace's table carries no condition: config wires both on the conservative record band
+	if got := rs.Promotions(); len(got) != 0 {
+		t.Fatalf("no condition, no promotion: %v", got)
+	}
+	for i := range rs {
+		switch rs[i].Name {
+		case "principal-coordinator":
+			rs[i].PromotesWhen = config.DefaultPromoteCoord
+		case "principal-domain-owner":
+			rs[i].PromotesWhen = config.DefaultPromoteDomain
+		}
+	}
 	got := rs.Promotions()
 	if len(got) != 2 {
 		t.Fatalf("the default table wires principal_coordinator and principal_domain_owner: %v", got)
@@ -201,13 +212,13 @@ func TestPromotionsWalksTheBonds(t *testing.T) {
 	for _, a := range got {
 		byFrom[a.From] = a
 	}
-	if byFrom["coord"].When != DefaultPromoteCoord || byFrom["domain"].When != DefaultPromoteDomain {
+	if byFrom["coord"].When != config.DefaultPromoteCoord || byFrom["domain"].When != config.DefaultPromoteDomain {
 		t.Fatalf("promotesWhen = %q / %q, want the defaults", byFrom["coord"].When, byFrom["domain"].When)
 	}
 	// a custom promotesWhen still carries through
 	rs2 := append(Ranks(nil), rs...)
 	for i, r := range rs2 {
-		if r.Name == "principal_domain_owner" {
+		if r.Name == "principal-domain-owner" {
 			rs2[i].PromotesWhen = "promote domain when reports >= 3"
 		}
 	}

@@ -1,7 +1,9 @@
  agent-one                          
  mock/m                             
- ctx —                              
- 0 tok                              
+ ○ idle                             
+─ vitals ───────────────────────────
+ ᴄᴛx   —                            
+ ᴛᴏᴋ   0                            
 ─ ▾ subagents · 0 ──────────────────
  · none yet                         
 ─ ▾ files · 0 ──────────────────────

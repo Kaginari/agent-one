@@ -24,6 +24,7 @@ import (
 	"github.com/Kaginari/agent-one/instrument"
 	"github.com/Kaginari/agent-one/provider"
 	"github.com/Kaginari/agent-one/tool"
+	"github.com/Kaginari/agent-one/value"
 	"github.com/Kaginari/agent-one/wire"
 )
 
@@ -136,6 +137,9 @@ type Hooks struct {
 	Recall func(ctx context.Context, s *Session, ask string) Recall
 	// Record runs after each done step (memory flows up); holes it returns are reported.
 	Record func(ctx context.Context, s *Session, st *StepRecord) []string
+	// Answer sees a turn's final answer once it closes DONE (the forge files the orchestrator's
+	// @FORGE drafts from it); holes it returns ride the result.
+	Answer func(s *Session, r *Result) []string
 	// EndGate runs when the model finishes a turn that wrote files: the Domain owner's gate. It returns
 	// the verdict word for the report and holes; an error fails the turn.
 	EndGate func(ctx context.Context, s *Session, r *Result) (verdict string, holes []string, err error)
@@ -180,6 +184,9 @@ type Hooks struct {
 	// Budget reads the session and subagent budgets before a model call; a non-empty reason
 	// checkpoints the run honestly.
 	Budget func(s *Session) string
+	// Ended sees every turn's result once it closes, whatever its status (the value ledger
+	// folds the orchestrator's turns here).
+	Ended func(s *Session, r *Result)
 }
 
 // Decision is a permission rule's word on an act.
@@ -238,6 +245,10 @@ type Engine struct {
 	// ("is it applied end-to-end?") — the bench-class failure this catches is an answer that
 	// closes mid-plan ("let me merge…") with the merge never run. Live sessions keep it off.
 	ClosingCheck bool
+	// ForgeDemandAt is the crystallization question's step floor (policy.forge.demandAtSteps): a
+	// turn that ran at least this many steps is asked once, at its close, to name a @FORGE draft
+	// or say the path was one-off — with or without the closing check. 0 = off.
+	ForgeDemandAt int
 	// PlanOpen returns "" when the agent may close clean, else one line naming the open plan
 	// item. Wired by the workspace to the agent's deck: a run never closes clean on an open plan —
 	// the closing check's re-ask carries why, and a stubborn close is named a hole on the report.
@@ -282,6 +293,8 @@ type Session struct {
 	gateTries     int      // failed gates sent back to the model this turn
 	wireTries     int      // off-the-wire answers sent back to the model this turn
 	closingAsked  bool     // the closing check has been asked this session (it asks once, never twice)
+	forgeAsked    bool     // the forge question has been asked this turn
+	turnStepBase  int      // s.Steps as this turn opened: the forge question counts the turn's own steps
 	// the guts' readings (nil Engine.Guts: never appended, never read)
 	gutsVals      []int
 	gutsLastSpoke int
@@ -291,6 +304,9 @@ type Session struct {
 	gutsBench     []string             // recent act workbench keys, echo-penalty window
 	gutsBenchWrot map[string]int       // bench → cumulative writes as of its last visit
 	gutsBenchHits map[string]*benchHit // bench → visit tally (red/green/muted) — the thrash arm's and pulse's record
+	gutsThrash    int                  // readings that priced a bench thrash this session
+	gutsMomentum  int                  // the momentum at the last reading
+	gutsReads     int                  // readings this session
 	wroteTot      int                  // every write the workspace has landed (echo penalty's divider)
 	// TestsBefore is the test files' text as the turn opened (the gate's "tests intact" check).
 	TestsBefore map[string]string
@@ -315,6 +331,66 @@ type Result struct {
 	// the end + failed-gate re-asks + off-wire re-asks. A clean turn reads 0; a struggling one
 	// reads how often its note-line broke. The dispatch ledger weighs it per agent.
 	Strains int `json:"strains,omitempty"`
+	// GateTries is how often the end gate sent this turn back before it closed.
+	GateTries int `json:"gateTries,omitempty"`
+	// Interrupted: the hand was lowered mid-drive (the context ended) — the human's word, never
+	// the agent's failure.
+	Interrupted bool `json:"interrupted,omitempty"`
+	// HoleKinds names each of Holes' kind at the close, index for index: infra (the workspace's
+	// fault), harness (the discipline the harness caught). The agent's own @? are Report.Holes.
+	HoleKinds []string `json:"holeKinds,omitempty"`
+	// Guts is the turn's closing gut reading.
+	Guts GutsSum `json:"guts,omitempty"`
+}
+
+// GutsSum is a run's gut at its close: whether it read at all, the momentum at the last reading,
+// and how many readings priced a bench thrash.
+type GutsSum struct {
+	Read     bool `json:"read,omitempty"`
+	Momentum int  `json:"momentum,omitempty"`
+	Thrash   int  `json:"thrash,omitempty"`
+}
+
+// The hole kinds. Only a harness hole is the agent's: the workspace's faults and the agent's honest @?
+// never cost it.
+const (
+	HoleInfra   = "infra"   // the provider, the drain, recall, the output ceiling, a config switch, a filing error
+	HoleHarness = "harness" // the harness caught the agent's discipline: off the wire, no @U, a gate sent back
+	HoleSelf    = "self"    // the agent's own @? on the wire
+)
+
+// harnessHoles are the openings of every hole the loop raises against the agent's own discipline.
+var harnessHoles = []string{
+	"answer off the wire", "report carries no @U line", "answer is not on the wire",
+	"gate failed and was sent back", "end-of-turn gate:", "closed with an open plan",
+	"+unsaid was asked and no @U came back", "consecutive failed acts", "doom loop",
+}
+
+// HoleKind classifies one hole the harness raised: harness when it names the agent's discipline,
+// infra for everything else (the provider refused, a drain or recall failed, the output ceiling
+// cut the answer, the gate is switched off, a note could not be filed).
+func HoleKind(h string) string {
+	for _, p := range harnessHoles {
+		if strings.Contains(h, p) {
+			return HoleHarness
+		}
+	}
+	return HoleInfra
+}
+
+// HoleCount splits the run's holes by kind; self counts the agent's own @? lines.
+func (r *Result) HoleCount() (infra, harness, self int) {
+	for _, h := range r.Holes {
+		if HoleKind(h) == HoleHarness {
+			harness++
+		} else {
+			infra++
+		}
+	}
+	if r.IsWire {
+		self = len(r.Report.Holes)
+	}
+	return infra, harness, self
 }
 
 func (r *Result) hole(h string) {
@@ -456,9 +532,10 @@ func (e *Engine) DefaultSystem(s *Session) string {
 	if e.Wire {
 		b.WriteString("Answer on the wire: `@S <status>` opens, one `@F <file:line> <fact>` per finding, `@? <hole>` for anything you could not settle (never guess), `@U <policy|team|ownership> <text>` for each thing you know that nothing on disk says, `@E <bytes>` closes. No greetings, nothing long — a long thing lives on disk and crosses as a path.\n")
 		// a run that proved a repeating need names its draft: @FORGE rides the report up, the
-		// working notes (the human's `/forge register`) lands it — a skill becomes a workspace note, a tool a
-		// tools.custom patch; drafts never register themselves mid-turn
-		b.WriteString("When the run proved a repeating need, name its draft once: `@FORGE skill:<name> | one line saying when + how`, or `@FORGE tool:<name> | <summary> | <argv template>` (holes as `{{param}}`).\n")
+		// harness files it, the working notes (the human's `/forge register` or `agent-one forge register`) lands it —
+		// a skill becomes <workspace>/crafted-skills/<name>/SKILL.md, a tool a tools.custom patch;
+		// drafts never register themselves mid-turn
+		b.WriteString("When the run proved a repeating need, name its draft once: `@FORGE skill:<name> | <when: the triggers> | <how: the steps>` (name in [a-z0-9-]), or `@FORGE tool:<name> | <summary> | <argv template>` (holes as `{{param}}`; an argv, never a shell pipeline).\n")
 		// an agent that may dispatch may also order: @$ names work for the layer below, drained
 		// by the Subagent after the turn (never registered by the agent mid-turn — the wire carries
 		// the order, the harness enforces the chain); a report in hand travels as plain prose.
@@ -526,6 +603,7 @@ func (s *Session) Turn(ctx context.Context, ask string) (r *Result, err error) {
 		return nil, fmt.Errorf("loop: empty ask")
 	}
 	s.open(ask)
+	s.forgeAsked, s.turnStepBase = false, s.Steps
 	if s.gated {
 		// the last turn's writes met the gate; this turn gates only its own
 		s.Wrote, s.gated = nil, false
@@ -572,6 +650,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 	stepsThisTurn := 0
 	s.gateTries = 0
 	s.wireTries = 0
+	s.gutsThrash, s.gutsReads = 0, 0 // the turn's gut summary is the turn's own
 	end := func(status string, why string) (*Result, error) {
 		r.Status = status
 		if why != "" {
@@ -579,6 +658,16 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 		}
 		r.Usage, r.Context, r.Turns = s.Spend, s.Context, s.Turns
 		r.Strains = s.failures + s.gateTries + s.wireTries
+		r.GateTries = s.gateTries
+		r.Interrupted = ctx.Err() != nil
+		if e.Guts != nil {
+			r.Guts = GutsSum{Read: s.gutsReads > 0, Momentum: s.gutsMomentum, Thrash: s.gutsThrash}
+		}
+		if status == Done && e.Hooks.Answer != nil {
+			for _, h := range e.Hooks.Answer(s, r) {
+				r.hole(h)
+			}
+		}
 		if status != Done && status != Dry {
 			// a turn stopped short of finish still owns what it changed on disk
 			for _, w := range s.seen() {
@@ -592,7 +681,24 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 		if ctx.Err() != nil {
 			ev["cause"] = e.Lexicon.human()
 		}
+		r.HoleKinds = r.HoleKinds[:0]
+		for _, h := range r.Holes {
+			r.HoleKinds = append(r.HoleKinds, HoleKind(h))
+		}
+		ev["holeKinds"] = r.HoleKinds
+		// the run's one word (policy.value): what the leaderboard and the activity count by
+		word := ""
+		if r.IsWire {
+			word = r.Report.Status
+		}
+		ev["word"] = value.RunWord(status, word)
+		if ctx.Err() != nil {
+			ev["word"] = "INTERRUPTED"
+		}
 		s.Journal.Log(ev)
+		if e.Hooks.Ended != nil {
+			e.Hooks.Ended(s, r)
+		}
 		s.state("done")
 		return r, nil
 	}
@@ -1046,8 +1152,13 @@ func (s *Session) finish(ctx context.Context, r *Result, resp provider.Response,
 	if e.PlanOpen != nil {
 		open = e.PlanOpen()
 	}
+	forge := ""
+	if !s.forgeAsked {
+		forge = forgeDemand(s.Steps-s.turnStepBase, e.ForgeDemandAt, e.Lexicon.WorkspaceDir)
+	}
 	if e.ClosingCheck && !s.closingAsked {
 		s.closingAsked = true
+		s.forgeAsked = s.forgeAsked || forge != ""
 		s.Journal.Log(Event{"t": "closingcheck", "wrote": s.Wrote, "steps": s.Steps, "plan": open})
 		ask := "closing check: the agent's run is about to close. Read the ask once more — if anything it requests is " +
 			"not yet applied end-to-end, apply it now; your tools stand. Otherwise answer again and that answer is the report."
@@ -1055,8 +1166,16 @@ func (s *Session) finish(ctx context.Context, r *Result, resp provider.Response,
 			ask += "\nplan open — " + open + ": tick it done (the plan tool walks one step), or finish it first."
 		}
 		ask += witnessDemand(s.Ask, s.Wrote)
-		ask += forgeDemand(s.Steps)
+		ask += forge
 		s.Messages = append(s.Messages, provider.Message{Role: provider.User, Text: ask})
+		return nil, errGateRetry
+	}
+	if forge != "" {
+		// policy.forge stands on its own: the closing check is off (or already spent), the run was
+		// long, and the question is asked once
+		s.forgeAsked = true
+		s.Journal.Log(Event{"t": "forgedemand", "steps": s.Steps - s.turnStepBase})
+		s.Messages = append(s.Messages, provider.Message{Role: provider.User, Text: "forge question:" + forge + "\nAnswer again with your report; that answer closes the run."})
 		return nil, errGateRetry
 	}
 	if open != "" {
@@ -1093,16 +1212,21 @@ func witnessDemand(ask string, wrote []string) string {
 	return t
 }
 
-// forgeDemand is the closing check's crystallization question for long runs: an agent that burned
-// many steps carved a path with its feet, and paths walked twice should become skills. Under the
-// step floor the question stays silent (short runs teach nothing worth registering); over it the close
-// must either name a @FORGE draft or answer why the path is one-off.
-func forgeDemand(steps int) string {
-	if steps < 12 {
+// forgeDemand is the crystallization question for long runs (policy.forge.demandAtSteps): an agent
+// that burned many steps carved a path with its feet, and paths walked twice should become
+// skills. Under the floor the question stays silent (short runs teach nothing worth registering);
+// over it the close must either name a @FORGE draft or say why the path is one-off. A floor of
+// 0 is the policy switched off.
+func forgeDemand(steps, floor int, workspaceDir string) string {
+	if floor <= 0 || steps < floor {
 		return ""
 	}
+	if workspaceDir == "" {
+		workspaceDir = ".agent-one"
+	}
 	return "\nThis run cost " + fmt.Sprintf("%d", steps) + " steps. If the path it carved repeats — a tour, a probe, a ritual — " +
-		"name its draft once: @FORGE skill:<name> | one line saying when + how (the working notes registers it; the next agent walks it in three steps). " +
+		"name its draft once: @FORGE skill:<name> | <when: the triggers that call for it> | <how: the steps>. The harness files it in the forge ledger; " +
+		"when the human registers it at the working notes it becomes " + workspaceDir + "/crafted-skills/<name>/SKILL.md, which a later agent holds or loads with the skill tool. " +
 		"If the path is one-off, say so in a word and close."
 }
 

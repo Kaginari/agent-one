@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/Kaginari/agent-one/rank"
 	"sort"
 	"strings"
 )
@@ -83,9 +84,10 @@ func canonicalRole(o string) string {
 	return o
 }
 
+// canonicalRank folds a distribution's word (coord, auditor) and any spelling (auditor,
+// Auditor) to the one canonical rank name (rank.Canon).
 func canonicalRank(r string) string {
-	r = strings.ToLower(r)
-	return r
+	return rank.Canon(r)
 }
 
 // ModelTable lists the resolved model per role, rank and task, with origins — for status.

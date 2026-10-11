@@ -61,6 +61,11 @@ type Options struct {
 
 // App is one opened engine.
 type App struct {
+	// the value view the board reads, folded at most once a second (board.go valueView)
+	valueMu   sync.Mutex
+	valueAt   time.Time
+	valueMemo *board.ValueView
+
 	Opt       Options
 	Cfg       *config.Config
 	Root      string
@@ -334,6 +339,8 @@ func (a *App) Build() workspace.Build {
 		Ownership: workspace.OwnershipOptions{Enabled: cfg.Policy.Ownership.Enabled, OrchestratorNeverAuthors: cfg.Policy.Ownership.OrchestratorNeverAuthors},
 		Guts:      policyGuts(cfg),
 		Doom:      policyDoom(cfg),
+		// the crystallization question rides every agent's close past the step floor
+		ForgeDemandAt: cfg.Policy.Forge.DemandAtSteps,
 		Subagent: workspace.SubagentOptions{Enabled: a.on("dispatch"), MaxDepth: cfg.Tools.Dispatch.MaxDepth, Cap: cfg.Policy.Wire.Cap, Unsaid: cfg.Policy.Wire.RequireUnsaid, StrictFlow: cfg.Tools.Dispatch.StrictFlow, OpenLineage: !cfg.Tools.Dispatch.Lineage, SalvageTokens: cfg.Policy.Budget.SalvageTokens, StressEscalateAt: cfg.Policy.Stress.EscalateAt, StressMaxConsults: cfg.Policy.Stress.MaxConsults, StressRelieveAt: cfg.Policy.Stress.RelieveAt, SessionBackground: cfg.Tools.Dispatch.SessionBackground,
 			Background: cfg.Tools.Dispatch.Background, BackgroundTimeout: time.Duration(cfg.Tools.Dispatch.BackgroundTimeout),
 			Noted: noted,

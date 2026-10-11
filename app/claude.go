@@ -29,6 +29,7 @@ import (
 	"github.com/Kaginari/agent-one/guard"
 	"github.com/Kaginari/agent-one/loop"
 	"github.com/Kaginari/agent-one/tool"
+	"github.com/Kaginari/agent-one/wire"
 	"github.com/Kaginari/agent-one/workspace"
 )
 
@@ -42,6 +43,8 @@ type ccIn struct {
 	ToolName       string          `json:"tool_name"`
 	ToolInput      json.RawMessage `json:"tool_input"`
 	StopHookActive bool            `json:"stop_hook_active"`
+	TranscriptPath string          `json:"transcript_path"`
+	LastAssistant  string          `json:"last_assistant_message"`
 }
 
 // ccEvents maps the hook's argument to Claude Code's event name, in the order install wires them.
@@ -395,6 +398,8 @@ func appendUniq(xs []string, x string) []string {
 // ---- stop: the gate
 
 func (h *policyHost) stop(in ccIn) int {
+	// the turn's final answer files its @FORGE drafts, as the binary's orchestrator does
+	forgeHoles := h.w.FileForges("orchestrator", in.SessionID, wire.ForgesOf(ccFinalText(in)))
 	t := h.loadTurn(in.SessionID)
 	wrote := append([]string(nil), t.Wrote...)
 	if t.Base != nil {
@@ -406,6 +411,9 @@ func (h *policyHost) stop(in ccIn) int {
 	}
 	sort.Strings(wrote)
 	if len(wrote) == 0 || !h.cfg.Policy.Gate.Enabled {
+		if len(forgeHoles) > 0 {
+			return h.answer(map[string]interface{}{"systemMessage": h.dist + " forge\n@? " + strings.Join(forgeHoles, "\n@? ")})
+		}
 		return 0
 	}
 	opt := hookOptions(h.cfg, nil).Gate
@@ -421,7 +429,7 @@ func (h *policyHost) stop(in ccIn) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	v := h.w.Gate(ctx, nil, opt, "", wrote, nil, false, t.Ask)
-	holes := append([]string(nil), v.Holes...)
+	holes := append(append([]string(nil), v.Holes...), forgeHoles...)
 	if h.cfg.Policy.Gate.RightAuthor && h.w.GateHolders() {
 		for _, rel := range wrote {
 			if o := h.w.Owner(rel); o != nil {
@@ -465,6 +473,48 @@ func (h *policyHost) stop(in ccIn) int {
 		msg += "\n@? " + strings.Join(holes, "\n@? ")
 	}
 	return h.answer(map[string]interface{}{"systemMessage": msg})
+}
+
+// ccFinalText is the turn's final answer as Claude Code hands it to the Stop hook: the
+// last_assistant_message field when the host sends it, else the assistant text after the
+// transcript's last user entry (a prompt or a tool result) — the words that closed the turn.
+func ccFinalText(in ccIn) string {
+	if strings.TrimSpace(in.LastAssistant) != "" {
+		return in.LastAssistant
+	}
+	if in.TranscriptPath == "" {
+		return ""
+	}
+	b, err := os.ReadFile(in.TranscriptPath)
+	if err != nil {
+		return ""
+	}
+	var texts []string
+	for _, line := range strings.Split(string(b), "\n") {
+		var e struct {
+			Type    string `json:"type"`
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &e) != nil {
+			continue
+		}
+		switch e.Type {
+		case "user":
+			texts = nil
+		case "assistant":
+			var blocks []struct{ Type, Text string }
+			if json.Unmarshal(e.Message.Content, &blocks) == nil {
+				for _, bl := range blocks {
+					if bl.Type == "text" {
+						texts = append(texts, bl.Text)
+					}
+				}
+			}
+		}
+	}
+	return strings.Join(texts, "\n")
 }
 
 func askTitle(s string) string {

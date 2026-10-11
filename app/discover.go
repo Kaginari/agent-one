@@ -25,47 +25,31 @@ type Discovered struct {
 func Discover(cfg *config.Config, root, home string) Discovered {
 	var d Discovered
 	claude, oc := cfg.Discovery.Skills.Enabled, cfg.Discovery.Skills.Enabled
-	opt := discover.Options{Root: root, Home: home, Skills: cfg.Discovery.Skills.Enabled, Commands: cfg.Discovery.Commands.Enabled, Agents: cfg.Discovery.Agents.Enabled, Sources: discover.Sources{Claude: &claude, OpenCode: &oc}}
+	opt := discover.Options{Root: root, Home: home, WorkspaceDir: cfg.Dist.WorkspaceDir, Skills: cfg.Discovery.Skills.Enabled, Commands: cfg.Discovery.Commands.Enabled, Agents: cfg.Discovery.Agents.Enabled, Sources: discover.Sources{Claude: &claude, OpenCode: &oc}}
 	if cfg.Discovery.Skills.Enabled {
-		d.Skills = discover.Skills(opt)
-		seen := map[string]bool{}
-		for _, s := range d.Skills {
-			seen[s.Name] = true
+		// one registry, one precedence (discover.SkillBases): crafted > base > project host >
+		// global host, then the config's extra paths, then the binary's builtins. A name with two
+		// homes is a hole naming both, never a silent shadow.
+		idx := discover.NewSkillIndex()
+		covered := map[string]bool{}
+		for _, dir := range opt.SkillDirs() {
+			covered[filepath.Clean(dir)] = true
+		}
+		for _, ds := range skillDirSources(opt) {
+			idx.ReadDir(ds[0], ds[1])
 		}
 		for _, dir := range expandPaths(cfg.Discovery.Skills.Paths, root, home) {
-			if known(dir) {
+			if covered[filepath.Clean(dir)] {
 				continue
 			}
-			ents, err := os.ReadDir(dir)
-			if err != nil {
-				continue
-			}
-			for _, e := range ents {
-				p := filepath.Join(dir, e.Name(), "SKILL.md")
-				data, err := os.ReadFile(p)
-				if err != nil {
-					continue
-				}
-				fm, _ := discover.Frontmatter(string(data))
-				name := fm["name"]
-				if name == "" {
-					name = e.Name()
-				}
-				if seen[name] {
-					continue
-				}
-				seen[name] = true
-				d.Skills = append(d.Skills, discover.Skill{Name: name, Description: fm["description"], Path: p, Dir: filepath.Join(dir, e.Name()), Source: "native", Frontmatter: fm})
-			}
+			idx.ReadDir(dir, "native")
 		}
 		// the Skills the binary ships, unless the workspace holds its own of the same name
 		for _, b := range builtinSkills(cfg.Dist) {
-			if !seen[b.Name] {
-				seen[b.Name] = true
-				d.Skills = append(d.Skills, b)
-			}
+			idx.Add(b)
 		}
-		sort.SliceStable(d.Skills, func(i, j int) bool { return d.Skills[i].Name < d.Skills[j].Name })
+		d.Skills = idx.Skills()
+		d.Holes = append(d.Holes, idx.Holes...)
 	}
 	if cfg.Discovery.Commands.Enabled {
 		d.Commands = discover.Commands(opt)
@@ -104,11 +88,22 @@ func Discover(cfg *config.Config, root, home string) Discovered {
 	return d
 }
 
-// known says whether the discover package already reads a dir (its fixed CC/OC set).
+// skillDirSources pairs each dir discover reads with its source label, in precedence order.
+func skillDirSources(opt discover.Options) [][2]string {
+	dirs := opt.SkillDirs()
+	labels := discover.SkillSources(opt)
+	out := make([][2]string, len(dirs))
+	for i := range dirs {
+		out[i] = [2]string{dirs[i], labels[i]}
+	}
+	return out
+}
+
+// known says whether the discover package already reads a command or agent dir (its fixed
+// CC/OC set); skills go through discover.SkillBases instead.
 func known(dir string) bool {
 	d := filepath.ToSlash(dir)
-	for _, suffix := range []string{"/.agent-one/crafted-skills", "/.agent-one/base-skills", "/.claude/skills", "/.opencode/skill", "/.opencode/skills", "/.agents/skills", "/.config/opencode/skill", "/.config/opencode/skills",
-		"/.claude/commands", "/.opencode/command", "/.opencode/commands", "/.config/opencode/command", "/.config/opencode/commands",
+	for _, suffix := range []string{"/.claude/commands", "/.opencode/command", "/.opencode/commands", "/.config/opencode/command", "/.config/opencode/commands",
 		"/.claude/agents", "/.opencode/agent", "/.opencode/agents", "/.config/opencode/agent", "/.config/opencode/agents"} {
 		if strings.HasSuffix(d, suffix) {
 			return true

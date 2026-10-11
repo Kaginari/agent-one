@@ -156,7 +156,7 @@ func (w *Workspace) sources() []source {
 		}
 	}
 	add("episodic", "log", filepath.Join(w.Base(), "log.md"), "", "")
-	for _, m := range Skills(w.Root) {
+	for _, m := range Skills(w.Root, w.dir()) {
 		add("procedural", "skill", m.P, m.Name, "")
 	}
 	for _, c := range Commands(w.Root) {
@@ -696,7 +696,7 @@ func (w *Workspace) WorkingNotes() []WorkingNotes {
 		}
 		out = append(out, WorkingNotes{name, owner, n, WorkingNotesLimit, stress, w.Rel(p)})
 	}
-	for _, m := range Skills(w.Root) {
+	for _, m := range Skills(w.Root, w.dir()) {
 		read(m.Name, m.P, nil)
 	}
 	for _, c := range Members(w.Base()) {
@@ -1032,7 +1032,10 @@ type RememberOpts struct {
 	As      string
 	Machine bool
 	Tag     string
-	Kind    string // policy | team | domain
+	Kind    string // policy | team | ownership
+	// Extra fields ride after text, in order (the forge's run and hash); readers that do not
+	// know them skip them.
+	Extra OJ
 }
 
 type RememberResult struct {
@@ -1069,7 +1072,7 @@ func (w *Workspace) Remember(text string, o RememberOpts) (*RememberResult, erro
 		k := o.Kind
 		n.Kind = &k
 	}
-	bytes, err := AppendLine(p, OJ{{"at", n.At}, {"by", n.By}, {"workspace", n.Workspace}, {"tag", n.Tag}, {"kind", n.Kind}, {"text", n.Text}})
+	bytes, err := AppendLine(p, append(OJ{{"at", n.At}, {"by", n.By}, {"workspace", n.Workspace}, {"tag", n.Tag}, {"kind", n.Kind}, {"text", n.Text}}, o.Extra...))
 	if err != nil {
 		return nil, failf("remember crashed: %v", err)
 	}

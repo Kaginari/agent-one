@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"github.com/Kaginari/agent-one/onto"
+	"github.com/Kaginari/agent-one/rank"
 	"github.com/Kaginari/agent-one/tool"
+	"github.com/Kaginari/agent-one/value"
 )
 
 // Rank is one row of the hierarchy — data, not code (binary.md §Ranks and agents). The
@@ -14,7 +16,7 @@ import (
 // the whole table. Ownership, the gate and dispatch read Authors, HoldsGate and Tools; nothing
 // below names coord, domain or zone worker.
 type Rank struct {
-	Name         string   // canonical id: coordinator | domain owner | zone worker | service owner | principal_coordinator | principal_domain_owner | auditor | anything from config
+	Name         string   // canonical id (rank.Canon): coordinator | domain owner | zone worker | service owner | principal-coordinator | principal-domain-owner | auditor | anything from config
 	ReportsTo    string   // the rank one hop up; "orchestrator" at the top
 	Job          string   // one line
 	Authors      bool     // authors changes in its ownership (ownership is enforced on it)
@@ -28,6 +30,14 @@ type Rank struct {
 	Layer        int      // config-declared layer (0 when unset); two ranks share a layer iff equal and nonzero
 	DivineRules  []string // a promoted rank's absolute rules; they reach the base rank as coded rules
 	PromotesWhen string   // the metrics condition under which a body of this rank promotes (ASL); "" = never
+	// The value policy (ranks.md §Value): the family a rank's job is measured as ("" = derived from
+	// its flags), its score expression and meter ("" / zero = the family's), the record below
+	// which an agent's score is low-confidence (0 = the workspace's), and a configured portrait file.
+	Family    string
+	Score     string
+	Meter     value.MeterDef
+	MinRecord int
+	Portrait  string
 }
 
 // Relation names the three coded bonds between two ranks.
@@ -80,17 +90,9 @@ var AllTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy
 
 var baseTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy"}
 
-// The default promotion conditions (config/ranks.go carries the same two strings; a workspace test
-// keeps them equal). Conservative on purpose: an agent promotes only on a long record — twenty
-// reports — nearly all of them landed (a pass rate of 90% or more) and nearly none leaving a
-// hole behind (at most one hole per ten reports). `ranks.principal-coordinator.promotesWhen` and
-// `ranks.principal-domain-owner.promotesWhen` override them; an empty string turns promotion off.
-const (
-	DefaultPromoteCoord  = "promote coord when reports >= 20 && passRate >= 90% && holeRate <= 10%"
-	DefaultPromoteDomain = "promote domain when reports >= 20 && passRate >= 90% && holeRate <= 10%"
-)
-
-// DefaultRanks is the policy's table (AGENT-ONE.md §The workspace), dirs and prefixes from the lexicon.
+// DefaultRanks is the policy's table (AGENT-ONE.md §The workspace), dirs and prefixes from the lexicon. The
+// promoted ranks carry no promotesWhen here: config is the one source of the default conditions
+// (config.DefaultPromoteCoord / DefaultPromoteDomain), so a workspace opened without config never promotes.
 func DefaultRanks(lex Lexicon) []Rank {
 	d := func(r string) string { return lex.Ranks[r] }
 	p := func(r string) string { return lex.Prefixes[r] }
@@ -99,9 +101,9 @@ func DefaultRanks(lex Lexicon) []Rank {
 		{Name: "domain", ReportsTo: "coord", Job: "rules its domain, commands its zone workers, holds the gate — the slice's verify is written before its zone worker is ordered (the gate proves the landing, never after)", HoldsGate: true, Sideways: true, Role: "judge", Tools: AllTools, Dir: d("domain"), Prefix: p("domain")},
 		{Name: "zone", ReportsTo: "domain", Job: "the ground truth of its zone: authors changes there", Authors: true, Role: "analyst", Tools: baseTools, Dir: d("zone"), Prefix: p("zone")},
 		{Name: "service", ReportsTo: Orchestrator, Job: "standing domain lead: owns one subsystem end-to-end across sessions", Authors: true, HoldsGate: true, Role: "judge", Tools: AllTools, Dir: d("service"), Prefix: p("service")},
-		{Name: "principal_coordinator", ReportsTo: Orchestrator, Job: "promoted coordinator: the cross-domain invariants a coordinator consolidated", Role: "drafter", Tools: AllTools, Dir: d("principal_coordinator"), Prefix: p("principal_coordinator"), Base: "coord", PromotesWhen: DefaultPromoteCoord},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Job: "promoted domain owner: the domain invariants a domain owner consolidated", HoldsGate: true, Sideways: true, Role: "judge", Tools: AllTools, Dir: d("principal_domain_owner"), Prefix: p("principal_domain_owner"), Base: "domain", PromotesWhen: DefaultPromoteDomain},
-		{Name: "auditor", ReportsTo: Orchestrator, Job: "the auditor: reviews verdicts and the log, never authors", Role: "judge", Tools: []string{"read", "bash", "glob", "grep", "policy"}, Dir: d("auditor"), Prefix: p("auditor")},
+		{Name: "principal-coordinator", ReportsTo: Orchestrator, Job: "promoted coordinator: the cross-domain invariants a coordinator consolidated", Role: "drafter", Tools: AllTools, Dir: d("principal-coordinator"), Prefix: p("principal-coordinator"), Base: "coord"},
+		{Name: "principal-domain-owner", ReportsTo: "coord", Job: "promoted domain owner: the domain invariants a domain owner consolidated", HoldsGate: true, Sideways: true, Role: "judge", Tools: AllTools, Dir: d("principal-domain-owner"), Prefix: p("principal-domain-owner"), Base: "domain"},
+		{Name: "auditor", ReportsTo: Orchestrator, Job: "the auditor: reviews verdicts and the log, never authors", Role: "judge", Tools: []string{"read", "glob", "grep", "policy"}, Dir: d("auditor"), Prefix: p("auditor")},
 	}
 }
 
@@ -112,7 +114,7 @@ type Ranks []Rank
 // orchestrator holds no role: its calls run on the mount and are journaled with no role label —
 // roles belong to dispatched Subagents and to the binary's own routed calls.
 func (rs Ranks) Get(name string) (Rank, bool) {
-	name = strings.ToLower(strings.TrimSpace(name))
+	name = rank.Canon(name)
 	if name == Orchestrator {
 		return Rank{Name: Orchestrator, Job: "the session: thinks, decides, orders", Tools: []string{"*"}}, true
 	}
@@ -533,4 +535,24 @@ func (rs Ranks) Promotions() []Promotion {
 		}
 	}
 	return out
+}
+
+// Flags are a rank's capabilities as the value policy reads them.
+func (rs Ranks) Flags(name string) rank.Flags {
+	if rank.Canon(name) == Orchestrator {
+		return rank.Flags{Root: true, Commands: true}
+	}
+	r, ok := rs.Get(name)
+	if !ok {
+		return rank.Flags{}
+	}
+	return rank.Flags{Authors: r.Authors, HoldsGate: r.HoldsGate, Commands: rs.Commands(r.Name), ReportsToRoot: r.ReportsTo == Orchestrator, ReadOnly: rank.ReadOnly(rs.Tools(r.Name))}
+}
+
+// FamilyOf is a rank's value family: its own when config named one, else derived from its flags.
+func (rs Ranks) FamilyOf(name string) string {
+	if r, ok := rs.Get(name); ok && r.Family != "" {
+		return r.Family
+	}
+	return rank.FamilyOf(rs.Flags(name))
 }

@@ -56,6 +56,9 @@ type Verdict struct {
 	Reasons []string // why it failed
 	Holes   []string
 	Checked []string // what ran
+	// VerifyRun and VerifyRed count the verify lines the gate ran and those that came back red —
+	// the value ledger's verifyGreenRate reads them.
+	VerifyRun, VerifyRed int
 }
 
 func (v Verdict) String() string {
@@ -223,7 +226,9 @@ func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, 
 				}
 			}
 			for _, cmd := range cmds {
+				v.VerifyRun++
 				if code, tail := w.run(ctx, opt.Sandbox, cmd, opt.Timeout); code != 0 {
+					v.VerifyRed++
 					fail(fmt.Sprintf("%s: %s verify `%s` exit %d%s", w.Lex.Checks[1], n, cmd, code, tail))
 				}
 			}
@@ -331,6 +336,7 @@ func (w *Workspace) EndGate(opt GateOptions) func(ctx context.Context, s *loop.S
 		// the same file-set for the same agent is a spec defect, not an authoring skill —
 		// after breakerAt repeats, the fail text hardens into the only lawful next acts.
 		w.breaker(as, s.Wrote, &v)
+		w.noteGate(as, v, s.Wrote) // the value ledger's fold takes it with the agent's report
 		holes := append([]string(nil), v.Holes...)
 		if opt.Log && opt.Enabled {
 			result := "done"

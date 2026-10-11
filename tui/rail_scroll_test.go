@@ -73,19 +73,32 @@ func TestRailScrollClampsAtContentEnd(t *testing.T) {
 	}
 }
 
-func TestRailScrollEdgeMarkers(t *testing.T) {
+// A sidebar taller than its column holds a scrollbar on its right border: the thumb a heavy
+// line in the primary, lower as the column scrolls down.
+func TestRailScrollbar(t *testing.T) {
 	m := railModel(t)
-	lines := m.railLines()
-	railCol := m.width - m.railVisible()
-	if m.railScroll == 0 {
-		t.Skip("rail content fits pane; no markers expected")
+	m.Update(tea.WindowSizeMsg{Width: m.width, Height: 26})
+	for _, d := range []string{"a", "b", "c", "d", "e", "f"} {
+		m.noteWrite(d+"/file.go", "orchestrator")
 	}
-	// check first row has ▲ when scrolled down
-	firstRail := ""
-	if len(lines) > 0 && len(lines[0]) > railCol {
-		firstRail = ansi.Strip(lines[0][railCol:])
+	thumbAt := func() int {
+		rows := strings.Split(ansi.Strip(m.Render()), "\n")
+		for y := m.lay.rail.Y; y < m.lay.rail.Y+m.lay.rail.H; y++ {
+			if r := []rune(rows[y]); strings.ContainsRune("┃╻", r[len(r)-1]) {
+				return y
+			}
+		}
+		return -1
 	}
-	if !strings.Contains(firstRail, "▲") {
-		t.Errorf("scrolled rail shows ▲ at its top row: %q", firstRail)
+	top := thumbAt()
+	if m.railTotal <= m.lay.rail.H {
+		t.Skip("the sidebar fits its column")
+	}
+	if top != m.lay.rail.Y {
+		t.Fatalf("unscrolled, the thumb starts at row %d, want the column's top %d", top, m.lay.rail.Y)
+	}
+	m.railScroll = 1 << 10 // clamped to the end
+	if low := thumbAt(); low <= top {
+		t.Fatalf("scrolled to the end, the thumb sits at %d (was %d)", low, top)
 	}
 }

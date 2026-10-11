@@ -22,36 +22,110 @@ import (
 // text), the class that burned fj tonight (2026-09-29).
 type Guts struct {
 	Window int // momentum window in steps (default 5)
-	Floor  int // speak when the window's sum ≤ Floor (default -2)
-	// BenchThrashVisits: from this many visits to one bench (the go test / go vet family,
-	// keyed by gutsBenchKey — first command fields, so every `go test -run X` shares one
-	// bench), each further hit costs. The 2026-10-09 audit shape: 63 red benches on one
-	// seat-fix, edits interleaved — the red pin scored every visit neutral and the echo
-	// penalty's no-write gate never fired, so the thrash was invisible to every guard.
-	// The red pin keeps the first visits neutral (TDD's signal); past the threshold the
-	// visits are a check-loop, not development. Default 6; negative = off.
+	// Floor: speak when the window's sum ≤ Floor. Any value ≤ 0 is honoured when FloorExact is
+	// set (config's policy.guts.floor always is); a bare Guts{} reads -2.
+	Floor      int
+	FloorExact bool
+	// BenchThrashVisits: from this many visits to one bench (keyed by gutsBenchKey — first
+	// command fields, so every `go test -run X` shares one bench), each further hit costs. The
+	// 2026-10-09 audit shape: 63 red benches on one seat-fix, edits interleaved — the red pin
+	// scored every visit neutral and the echo penalty's no-write gate never fired, so the thrash
+	// was invisible to every guard. The red pin keeps the first visits neutral (TDD's signal);
+	// past the threshold the visits are a check-loop, not development. Default 6; negative = off.
 	BenchThrashVisits int
 	// DigestEvery: every N steps the next tool result carries a one-line run-so-far digest
 	// (the pulse line the prompt promises). Informational, never a verdict. Default 10;
 	// zero or negative = off.
 	DigestEvery int
+	// Benches are the test workbenches the gut knows, language-neutral (policy.guts.benches); nil =
+	// DefaultBenches. A bench is what the red pin and the thrash arm read.
+	Benches []Bench
+	// Negative and Positive are the output lexemes (policy.guts.lexemes); nil = the defaults.
+	Negative, Positive []string
+	// Weights price each reading (policy.guts.weights); nil = DefaultWeights.
+	Weights *GutsWeights
+	// ClampMin and ClampMax bound one act's lexeme reading (policy.guts.clamp); both zero = -2..+1.
+	ClampMin, ClampMax int
+	// Ring is how many recent workbenches the echo penalty remembers (policy.guts.ring); 0 = 12.
+	Ring int
 }
 
-func (i Guts) window() int {
-	if i.Window > 0 {
+// Bench is one test workbench: a command that carries any Match substring, run through a shell
+// tool, reads red when its output carries a Red lexeme (or the act failed) and green on a Green
+// lexeme; neither is muted.
+type Bench struct {
+	Name  string   `json:"name"`
+	Match []string `json:"match"`
+	Red   []string `json:"red"`
+	Green []string `json:"green"`
+}
+
+// DefaultBenches are the shipped workbenches — Go's as the gut always read it, then pytest,
+// the JS runners, cargo and make.
+func DefaultBenches() []Bench {
+	return []Bench{
+		{Name: "go", Match: []string{"go test", "go vet"}, Red: []string{"FAIL"}, Green: []string{"ok  ", " PASSED", "tests passed"}},
+		{Name: "pytest", Match: []string{"pytest"}, Red: []string{"FAILED", " failed", "ERROR"}, Green: []string{" passed"}},
+		{Name: "js", Match: []string{"npm test", "npm run test", "yarn test", "pnpm test", "npx jest", "npx vitest"}, Red: []string{"FAIL", "failing", "✗"}, Green: []string{"passing", "PASS"}},
+		{Name: "cargo", Match: []string{"cargo test"}, Red: []string{"FAILED", "panicked"}, Green: []string{"test result: ok"}},
+		{Name: "make", Match: []string{"make test", "make check"}, Red: []string{"FAIL", "Error "}, Green: []string{"PASS", "ok  "}},
+	}
+}
+
+// GutsWeights price one reading of each class; a cost is negative.
+type GutsWeights struct {
+	Fail     int `json:"fail"`     // the act failed
+	Negative int `json:"negative"` // the output reads like failure (a negative lexeme)
+	Positive int `json:"positive"` // a clean positive sighting
+	Repeat   int `json:"repeat"`   // the same act twice
+	Echo     int `json:"echo"`     // the same bench re-run with no write since
+	Thrash   int `json:"thrash"`   // a bench past its visit threshold
+}
+
+// DefaultWeights is the gut as it always priced.
+func DefaultWeights() GutsWeights {
+	return GutsWeights{Fail: -1, Negative: -1, Positive: 1, Repeat: -1, Echo: -1, Thrash: -1}
+}
+
+// DefaultNegative and DefaultPositive are the shipped output lexemes.
+func DefaultNegative() []string {
+	return []string{"FAILED", "AssertionError", "Traceback (most recent", "panic:", "No such file or directory", "command not found"}
+}
+func DefaultPositive() []string { return []string{" PASSED", "tests passed", "passed,"} }
+
+// The guts' class codes: a stable name per reading kind, so lessons group by class, never by a
+// why that embeds its counts.
+const (
+	ClassFail     = "fail"
+	ClassNegative = "neg-lexeme"
+	ClassRepeat   = "repeat"
+	ClassEcho     = "echo"
+	ClassThrash   = "thrash"
+	ClassRedPin   = "red-pin"
+	ClassPositive = "positive"
+)
+
+func (i *Guts) window() int {
+	if i != nil && i.Window > 0 {
 		return i.Window
 	}
 	return 5
 }
-func (i Guts) floor() int {
-	if i.Floor < 0 {
+func (i *Guts) floor() int {
+	if i == nil {
+		return -2
+	}
+	if i.Floor < 0 || i.FloorExact && i.Floor == 0 {
 		return i.Floor
 	}
 	return -2
 }
 
 // thrash is the bench-visit threshold; < 0 = the arm is off.
-func (i Guts) thrash() int {
+func (i *Guts) thrash() int {
+	if i == nil {
+		return 6
+	}
 	if i.BenchThrashVisits > 0 {
 		return i.BenchThrashVisits
 	}
@@ -62,7 +136,10 @@ func (i Guts) thrash() int {
 }
 
 // digestEvery is the digest cadence; zero takes 10, negative = off.
-func (i Guts) digestEvery() int {
+func (i *Guts) digestEvery() int {
+	if i == nil {
+		return 10
+	}
 	if i.DigestEvery > 0 {
 		return i.DigestEvery
 	}
@@ -72,6 +149,48 @@ func (i Guts) digestEvery() int {
 	return 10
 }
 
+func (i *Guts) benches() []Bench {
+	if i != nil && i.Benches != nil {
+		return i.Benches
+	}
+	return DefaultBenches()
+}
+
+func (i *Guts) weights() GutsWeights {
+	if i != nil && i.Weights != nil {
+		return *i.Weights
+	}
+	return DefaultWeights()
+}
+
+func (i *Guts) negative() []string {
+	if i != nil && i.Negative != nil {
+		return i.Negative
+	}
+	return DefaultNegative()
+}
+
+func (i *Guts) positive() []string {
+	if i != nil && i.Positive != nil {
+		return i.Positive
+	}
+	return DefaultPositive()
+}
+
+func (i *Guts) clamp() (int, int) {
+	if i != nil && (i.ClampMin != 0 || i.ClampMax != 0) {
+		return i.ClampMin, i.ClampMax
+	}
+	return -2, 1
+}
+
+func (i *Guts) ring() int {
+	if i != nil && i.Ring > 0 {
+		return i.Ring
+	}
+	return 12
+}
+
 // benchHit is one bench's visit tally: how many times the agent struck this workbench and how
 // the visits read. Muted is the pipe class — `go test … | grep …` loses its exit status and
 // its FAIL text, so the outcome is unknowable; it counts as a visit, never as good news.
@@ -79,81 +198,119 @@ type benchHit struct {
 	visits, red, green, muted int
 }
 
-// gutsBenchCall reports whether the act is a test bench (go test / go vet through a shell
-// tool) and whether the command pipes its output away (exit status + FAIL text lost).
-func gutsBenchCall(call provider.ToolCall) (bench, piped bool) {
+// benchOf reports which workbench the act strikes (nil when none — a bench rides a shell tool)
+// and whether the command pipes its output away (exit status and red text lost).
+func (i *Guts) benchOf(call provider.ToolCall) (*Bench, bool) {
 	benchTool := call.Name == "bash" || call.Name == "shell" || call.Name == "exec" || call.Name == "shell.exec"
-	in := string(call.Input)
-	if !benchTool || !(strings.Contains(in, `go test`) || strings.Contains(in, `go vet`)) {
-		return false, false
+	if !benchTool {
+		return nil, false
 	}
-	return true, strings.Contains(strings.ReplaceAll(in, "||", "\x00"), `|`)
+	in := string(call.Input)
+	for _, b := range i.benches() {
+		for _, m := range b.Match {
+			if m != "" && commandAt(in, m) {
+				bb := b
+				return &bb, strings.Contains(strings.ReplaceAll(in, "||", "\x00"), `|`)
+			}
+		}
+	}
+	return nil, false
 }
 
-// gutsBenchOutcome reads one bench visit: red beats green beats muted — a bench that failed
-// (error result or FAIL text) is red even when piped; a piped bench that cannot show its
-// face is muted, never green.
-func gutsBenchOutcome(res tool.Result) (red, green bool) {
-	if res.Err || strings.Contains(res.Output, `FAIL`) {
+// commandAt reports whether m opens a command word in s: at the start, or after a space, a quote,
+// a paren or a shell separator — `cargo test` never reads as `go test`.
+func commandAt(s, m string) bool {
+	for i := 0; i+len(m) <= len(s); {
+		j := strings.Index(s[i:], m)
+		if j < 0 {
+			return false
+		}
+		at := i + j
+		if at == 0 || strings.ContainsRune(" \t\n\"'(;&|`", rune(s[at-1])) {
+			return true
+		}
+		i = at + 1
+	}
+	return false
+}
+
+// isBench reports whether the act is a bench and whether it is piped.
+func (i *Guts) isBench(call provider.ToolCall) (bench, piped bool) {
+	b, p := i.benchOf(call)
+	return b != nil, p
+}
+
+// benchOutcome reads one bench visit: red beats green beats muted — a bench that failed (error
+// result or a red lexeme) is red even when piped; a piped bench that cannot show its face is
+// muted, never green. A nil bench reads as the first configured one.
+func (i *Guts) benchOutcome(b *Bench, res tool.Result) (red, green bool) {
+	if b == nil {
+		bs := i.benches()
+		if len(bs) == 0 {
+			return res.Err, false
+		}
+		b = &bs[0]
+	}
+	if res.Err || containsAny(res.Output, b.Red) {
 		return true, false
 	}
-	if strings.Contains(res.Output, "ok  ") || strings.Contains(res.Output, " PASSED") || strings.Contains(res.Output, "tests passed") {
+	if containsAny(res.Output, b.Green) {
 		return false, true
 	}
 	return false, false
 }
 
-var gutsNegative = []string{"FAILED", "AssertionError", "Traceback (most recent", "panic:", "No such file or directory", "command not found"}
-var gutsPositive = []string{" PASSED", "tests passed", "passed,"}
+func containsAny(s string, words []string) bool {
+	for _, w := range words {
+		if w != "" && strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
+}
 
-// gutsValue scores one act: failed result −1; negative lexemes in the output −1 even when the
-// exit read ok; clean positive sighting +1; the same act rerun unchanged −1. Clamped to [-2, +1].
-func gutsValue(st *StepRecord, call provider.ToolCall, res tool.Result, prevKey string) (int, string) {
+// value scores one act: a failed result, a negative lexeme in the output even when the exit read
+// ok, a clean positive sighting, the same act rerun unchanged — each priced by the weights, the
+// sum clamped. It answers the reading, its why and its class codes.
+func (i *Guts) value(st *StepRecord, call provider.ToolCall, res tool.Result, prevKey string) (int, string, []string) {
+	w := i.weights()
 	v := 0
-	var why []string
+	var why, classes []string
 	if res.Err {
-		v--
+		v += w.Fail
 		why = append(why, "the act failed")
+		classes = append(classes, ClassFail)
 	} else {
-		// Red pin: a test bench (go test / go vet) whose output carries FAIL is TDD's
-		// signal, not thrash — score NEUTRAL with the red-pin why, never the lexicon's
-		// «output reads like failure». Ok-exit/FAILED-text red run; a non-zero-exit
-		// bench keeps «the act failed» above (res.Err untouched). The early visits stay
-		// neutral; the thrash arm in gutsNote prices the visits past the threshold.
-		if bench, _ := gutsBenchCall(call); bench && strings.Contains(res.Output, `FAIL`) {
-			return 0, "red pin — failure is the signal"
+		// Red pin: a test bench whose output carries a red lexeme is TDD's signal, not thrash —
+		// score NEUTRAL with the red-pin why, never the lexicon's «output reads like failure».
+		// A non-zero-exit bench keeps «the act failed» above (res.Err untouched). The early
+		// visits stay neutral; the thrash arm in gutsNote prices the visits past the threshold.
+		if b, _ := i.benchOf(call); b != nil && containsAny(res.Output, b.Red) {
+			return 0, "red pin — failure is the signal", []string{ClassRedPin}
 		}
-		neg := false
-		for _, w := range gutsNegative {
-			if strings.Contains(res.Output, w) {
-				neg = true
-				break
-			}
-		}
-		if neg {
-			v--
+		if containsAny(res.Output, i.negative()) {
+			v += w.Negative
 			why = append(why, "the output reads like failure")
-		} else {
-			for _, w := range gutsPositive {
-				if strings.Contains(res.Output, w) {
-					v++
-					break
-				}
-			}
+			classes = append(classes, ClassNegative)
+		} else if containsAny(res.Output, i.positive()) {
+			v += w.Positive
+			classes = append(classes, ClassPositive)
 		}
 	}
 	key := string(call.Input)
 	if prevKey != "" && prevKey == st.Tool+"\x00"+key {
-		v--
+		v += w.Repeat
 		why = append(why, "the same act twice")
+		classes = append(classes, ClassRepeat)
 	}
-	if v < -2 {
-		v = -2
+	lo, hi := i.clamp()
+	if v < lo {
+		v = lo
 	}
-	if v > 1 {
-		v = 1
+	if v > hi {
+		v = hi
 	}
-	return v, strings.Join(why, "; ")
+	return v, strings.Join(why, "; "), classes
 }
 
 // gutsBenchKey is the act's workbench identity: the tool plus the command's head — two bash calls
@@ -185,15 +342,16 @@ func (s *Session) gutsNote(st *StepRecord, call provider.ToolCall, res tool.Resu
 		return ""
 	}
 	key := st.Tool + "\x00" + string(call.Input)
-	v, why := gutsValue(st, call, res, s.gutsPrevKey)
+	v, why, classes := i.value(st, call, res, s.gutsPrevKey)
 	s.gutsPrevKey = key
+	w := i.weights()
 	// bench tally: the visit record the thrash arm and the pulse digest read. Every bench
 	// visit counts, writes or not — the debug rhythm's edit-test loop is lawful a few
 	// times; a dozen hits on one bench with no green is a loop no matter what sits
 	// between the hits (the 2026-10-09 audit: the echo penalty's no-write gate never saw
 	// the thrash because every test run had an edit before it).
 	var hit *benchHit
-	if bench, piped := gutsBenchCall(call); bench {
+	if bench, piped := i.benchOf(call); bench != nil {
 		if s.gutsBenchHits == nil {
 			s.gutsBenchHits = map[string]*benchHit{}
 		}
@@ -204,7 +362,7 @@ func (s *Session) gutsNote(st *StepRecord, call provider.ToolCall, res tool.Resu
 			s.gutsBenchHits[k] = hit
 		}
 		hit.visits++
-		if red, green := gutsBenchOutcome(res); red {
+		if red, green := i.benchOutcome(bench, res); red {
 			hit.red++
 		} else if green {
 			hit.green++
@@ -229,25 +387,28 @@ func (s *Session) gutsNote(st *StepRecord, call provider.ToolCall, res tool.Resu
 		lastWrote = s.gutsBenchWrot[bench]
 	}
 	if visited >= 2 && !res.Err && lastWrote >= 0 && lastWrote == s.wroteTot && (st.Tool == "bash" || st.Tool == "read") && !strings.Contains(why, "the same act twice") {
-		v--
+		v += w.Echo
 		if why != "" {
 			why += "; "
 		}
 		why += "the same bench re-run — a closer look is not new evidence"
+		classes = append(classes, ClassEcho)
 	}
 	if s.gutsBenchWrot == nil {
 		s.gutsBenchWrot = map[string]int{}
 	}
 	s.gutsBenchWrot[bench] = s.wroteTot
 	s.gutsBench = append(s.gutsBench, bench)
-	if len(s.gutsBench) > 12 {
-		s.gutsBench = s.gutsBench[len(s.gutsBench)-12:]
+	if ring := i.ring(); len(s.gutsBench) > ring {
+		s.gutsBench = s.gutsBench[len(s.gutsBench)-ring:]
 	}
 	// bench thrash: past the visit threshold every further hit on the same bench costs —
 	// the red pin keeps the early visits neutral (TDD's signal); a bench struck this many
 	// times is a check-loop, not development. Independent of the echo penalty's write gate.
 	if thr := i.thrash(); hit != nil && thr > 0 && hit.visits >= thr {
-		v--
+		v += w.Thrash
+		s.gutsThrash++
+		classes = append(classes, ClassThrash)
 		if why != "" {
 			why += "; "
 		}
@@ -263,7 +424,13 @@ func (s *Session) gutsNote(st *StepRecord, call provider.ToolCall, res tool.Resu
 		m += x
 	}
 	spoke := m <= i.floor() && s.Steps-s.gutsLastSpoke >= i.window()
-	s.Journal.Log(Event{"t": "guts", "id": st.ID, "v": v, "momentum": m, "why": why, "spoke": spoke})
+	s.gutsMomentum = m
+	s.gutsReads++
+	ev := Event{"t": "guts", "id": st.ID, "v": v, "momentum": m, "why": why, "spoke": spoke}
+	if len(classes) > 0 {
+		ev["class"], ev["classes"] = classes[0], classes
+	}
+	s.Journal.Log(ev)
 	if m > i.floor() {
 		s.gutsSpoke = 0 // a window above the floor counts as recovery — streak resets
 	}

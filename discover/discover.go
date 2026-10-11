@@ -18,6 +18,7 @@ import (
 type Options struct {
 	Root         string
 	Home         string
+	WorkspaceDir string // the distribution's workspace dir: its crafted-skills and base-skills lead the skill homes
 	Instructions bool
 	Skills       bool
 	Commands     bool
@@ -217,56 +218,146 @@ type dirSource struct {
 	dir, source string
 }
 
+// SkillBases is the one list of a project's skill homes, root-relative, in precedence order:
+// the workspace's crafted skills (registered by the forge), its base skills, then the hosts' project
+// dirs (Claude Code, then OpenCode). Every reader — Found, the toolbox, the ontology, memory —
+// walks this list, so a skill is the same skill wherever it is asked about. workspaceDir is the
+// distribution's workspace dir (".agent-one" for agent-one); "" leaves the workspace's own homes out.
+func SkillBases(workspaceDir string) []string {
+	var out []string
+	for _, b := range skillBases(workspaceDir, nil) {
+		out = append(out, b.dir)
+	}
+	return out
+}
+
+// GlobalSkillBases are the hosts' machine-wide skill homes, home-relative, after every project
+// home in precedence.
+func GlobalSkillBases() []string {
+	return []string{".claude/skills", ".config/opencode/skills", ".config/opencode/skill"}
+}
+
+func skillBases(workspaceDir string, src *Sources) []dirSource {
+	var ds []dirSource
+	if workspaceDir != "" {
+		ds = append(ds, dirSource{workspaceDir + "/crafted-skills", "crafted"}, dirSource{workspaceDir + "/base-skills", "base"})
+	}
+	if src == nil || on(src.Claude) {
+		ds = append(ds, dirSource{".claude/skills", "claude"})
+	}
+	if src == nil || on(src.OpenCode) {
+		ds = append(ds, dirSource{".opencode/skills", "opencode"}, dirSource{".opencode/skill", "opencode"}, dirSource{".agents/skills", "opencode"})
+	}
+	return ds
+}
+
+// skillDirs is SkillBases under the root, then the global homes under home: crafted > base >
+// project host > global host. (The builtin skills the binary ships come last, in the caller.)
 func (o Options) skillDirs() []dirSource {
 	var ds []dirSource
 	root, home := o.root(), o.home()
-	if on(o.Sources.Claude) {
-		ds = append(ds, dirSource{filepath.Join(root, ".claude", "skills"), "claude"})
-	}
-	if on(o.Sources.OpenCode) {
-		ds = append(ds, dirSource{filepath.Join(root, ".opencode", "skill"), "opencode"}, dirSource{filepath.Join(root, ".opencode", "skills"), "opencode"}, dirSource{filepath.Join(root, ".agents", "skills"), "opencode"})
+	for _, b := range skillBases(o.WorkspaceDir, &o.Sources) {
+		ds = append(ds, dirSource{filepath.Join(root, filepath.FromSlash(b.dir)), b.source})
 	}
 	if home != "" {
 		if on(o.Sources.Claude) {
 			ds = append(ds, dirSource{filepath.Join(home, ".claude", "skills"), "claude-global"})
 		}
 		if on(o.Sources.OpenCode) {
-			ds = append(ds, dirSource{filepath.Join(home, ".config", "opencode", "skill"), "opencode-global"}, dirSource{filepath.Join(home, ".config", "opencode", "skills"), "opencode-global"})
+			ds = append(ds, dirSource{filepath.Join(home, ".config", "opencode", "skills"), "opencode-global"}, dirSource{filepath.Join(home, ".config", "opencode", "skill"), "opencode-global"})
 		}
 	}
 	return ds
 }
 
-// Skills lists every <dir>/<name>/SKILL.md; the first name found wins (project before global).
+// SkillSources are the source labels of SkillDirs, index for index.
+func SkillSources(o Options) []string {
+	var out []string
+	for _, ds := range o.skillDirs() {
+		out = append(out, ds.source)
+	}
+	return out
+}
+
+// SkillDirs are the absolute dirs Skills reads, in precedence order.
+func (o Options) SkillDirs() []string {
+	var out []string
+	for _, ds := range o.skillDirs() {
+		out = append(out, ds.dir)
+	}
+	return out
+}
+
+// Skills lists every <dir>/<name>/SKILL.md; the first name found wins (SkillBases' precedence,
+// then the global homes).
 func Skills(opt Options) []Skill {
-	seen := map[string]bool{}
-	var out []Skill
+	out, _ := SkillsIndexed(opt)
+	return out
+}
+
+// SkillsIndexed is Skills plus its holes: a name found in two homes is never a silent shadow —
+// the winner stands by precedence and the hole names both paths.
+func SkillsIndexed(opt Options) ([]Skill, []string) {
+	idx := NewSkillIndex()
 	for _, ds := range opt.skillDirs() {
-		entries, err := os.ReadDir(ds.dir)
-		if err != nil {
+		idx.ReadDir(ds.dir, ds.source)
+	}
+	return idx.Skills(), idx.Holes
+}
+
+// SkillIndex gathers skills from dirs in precedence order: the first home of a name wins, a
+// later home of the same name is a hole naming both.
+type SkillIndex struct {
+	byName map[string]int
+	out    []Skill
+	Holes  []string
+}
+
+func NewSkillIndex() *SkillIndex { return &SkillIndex{byName: map[string]int{}} }
+
+// Has reports whether a name is already indexed.
+func (x *SkillIndex) Has(name string) bool { _, ok := x.byName[name]; return ok }
+
+// Add indexes one skill; a second home of the same name becomes a hole (a builtin of the same
+// name yields silently: the workspace's own Skill holds over the binary's).
+func (x *SkillIndex) Add(s Skill) {
+	if i, ok := x.byName[s.Name]; ok {
+		if s.Source != "builtin" && x.out[i].Path != s.Path {
+			x.Holes = append(x.Holes, fmt.Sprintf("skill %q has two homes: %s wins over %s — rename one, or remove the copy", s.Name, x.out[i].Path, s.Path))
+		}
+		return
+	}
+	x.byName[s.Name] = len(x.out)
+	x.out = append(x.out, s)
+}
+
+// ReadDir indexes every <dir>/<name>/SKILL.md under one home.
+func (x *SkillIndex) ReadDir(dir, source string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() && e.Type()&os.ModeSymlink == 0 {
 			continue
 		}
-		for _, e := range entries {
-			if !e.IsDir() && e.Type()&os.ModeSymlink == 0 {
-				continue
-			}
-			p := filepath.Join(ds.dir, e.Name(), "SKILL.md")
-			data, err := os.ReadFile(p)
-			if err != nil || Foreign(ds.source, string(data)) {
-				continue
-			}
-			fm, _ := Frontmatter(string(data))
-			name := fm["name"]
-			if name == "" {
-				name = e.Name()
-			}
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			out = append(out, Skill{Name: name, Description: fm["description"], Path: p, Dir: filepath.Join(ds.dir, e.Name()), Source: ds.source, Frontmatter: fm})
+		p := filepath.Join(dir, e.Name(), "SKILL.md")
+		data, err := os.ReadFile(p)
+		if err != nil || Foreign(source, string(data)) {
+			continue // a machine-wide skill written for the convention this one was forked from is not this workspace's
 		}
+		fm, _ := Frontmatter(string(data))
+		name := fm["name"]
+		if name == "" {
+			name = e.Name()
+		}
+		x.Add(Skill{Name: name, Description: fm["description"], Path: p, Dir: filepath.Join(dir, e.Name()), Source: source, Frontmatter: fm})
 	}
+}
+
+// Skills is the index sorted by name.
+func (x *SkillIndex) Skills() []Skill {
+	out := append([]Skill(nil), x.out...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Kaginari/agent-one/board"
 	"github.com/Kaginari/agent-one/config"
+	"github.com/Kaginari/agent-one/workspace"
 )
 
 // boardOptions feeds the board what files cannot know (board/README.md §Feeds): the live
@@ -60,6 +61,8 @@ func (a *App) boardOptions() board.Options {
 		Session: func() board.Session {
 			return board.Session{ID: a.SessionID, Model: a.mountModel.Ref.Model, Provider: a.mountModel.Provider, Started: a.started, State: a.sessionState()}
 		},
+		Value: a.valueView,
+		Ranks: a.rankMetas,
 	}
 	names["bin"] = a.Cfg.Dist.Name
 	return board.Options{WorkspaceRoot: a.Root, WorkspaceDir: a.Cfg.Dist.WorkspaceDir, Layout: a.Workspace.Ranks.Layout(a.Lex), Names: names, Sources: src, Live: a.webBus()}
@@ -264,4 +267,41 @@ func (a *App) boardToken(ctx context.Context) string {
 		}
 	}
 	return b.Token()
+}
+
+// valueView is the value ledger as the board reads it, folded at most once a second however
+// many surfaces ask (the team, the subagent rows, /api/value).
+func (a *App) valueView() *board.ValueView {
+	a.valueMu.Lock()
+	defer a.valueMu.Unlock()
+	if a.valueAt.IsZero() || time.Since(a.valueAt) > time.Second {
+		a.valueMemo = a.foldValueView()
+		a.valueAt = time.Now()
+	}
+	return a.valueMemo
+}
+
+func (a *App) foldValueView() *board.ValueView {
+	cfg := a.liveConfig()
+	meters, _ := cfg.Meters()
+	v := &board.ValueView{Lit: cfg.Policy.Value.Enabled, Window: cfg.ValueWindow(), Def: cfg.ValueDef(), Meters: meters, Agents: map[string]board.NodeValue{}}
+	if !v.Lit {
+		v.Why = "policy.value is off (" + cfg.Where("policy.value.enabled") + ")"
+		return v
+	}
+	rep := a.Workspace.ValueReport()
+	v.Report = rep
+	for _, bv := range rep.Agents {
+		v.Agents[bv.Agent] = board.NodeValue{Score: bv.Score, Confidence: bv.Confidence, Band: bv.Meter.Band, Meter: bv.Meter, Family: bv.Family, Strain: bv.Strain, Reports: int(bv.Signals["reports"])}
+	}
+	return v
+}
+
+// rankMetas are every rank's family and configured portrait, the orchestrator's included.
+func (a *App) rankMetas() []board.RankMeta {
+	out := []board.RankMeta{{Rank: workspace.Orchestrator, Family: a.Workspace.Ranks.FamilyOf(workspace.Orchestrator), Label: a.Lex.Session}}
+	for _, r := range a.Workspace.Ranks {
+		out = append(out, board.RankMeta{Rank: r.Name, Family: a.Workspace.Ranks.FamilyOf(r.Name), Portrait: r.Portrait, Label: a.Lex.Display[r.Name]})
+	}
+	return out
 }

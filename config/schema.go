@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/Kaginari/agent-one/value"
 	"strconv"
 	"strings"
 	"time"
@@ -152,6 +153,9 @@ type UI struct {
 	StatusLine        bool    `json:"statusLine"`
 	AnnounceSubagents bool    `json:"announceSubagents"`
 	Board             BoardUI `json:"board"`
+	// Meters are the session's own meters (ctx, plan); ctx unset derives its bands from
+	// policy.budget (value.CtxMeter), plan unset is value.PlanMeter.
+	Meters map[string]*value.MeterDef `json:"meters"`
 }
 
 // BoardUI is ui.board: the board the binary serves on 127.0.0.1.
@@ -252,6 +256,17 @@ type CustomTool struct {
 	Sandbox     string            `json:"sandbox"` // inherit | bwrap | none
 	Override    bool              `json:"override"`
 	Profiles    []string          `json:"profiles"`
+	// Crafted is a registered tool's provenance (the forge writes it; a hand-declared tool has none).
+	Crafted *Crafted `json:"crafted"`
+}
+
+// Crafted names where a registered tool came from: the drafting agent, its run, the register's time and
+// the draft's content hash in the forge ledger.
+type Crafted struct {
+	By    string `json:"by"`
+	Run   string `json:"run"`
+	At    string `json:"at"`
+	Draft string `json:"draft"`
 }
 
 // Param is one flat JSON-schema property of a custom tool.
@@ -293,9 +308,39 @@ type Policy struct {
 	// ClosingCheck: the loop re-asks once, at closing time, when enabled — "is the daemon's ask
 	// applied end-to-end?" — for the headless/bench path where nobody sits at the keyboard.
 	ClosingCheck Feature `json:"closingCheck"`
+	// Forge: the crystallization question. A run of at least DemandAtSteps steps is asked once,
+	// at its close, to name a @FORGE draft or say the path was one-off — whether or not the
+	// closing check is on. 0 switches it off.
+	Forge ForgePolicy `json:"forge"`
 	// Guts: the loop's per-step value sense (default on): scored acts, windowed momentum, a nudge
 	// inside the tool result when the run slides past floor. The journal trains on every reading.
 	Guts GutsCfg `json:"guts"`
+	// Value: the one definition of success every surface reads (the ASL fold, the council, the
+	// leaderboard, the guts' end-of-run), the ledger's window, and the families' value policies.
+	Value ValuePolicy `json:"value"`
+}
+
+// ValuePolicy is policy.value (ranks.md §Value): which run words pass, fail or stay neutral; the
+// window the value ledger folds over; how many orchestrator turns a rewrite of the same paths reopens
+// a pass; the record below which a score is low-confidence; each family's default value policy
+// (unset = the binary's, value.FamilyDefault).
+type ValuePolicy struct {
+	Enabled     bool                  `json:"enabled"`
+	Window      string                `json:"window"`
+	Pass        []string              `json:"pass"`
+	Fail        []string              `json:"fail"`
+	Neutral     []string              `json:"neutral"`
+	ReopenTurns int                   `json:"reopenTurns"`
+	MinRecord   int                   `json:"minRecord"`
+	Families    map[string]*RankValue `json:"families"`
+}
+
+// RankValue is a rank's (or a family's) value policy as config writes it: a score expression over
+// signals (value.Expr, clamped 0..100), the meter a surface draws, and the minimum record.
+type RankValue struct {
+	Score     string          `json:"score"`
+	Meter     *value.MeterDef `json:"meter"`
+	MinRecord int             `json:"minRecord"`
 }
 
 // GutsCfg tunes the loop's guts: what window the momentum reads, the floor past which they
@@ -305,9 +350,52 @@ type Policy struct {
 type GutsCfg struct {
 	Enabled           bool `json:"enabled"`
 	Window            int  `json:"window"`
-	Floor             int  `json:"floor"`
+	Floor             int  `json:"floor"`             // ≤ 0; a positive floor is refused at load
 	BenchThrashVisits int  `json:"benchThrashVisits"` // < 0 = the thrash arm is off
 	DigestEvery       int  `json:"digestEvery"`       // 0 or < 0 = no digest line
+	// Benches are the test workbenches, language-neutral: a command carrying any match string
+	// is a bench; red lexemes pin it red, green ones green. Unset = the loop's (go, pytest, the
+	// JS runners, cargo, make).
+	Benches []GutsBench `json:"benches"`
+	// Lexemes are the output words read as failure (negative) or a clean sighting (positive).
+	Lexemes GutsLexemes `json:"lexemes"`
+	// Weights price each reading class; unset = fail -1, negative -1, positive +1, repeat -1,
+	// echo -1, thrash -1.
+	Weights *GutsWeights `json:"weights"`
+	// Clamp bounds one act's lexeme reading; unset = -2..+1.
+	Clamp *GutsClamp `json:"clamp"`
+	// Ring is how many recent workbenches the echo penalty remembers; 0 = 12.
+	Ring int `json:"ring"`
+}
+
+// GutsBench is one test workbench.
+type GutsBench struct {
+	Name  string   `json:"name"`
+	Match []string `json:"match"`
+	Red   []string `json:"red"`
+	Green []string `json:"green"`
+}
+
+// GutsLexemes are the output lexemes; an unset list keeps the loop's.
+type GutsLexemes struct {
+	Negative []string `json:"negative"`
+	Positive []string `json:"positive"`
+}
+
+// GutsWeights price one reading of each class.
+type GutsWeights struct {
+	Fail     int `json:"fail"`
+	Negative int `json:"negative"`
+	Positive int `json:"positive"`
+	Repeat   int `json:"repeat"`
+	Echo     int `json:"echo"`
+	Thrash   int `json:"thrash"`
+}
+
+// GutsClamp bounds one act's reading.
+type GutsClamp struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
 }
 
 // Stress is the council: at what strain-ledger reading a dispatched agent draws a warrant that
@@ -320,6 +408,10 @@ type GutsCfg struct {
 // young ones, retires a narrower one (the seat keeps its graph memory but claims no soil).
 // Configuration shifts are not on this path: the doomLoop ladder names those arms on the wire, and
 // a lane's DNA moves on the human's or a manager's word — never silently here.
+type ForgePolicy struct {
+	DemandAtSteps int `json:"demandAtSteps"`
+}
+
 type Stress struct {
 	EscalateAt  int `json:"escalateAt"`
 	MaxConsults int `json:"maxConsults"`

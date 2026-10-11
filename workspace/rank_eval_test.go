@@ -51,11 +51,11 @@ func TestASLEval(t *testing.T) {
 		m    Metrics
 		want bool
 	}{
-		{Metrics{Reports: 4, Passes: 4}, true},  // 4 reports, all pass → 100%
-		{Metrics{Reports: 4, Passes: 3}, true},  // 75% exactly
-		{Metrics{Reports: 4, Passes: 2}, false}, // 50%
-		{Metrics{Reports: 3, Passes: 3}, false}, // too few reports
-		{Metrics{Reports: 0}, false},            // no record → rates read zero
+		{Tally(4, 4, 0, 0), true},  // 4 reports, all pass → 100%
+		{Tally(4, 3, 0, 0), true},  // 75% exactly
+		{Tally(4, 2, 0, 0), false}, // 50%
+		{Tally(3, 3, 0, 0), false}, // too few reports
+		{Tally(0, 0, 0, 0), false}, // no record → rates read zero
 	}
 	for i, c := range cases {
 		if got := as.Cond.Eval(c.m); got != c.want {
@@ -71,34 +71,32 @@ func TestASLBooleanPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	// reports 50 with bad failRate crosses on the high-report lane
-	if !as.Cond.Eval(Metrics{Reports: 50, Passes: 20, Fails: 30}) {
+	if !as.Cond.Eval(Tally(50, 20, 30, 0)) {
 		t.Fatal("the || lane must fire on a high report count")
 	}
 	// reports 10 clean crosses the && lane
-	if !as.Cond.Eval(Metrics{Reports: 10, Passes: 10}) {
+	if !as.Cond.Eval(Tally(10, 10, 0, 0)) {
 		t.Fatal("the && lane must fire on a clean record")
 	}
 	// reports 10 with a failure does not
-	if as.Cond.Eval(Metrics{Reports: 10, Passes: 9, Fails: 1}) {
+	if as.Cond.Eval(Tally(10, 9, 1, 0)) {
 		t.Fatal("failRate <= 5% with 1/10 a failure must not cross")
 	}
 }
 
-func TestMetricsStoreFoldsStatus(t *testing.T) {
-	s := NewMetricsStore()
-	s.Fold("domain-a", "PASS", 0)
-	s.Fold("domain-a", "DONE", 1)
-	s.Fold("domain-a", "FAIL", 2)
-	s.Fold("zone-x", "PASS", 0)
-	m := s.Metrics("domain-a")
-	if m.Reports != 3 || m.Passes != 2 || m.Fails != 1 || m.Holes != 3 {
+func TestFoldMetricsFoldsStatus(t *testing.T) {
+	root := promoteWorkspace(t)
+	w := openWorkspaceRanks(t, root, Ranks(DefaultRanks(Default())))
+	w.FoldMetrics("domain-a", "PASS", 0)
+	w.FoldMetrics("domain-a", "DONE", 1)
+	w.FoldMetrics("domain-a", "FAIL", 2)
+	w.FoldMetrics("zone-x", "PASS", 0)
+	m := w.Metrics("domain-a")
+	if m["reports"] != 3 || m["passes"] != 2 || m["fails"] != 1 || m["holes"] != 3 {
 		t.Fatalf("tally: %+v", m)
 	}
-	if got := s.Metrics("nobody"); got.Reports != 0 {
+	if got := w.Metrics("nobody"); got["reports"] != 0 {
 		t.Fatalf("an unknown agent reads zero: %+v", got)
-	}
-	if len(s.Agents()) != 2 {
-		t.Fatalf("agents: %v", s.Agents())
 	}
 }
 
@@ -108,7 +106,7 @@ func TestRankValidatePromotesWhen(t *testing.T) {
 	good := mk([]Rank{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", PromotesWhen: "promote domain when reports >= 5"},
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain", PromotesWhen: "promote domain when reports >= 5"},
 	})
 	if err := good.Validate(); err != nil {
 		t.Fatalf("a lawful promotesWhen: %v", err)
@@ -116,7 +114,7 @@ func TestRankValidatePromotesWhen(t *testing.T) {
 	badBase := mk([]Rank{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", PromotesWhen: "promote zone when reports >= 5"},
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain", PromotesWhen: "promote zone when reports >= 5"},
 	})
 	if err := badBase.Validate(); err == nil {
 		t.Fatal("promotesWhen of a different rank must be refused")
@@ -124,7 +122,7 @@ func TestRankValidatePromotesWhen(t *testing.T) {
 	badGrammar := mk([]Rank{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", PromotesWhen: "quickly now"},
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain", PromotesWhen: "quickly now"},
 	})
 	if err := badGrammar.Validate(); err == nil {
 		t.Fatal("a non-ASL promotesWhen must be refused")
@@ -149,7 +147,7 @@ func TestPromotionRegistersAAgent(t *testing.T) {
 	rs := Ranks{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true, Dir: "domain", Prefix: "domain-"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
 			PromotesWhen: "promote domain when reports >= 3 && passRate >= 100%"},
 	}
 	w := openWorkspaceRanks(t, root, rs)
@@ -172,7 +170,7 @@ func TestPromotionRegistersAAgent(t *testing.T) {
 		t.Fatalf("a crossing must register one promotion, got %+v holes %v", events, w.PromoteHoles())
 	}
 	ev := events[0]
-	if ev.Base != "domain-auth" || ev.Rank != "principal_domain_owner" {
+	if ev.Base != "domain-auth" || ev.Rank != "principal-domain-owner" {
 		t.Fatalf("event: %+v", ev)
 	}
 	if ev.New != "principal-domain-auth" {
@@ -187,13 +185,13 @@ func TestPromotionRegistersAAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, frag := range []string{"principal-domain-auth", "**Rank:** principal_domain_owner", "Promoted from:** `domain-auth`", "promote domain when"} {
+	for _, frag := range []string{"principal-domain-auth", "**Rank:** principal-domain-owner", "Promoted from:** `domain-auth`", "promote domain when"} {
 		if !strings.Contains(string(text), frag) {
 			t.Fatalf("the registered doc must carry %q:\n%s", frag, text)
 		}
 	}
 	// the reloaded roster holds the registered agent, ranked as its promoted rank
-	if c := w.Member("principal-domain-auth"); c == nil || c.Rank != "principal_domain_owner" {
+	if c := w.Member("principal-domain-auth"); c == nil || c.Rank != "principal-domain-owner" {
 		var rank string
 		if c != nil {
 			rank = c.Rank
@@ -206,7 +204,7 @@ func TestPromotionRegistersAAgent(t *testing.T) {
 		t.Fatalf("the base doc must stand: %v\n%s", err, base)
 	}
 	// the registered snapshot marks the crossing
-	if m := w.Metrics("domain-auth"); m.Reports != 3 || m.Passes != 3 {
+	if m := w.Metrics("domain-auth"); m["reports"] != 3 || m["passes"] != 3 {
 		t.Fatalf("snapshot: %+v", m)
 	}
 	// promoting again from the same agent does not double-register
@@ -224,7 +222,7 @@ func TestPromotionRegisterRefusesCollision(t *testing.T) {
 	rs := Ranks{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true, Dir: "domain", Prefix: "domain-"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
 			PromotesWhen: "promote domain when reports >= 1"},
 	}
 	w := openWorkspaceRanks(t, root, rs)
@@ -252,7 +250,7 @@ func TestPromotionNeverWithoutABaseRecord(t *testing.T) {
 	rs := Ranks{
 		{Name: "coord", ReportsTo: Orchestrator},
 		{Name: "domain", ReportsTo: "coord", HoldsGate: true, Dir: "domain", Prefix: "domain-"},
-		{Name: "principal_domain_owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
+		{Name: "principal-domain-owner", ReportsTo: "coord", Base: "domain", Dir: "principal-domain", Prefix: "principal-domain-",
 			PromotesWhen: "promote domain when reports >= 1"},
 	}
 	w := openWorkspaceRanks(t, root, rs)
@@ -299,19 +297,19 @@ func openWorkspaceRanks(t *testing.T, root string, rs Ranks) *Workspace {
 // negative) when holes outnumber passes. It is a workspace metric — no prompt, no ask.
 func TestIntelligence(t *testing.T) {
 	// no record: nothing thinks, nothing promotes
-	if got := (Metrics{}).Intelligence(); got != 0 {
+	if got := Tally(0, 0, 0, 0)["intelligence"]; got != 0 {
 		t.Fatalf("zero record must read zero: got %v", got)
 	}
 	// pass with no holes reads its full passRate
-	if got := (Metrics{Reports: 10, Passes: 9}).Intelligence(); got != 90 {
+	if got := Tally(10, 9, 0, 0)["intelligence"]; got != 90 {
 		t.Fatalf("9/10 pass w/ 0 holes: want 90, got %v", got)
 	}
 	// holes discount the passes: 90 - 30 = 60
-	if got := (Metrics{Reports: 10, Passes: 9, Holes: 3}).Intelligence(); got != 60 {
+	if got := Tally(10, 9, 0, 3)["intelligence"]; got != 60 {
 		t.Fatalf("9/10 pass w/ 3 holes: want 60, got %v", got)
 	}
 	// holes outnumbering passes floors at zero, never negative
-	if got := (Metrics{Reports: 10, Passes: 3, Holes: 9}).Intelligence(); got != 0 {
+	if got := Tally(10, 3, 0, 9)["intelligence"]; got != 0 {
 		t.Fatalf("3/10 pass w/ 9 holes must floor at 0, got %v", got)
 	}
 	// the ASL reads it as a named operand
@@ -319,10 +317,10 @@ func TestIntelligence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cond.Eval(Metrics{Reports: 10, Passes: 9, Holes: 1}) {
+	if !cond.Eval(Tally(10, 9, 0, 1)) {
 		t.Fatal("9/10 pass w/ 1 hole must cross intelligence >= 70 && reports >= 5")
 	}
-	if cond.Eval(Metrics{Reports: 10, Passes: 7, Holes: 4}) {
+	if cond.Eval(Tally(10, 7, 0, 4)) {
 		t.Fatal("7/10 pass w/ 4 holes (intelligence 30) must stay under the band")
 	}
 }

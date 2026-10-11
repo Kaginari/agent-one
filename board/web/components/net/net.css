@@ -37,6 +37,7 @@
   .net-3d-key span { display: flex; align-items: center; gap: var(--space-2xs); }
   .net-3d-key svg { inline-size: 1.1em; block-size: 1.1em; color: var(--net-node); fill: color-mix(in oklch, var(--net-node) 55%, transparent); stroke: var(--net-node); stroke-width: 1.4; }
   .net-3d-key ellipse { fill: none; }
+  .net-3d-key svg use { fill: none; stroke-width: 2; }
   .net-3d-key b { font: var(--step--2) var(--font-code); color: var(--ink); }
   /* the replay: play, a scrubber over the last turn, its clock, back to live */
   .net-3d-replay { position: absolute; z-index: 2; inset-block-end: var(--space-xs); inset-inline: var(--space-s); display: flex; align-items: center; gap: var(--space-xs);
@@ -44,7 +45,7 @@
   .net-3d-replay[hidden] { display: none; }
   .net-3d-replay input { flex: 1; min-inline-size: 0; accent-color: var(--accent); }
   .net-3d-clock { font: var(--step--2) var(--font-code); color: var(--ink-muted); min-inline-size: 4.5em; text-align: end; }
-  @container (max-width: 40rem) { .net-3d-key, .net-3d-tint { display: none; } }
+  @container (max-width: 40rem) { .net-3d-key, .net-3d-tint, .net-3d-legend { display: none; } }
 
   /* the 2D / 3D switch */
   .net-mode { display: inline-flex; border: var(--hairline) solid var(--line); border-radius: var(--radius-pill); overflow: hidden; }
@@ -54,6 +55,13 @@
   .net-mode button:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: calc(var(--focus-width) * -1); }
 
   /* rank and lane colours: one input, --net-node, set by data-rank */
+  /* a rank with no hue of its own holds its value family's (the family follows the rank's flags) */
+  .net [data-family="author"] { --net-node: var(--series-1); }
+  .net [data-family="gate"] { --net-node: var(--series-2); }
+  .net [data-family="steward"] { --net-node: var(--series-3); }
+  .net [data-family="planner"] { --net-node: var(--series-4); }
+  .net [data-family="auditor"] { --net-node: var(--series-5); }
+  .net [data-family="root"] { --net-node: var(--series-6); }
   .net [data-rank="orchestrator"] { --net-node: var(--series-6); }
   .net [data-rank="zone"] { --net-node: var(--series-1); }
   .net [data-rank="domain"], .net [data-rank="principal-domain-owner"] { --net-node: var(--series-2); }
@@ -107,8 +115,27 @@
   .net-cell { fill: var(--net-node); }
   .net-ring { fill: var(--surface); stroke: var(--net-node); stroke-width: 1.5; }
   .net-portrait { opacity: 0.96; }
-  .net-brain { fill: var(--net-node); }
-  .net-brain-fold { fill: none; stroke: var(--surface); stroke-width: 1.1; }
+  .net-glyph { color: var(--net-node); }
+  .net-brain { color: var(--net-node); }
+  /* the value band ring: ok · warn · bad by the rank's own meter (/api/meters); dashed while the
+     agent's record is under its rank's minimum (low confidence, never ranked) */
+  .net-band { fill: none; stroke-width: 2; opacity: 0.9; }
+  .net-band[data-band="ok"] { stroke: var(--ok); }
+  .net-band[data-band="warn"] { stroke: var(--warn); }
+  .net-band[data-band="bad"] { stroke: var(--danger); }
+  .net-band[data-confidence="low"] { stroke-dasharray: 3 3; opacity: 0.6; }
+  /* the value key: what a ring and a size mean; the 3D view's tint key holds it too */
+  .net-vkey { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs) var(--space-s); margin: 0; color: var(--ink-muted); font-size: var(--step--2); }
+  .net-vkey span { display: inline-flex; align-items: center; gap: var(--space-3xs); }
+  .net-vkey i { display: inline-block; inline-size: 0.8em; block-size: 0.8em; border-radius: var(--radius-pill); border: 0.16em solid var(--ink-muted); }
+  .net-vkey i[data-band="ok"] { border-color: var(--ok); }
+  .net-vkey i[data-band="warn"] { border-color: var(--warn); }
+  .net-vkey i[data-band="bad"] { border-color: var(--danger); }
+  .net-vkey i[data-swatch] { border: 0; border-radius: var(--radius-s); background: var(--net-swatch, var(--ink-muted)); }
+  .net-vkey i[data-swatch="heat"] { inline-size: 3.2em; background: linear-gradient(90deg, var(--ink-muted), var(--warn)); }
+  .net-vkey i[data-dash] { border-style: dashed; }
+  .net-3d-legend { position: absolute; z-index: 1; inset-block-start: calc(var(--space-xs) + 2.2em); inset-inline-end: var(--space-xs); max-inline-size: 22em; justify-content: flex-end;
+    padding: var(--space-3xs) var(--space-xs); border: var(--hairline) solid var(--line); border-radius: var(--radius-s); background: color-mix(in oklch, var(--surface) 82%, transparent); pointer-events: none; }
   .net-label { fill: var(--ink); font-size: var(--step--1); dominant-baseline: central; paint-order: stroke; stroke: var(--surface); stroke-width: 3; stroke-linejoin: round; }
   .net-node[data-orchestrator] .net-label { font-weight: var(--weight-bold); }
   .net-node[data-kind="skill"] .net-label { fill: var(--ink-muted); font-size: var(--step--2); }

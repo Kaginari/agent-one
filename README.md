@@ -188,6 +188,58 @@ everything the workspace enforces without asking an agent to believe anything.
   budgets read as instruments, the closing witness demand, the guts' scoring. An agent can only
   tighten a policy, never loosen it; `status` names every switched-off policy aloud.
 
+## Value and meters
+
+Each rank is measured by its own job, from one ledger (`.agent-one/instruments/value.jsonl`, one row
+per run per agent, always kept) under one definition of success (`policy.value`: `DONE`/`PASS`
+pass, `FAIL`/`ESCALATE`/`CHECKPOINT` fail, the human's `DENIED`, `INTERRUPTED`, `DRY` and
+`SUSPENDED` neutral). A rank's flags give it a family and the family a score: a zone worker is scored
+on what landed and passed its gate first try, a domain owner on verdicts nobody overturned and the health
+of the zone workers it ran, a coordinator on the plans that landed, the orchestrator on the asks it closed for good.
+Only the holes the harness caught against the agent cost it — a provider refusal or an honest `@?`
+never does.
+
+```yaml
+ranks:
+  zone worker:
+    value:
+      score: "0.5*landRate + 0.5*gateRate"
+      meter: {signal: gateRate, label: First try, bands: {ok: 85, warn: 60}}
+```
+
+The dashboard's Metrics tab ranks the members by score (an agent under its rank's record is shown,
+never ranked), each rank shows its own meter, every neuron holds a band ring, and `promotesWhen`
+can read `score` and every signal. `agent-one config explain value` prints each rank's resolved policy
+and where each part came from; the full policy is [`docs/canon/ranks.md`](docs/canon/ranks.md) §Value.
+
+## The forge
+
+A run that walked a path worth repeating can leave it behind as a skill or a tool.
+
+1. **Draft.** A Subagent names it on its report: `@FORGE skill:<name> | <when> | <how>` or
+   `@FORGE tool:<name> | <summary> | <argv>` (holes as `{{param}}`). A run of
+   `policy.forge.demandAtSteps` steps or more (12; 0 = off) is asked for one at its close.
+2. **Filed.** The harness files each draft from the report it holds, so a long report or one cut
+   by `@CAP` keeps its draft. Each draft becomes one shared note with the drafting agent, its run
+   and a content hash. A line relayed up the ranks is filed once, as its drafter's. The `remember`
+   tool refuses the forge's tags: only the harness files drafts.
+3. **The working notes.** `/forge` in a session, or `agent-one forge list` headless, lists the open drafts by
+   a stable id (the hash): name, version, agent, run, age, kind, and a tool's class.
+   `show <id>` prints what a register would write. `reject <id> <why>` closes a draft with an
+   append-only mark.
+4. **Register.** A skill becomes `.agent-one/crafted-skills/<name>/SKILL.md` in Claude Code's format
+   (`name` in `[a-z0-9-]`, `description` is the *when*, the agent is the *how*). It also carries
+   `version`, `status`, `by`, `provisioned` (the run) and `registered`. A crafted skill outranks every other
+   home of the same name, and a name already held elsewhere is refused. A register never overwrites:
+   a newer draft of a crafted name shows as `v2` and lands only with `--version`, the old file
+   kept under `versions/`. An agent whose doc names the skill holds it (`@T skill <name>` in its
+   prompt), and any agent loads it with `skill{name}`.
+   A tool becomes a `tools.custom` entry. Its argv is split with shell quoting (a pipeline is
+   refused), its class comes from the classifier, and an interpreter running a string
+   (`bash -c`, `python -c`, `node -e`, `eval`) is refused unless `--force`. An outward or
+   destructive tool needs your yes (`--yes` headless). The YAML is printed before it is written,
+   with its provenance under `crafted:`.
+
 ## The terminal
 
 A terminal UI in the class of Claude Code: the conversation flows into your scrollback, and every
@@ -229,10 +281,11 @@ reviews the change before the turn is done:
 | `agent-one` / `repl` | the live session: keep talking while subagents work; `/agents`, `/send`, `/usage`, `/status`, `/compact` |
 | `run "<task>"` | one task to completion, non-interactive; `--json` for automation |
 | `resume <id>` · `sessions` | continue or list sessions |
-| `status` | every live reading (models, sandbox, guard, memory) and every policy switched off, with where — gaps print as `@?` lines |
-| `config show\|explain\|check\|path\|patch` | the effective configuration with the origin of every value |
-| `memory` · `toolbox` · `onto` | memory tiers, the two-level tool registry, the ownership graph |
-| `usage` | tokens and cost by agent, role, model and day |
+| `status` | every live reading (models, sandbox, guard, memory) and every policy feature switched off, with where — gaps print as `@?` lines |
+| `config show\|explain\|check\|path\|patch` | the effective config with the origin of every value |
+| `memory` · `toolbox` · `onto` | the three memories, the two-level toolbox, the member graph |
+| `forge list\|show <id>\|register <id> [--yes] [--version] [--force]\|reject <id> --why …` | the forge's working notes, headless (§The forge) — `/forge` in a session |
+| `usage` | tokens and cost by agent, role, rank, model and day |
 | `bench` | a fixed task set on every configured model |
 | `goal --validate "<cmd>" "<objective>"` | work turn after turn until the command passes; the binary runs it, the model cannot skip it |
 | `review [range]` | two reviewers on two models in parallel, one merged shortlist; nothing fixed before you approve |
@@ -389,8 +442,11 @@ rules:
 | `mcp` | MCP servers (Claude Code's `.mcp.json` and OpenCode's are imported) | `servers: { gh: { command: [gh-mcp] } }` |
 | `hooks` | shell hooks at preTool, postTool, sessionStart, preCompact, stop, userPrompt | `preTool: [{ match: "bash", command: "./check.sh" }]` |
 | `discovery` | where instructions, skills, commands and agents are found (Claude Code and OpenCode dirs included) | `skills: { paths: [.claude/skills] }` |
-| `budgets` | spend ceilings for the session and each subagent | `session: { tokens: 400000, usd: 5 }` |
-| `ui` · `output` | the dashboard, the status line, output format | `board: { autostart: false }` |
+| `budgets` | spend ceilings for the session and each Subagent | `session: { tokens: 400000, usd: 5 }` |
+| `policy.value` | the one definition of success, the value ledger's window, each family's score and meter | `value: { window: 7d, minRecord: 8 }` · `families: { gate: { score: "0.6*gateRight + 0.4*zoneHealth" } }` |
+| `ranks.<r>.value` · `.family` · `.portrait` | a rank's own score, meter and record; its family; its picture | `zone worker: { value: { score: "0.5*landRate + 0.5*gateRate", meter: { signal: gateRate, bands: { ok: 85, warn: 60 } } } }` |
+| `policy.guts` | the per-step gut: benches (go, pytest, js, cargo, make), lexemes, weights, clamp | `benches: [{ name: mix, match: ["mix test"], red: [failure], green: ["0 failures"] }]` |
+| `ui` · `output` | the dashboard, the status line, the session's meters (ctx bands follow `policy.budget`), output format | `board: { autostart: false }` · `meters: { score: { signal: score, bands: { ok: 75, warn: 45 } } }` |
 | `sessions` · `undo` | where sessions and undo snapshots live, how long | `sessions: { keepDays: 30 }` |
 
 | `toolbox` · `ontology` · `instruments` | the searchable tool registry, the ownership graph, the journals | `toolbox: { budgetTokens: 1500 }` |

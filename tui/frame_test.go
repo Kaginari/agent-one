@@ -53,7 +53,7 @@ func checkFrame(t *testing.T, m *Model, when string) {
 		if !strings.ContainsRune("│├", at(y, 0)) {
 			t.Fatalf("%s: row %d opens with %q, not a border: %q", when, y, at(y, 0), strip[y])
 		}
-		if !strings.ContainsRune("│┤▲▼", at(y, last)) {
+		if !strings.ContainsRune("│┤┃╹╻", at(y, last)) {
 			t.Fatalf("%s: row %d closes with %q, not a border: %q", when, y, at(y, last), strip[y])
 		}
 	}
@@ -82,11 +82,51 @@ func checkFrame(t *testing.T, m *Model, when string) {
 			t.Fatalf("%s: the ask's title leaked under the sidebar: %q", when, strip[l.inputSepY])
 		}
 	}
-	if !strings.HasPrefix(strings.TrimLeft(string(cells[l.input.Y][l.input.X:l.input.X+l.input.W]), " "), "›") && m.choice == nil {
+	if !strings.HasPrefix(strings.TrimLeft(string(cells[l.input.Y][l.input.X:l.input.X+l.input.W]), " "), "›") && m.choice == nil && m.input.ScrollYOffset() == 0 {
 		t.Fatalf("%s: the input's prompt is not at the input's origin: %q", when, strip[l.input.Y])
 	}
+	checkScrollbars(t, m, when, cells, strip)
 	if m.theme.Depth {
 		checkDepth(t, m, when, cells, strip)
+	}
+}
+
+// checkScrollbars holds the scrollbars to their policies: the chat's rides its right padding
+// column only while the transcript overflows the pane — a track glyph on every row and a thumb
+// (one or more rows of ▐ ▗ ▝) sized to the visible fraction; blank otherwise. The sidebar's
+// thumb rides its right border only while its tiles overflow.
+func checkScrollbars(t *testing.T, m *Model, when string, cells [][]rune, strip []string) {
+	t.Helper()
+	l := m.lay
+	if m.menu != nil || m.comp != nil || m.palette != nil || len(m.toasts) > 0 {
+		return // a float may cover the column
+	}
+	over := m.vpOK && len(m.vpLines) > l.chat.H
+	thumb := 0
+	for y := l.chat.Y; y < l.chat.Y+l.chat.H; y++ {
+		c := cells[y][l.mc]
+		switch {
+		case !over && c != ' ':
+			t.Fatalf("%s: the chat fits, yet its padding carries %q on row %d: %q", when, c, y, strip[y])
+		case over && !strings.ContainsRune("▕▐▗▝", c):
+			t.Fatalf("%s: the chat overflows, yet row %d has no scrollbar (%q): %q", when, y, c, strip[y])
+		case strings.ContainsRune("▐▗▝", c):
+			thumb++
+		}
+	}
+	if over && (thumb == 0 || thumb > l.chat.H-1) {
+		t.Fatalf("%s: the chat's thumb is %d rows of %d (content %d)", when, thumb, l.chat.H, len(m.vpLines))
+	}
+	if l.rc > 0 {
+		railThumb := 0
+		for y := l.rail.Y; y < l.rail.Y+l.rail.H; y++ {
+			if strings.ContainsRune("┃╹╻", cells[y][l.W-1]) {
+				railThumb++
+			}
+		}
+		if (m.railTotal > l.rail.H) != (railThumb > 0) {
+			t.Fatalf("%s: the sidebar's %d rows in %d show a %d-row thumb", when, m.railTotal, l.rail.H, railThumb)
+		}
 	}
 }
 
@@ -122,7 +162,7 @@ func checkDepth(t *testing.T, m *Model, when string, cells [][]rune, strip []str
 		return
 	}
 	for y := l.chat.Y; y < l.chat.Y+l.chat.H; y++ {
-		if at(y, 1) != ' ' || at(y, l.mc) != ' ' {
+		if at(y, 1) != ' ' || !strings.ContainsRune(" ▕▐▗▝", at(y, l.mc)) {
 			t.Fatalf("%s: a slab spilled into the conversation's padding on row %d: %q", when, y, strip[y])
 		}
 	}
@@ -183,11 +223,31 @@ func frameMatrixCase(t *testing.T, w, h int, dark, depth bool) {
 	m.toasts[0].x = 0
 	checkFrame(t, m, "toast")
 
-	m.input.SetValue("one\ntwo\nthree\nfour")
-	m.input.SetHeight(4)
-	checkFrame(t, m, "grown draft")
+	// the ask's well: three rows empty, growing with the draft's rows to at most eight (or 35%
+	// of the window), the conversation giving the rows up
+	if m.lay.inputN != 3 {
+		t.Fatalf("an empty ask's well is %d rows, want 3", m.lay.inputN)
+	}
+	for _, n := range []int{1, 4, 6, 8, 12} {
+		m.input.SetValue(strings.TrimSuffix(strings.Repeat("a line of the draft\n", n), "\n"))
+		checkFrame(t, m, fmt.Sprintf("draft of %d lines", n))
+		want := min(max(n, 3), min(8, max(3, h*35/100)))
+		if got := m.lay.inputN; got != want && !(got < want && m.lay.chat.H <= 4) {
+			t.Fatalf("a %d-line draft's well is %d rows, want %d", n, got, want)
+		}
+	}
+	m.input.SetValue(strings.Repeat("a long line that soft-wraps inside the box rather than scrolling sideways ", 4))
+	checkFrame(t, m, "wrapped draft")
+	if m.input.Height() < 3 || strings.Count(m.input.View(), "\n")+1 != m.input.Height() {
+		t.Fatalf("the wrapped draft is %d rows", m.input.Height())
+	}
 	m.input.Reset()
-	m.input.SetHeight(1)
+	m.input.SetWidth(m.inputW)
+
+	// the chat scrolled to its top: the scrollbar rides the pane while it overflows
+	m.vp.SetYOffset(0)
+	checkFrame(t, m, "chat scrolled up")
+	m.vp.GotoBottom()
 
 	m.setInput("/")
 	m.menu = &menuState{items: []MenuItem{{Name: "status", Description: "the workspace"}, {Name: "agents", Description: "who"}}}

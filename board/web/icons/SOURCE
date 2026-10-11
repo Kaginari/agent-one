@@ -1,0 +1,12 @@
+icons.svg is assembled from two vendored icon sets, unmodified paths, re-wrapped as <symbol>s:
+
+  #skill            lucide-static@0.460.0  icons/brain-circuit.svg       ISC   LICENSE-lucide
+  #family-root     @tabler/icons@3.19.0   icons/outline/crown.svg       MIT   LICENSE-tabler-icons
+  #family-planner  @tabler/icons@3.19.0   icons/outline/route-2.svg     MIT   LICENSE-tabler-icons
+  #family-gate     @tabler/icons@3.19.0   icons/outline/shield-check.svg MIT  LICENSE-tabler-icons
+  #family-author   @tabler/icons@3.19.0   icons/outline/code.svg        MIT   LICENSE-tabler-icons
+  #family-steward  @tabler/icons@3.19.0   icons/outline/rocket.svg      MIT   LICENSE-tabler-icons
+  #family-auditor  @tabler/icons@3.19.0   icons/outline/eye-search.svg  MIT   LICENSE-tabler-icons
+  #family-generic  @tabler/icons@3.19.0   icons/outline/hexagon.svg     MIT   LICENSE-tabler-icons
+
+Fetched from https://unpkg.com/lucide-static@0.460.0/ and https://unpkg.com/@tabler/icons@3.19.0/.

@@ -43,9 +43,9 @@ func Default() Lexicon {
 	return Lexicon{
 		Vocab: "agent-one", Binary: "agent-one", WorkspaceDir: ".agent-one", Machine: "~/.agent-one", Policy: "AGENT-ONE.md", Log: "log.md",
 		Ranks: map[string]string{"coord": "coord", "domain": "domain", "zone": "zone", "service": "service", "auditor": "auditor",
-			"principal_coordinator": "principal-coord", "principal_domain_owner": "principal-domain"},
+			"principal-coordinator": "principal-coord", "principal-domain-owner": "principal-domain"},
 		Prefixes: map[string]string{"coord": "coord-", "domain": "domain-", "zone": "zone-", "service": "service-", "auditor": "auditor-",
-			"principal_coordinator": "principal-coord-", "principal_domain_owner": "principal-domain-"},
+			"principal-coordinator": "principal-coord-", "principal-domain-owner": "principal-domain-"},
 		Unsaid:     map[string]string{"policy": "policy", "team": "team", "domain": "domain"},
 		Tokens:     map[string]string{"policy": "policy", "team": "team", "domain": "domain"},
 		Principles: "Core principles",
@@ -54,7 +54,7 @@ func Default() Lexicon {
 		Human:      "Operator", Session: "Orchestrator", Subagent: "Ephemeral subagent",
 		Notes: "## Working notes", Owns: "Owns:",
 		Display: map[string]string{"coord": "Coordinator", "domain": "Domain owner", "zone": "Zone worker", "service": "Service owner", "auditor": "Auditor",
-			"principal_coordinator": "Principal coordinator", "principal_domain_owner": "Principal domain owner"},
+			"principal-coordinator": "Principal coordinator", "principal-domain-owner": "Principal domain owner"},
 	}
 }
 

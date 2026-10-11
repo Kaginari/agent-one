@@ -184,6 +184,16 @@ func TestLessons(t *testing.T) {
 	if i < 0 || j < 0 || i > j {
 		t.Fatalf("classes must rank by frequency: %q", out)
 	}
+	// a coded journal groups by class: two thrash readings whose whys differ in their counts are
+	// one lesson
+	w.write(".agent-one/instruments/loop/r2.jsonl",
+		"{\"t\":\"guts\",\"id\":\"s1\",\"v\":-1,\"why\":\"bench thrash — 6 hits on one bench (6 red / 0 green / 0 muted)\",\"class\":\"thrash\",\"classes\":[\"thrash\"]}\n"+
+			"{\"t\":\"guts\",\"id\":\"s2\",\"v\":-1,\"why\":\"bench thrash — 7 hits on one bench (7 red / 0 green / 0 muted)\",\"class\":\"thrash\",\"classes\":[\"thrash\"]}\n"+
+			"{\"t\":\"guts\",\"id\":\"s3\",\"v\":-1,\"why\":\"bench thrash — 8 hits on one bench (8 red / 0 green / 0 muted)\",\"class\":\"thrash\",\"classes\":[\"thrash\"]}\n")
+	_, out, _ = w.main("agent-one", "", "lessons")
+	if !strings.Contains(out, "@F thrash — bench thrash") || !strings.Contains(out, "×3") {
+		t.Fatalf("thrash readings group under one class: %q", out)
+	}
 }
 
 func TestInitBench(t *testing.T) {

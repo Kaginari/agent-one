@@ -13,6 +13,7 @@ import (
 	"github.com/Kaginari/agent-one/memory"
 	"github.com/Kaginari/agent-one/tool"
 	"github.com/Kaginari/agent-one/toolbox"
+	"github.com/Kaginari/agent-one/workspace"
 )
 
 // workspaceTools are the tools that read the workspace itself (binary.md §The default toolset):
@@ -458,6 +459,11 @@ func (a *App) rememberTool(agent string) *tool.Tool {
 			}
 			if err := json.Unmarshal(in, &q); err != nil || strings.TrimSpace(q.Text) == "" {
 				return failResult("remember: text is required")
+			}
+			for _, t := range workspace.ForgeTags {
+				if strings.EqualFold(strings.TrimSpace(q.Tag), t) {
+					return failResult("remember: the %q tag is the harness's own — drafts ride your report as `@FORGE skill:<name> | <when> | <how>` (or `@FORGE tool:<name> | <summary> | <argv>`) and the harness files them; the working notes registers", t)
+				}
 			}
 			if q.Machine && !a.Cfg.Memory.Shared.Machine.Enabled {
 				return failResult("remember: the machine tier is off (memory.shared.machine.enabled)")

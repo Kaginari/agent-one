@@ -125,6 +125,7 @@ func TestClosingCheckDemandsForgeOnLongRuns(t *testing.T) {
 		}
 	}
 	e.ClosingCheck = true
+	e.ForgeDemandAt = 12
 	if r, _ := e.Run(context.Background(), "tour the package"); r.Status == Fail {
 		t.Fatalf("%+v", r)
 	}
@@ -139,6 +140,49 @@ func TestClosingCheckDemandsForgeOnLongRuns(t *testing.T) {
 	}
 	if ask := reask(m2); strings.Contains(ask, "@FORGE") {
 		t.Fatalf("short runs carry no forge question, got %q", ask)
+	}
+}
+
+// policy.forge stands on its own: with the closing check off, a run past demandAtSteps is still
+// asked the forge question once; 0 switches it off; the promise names what really happens.
+func TestForgeDemandIndependentOfClosingCheck(t *testing.T) {
+	run := func(floor int) (*mock.Provider, *Result) {
+		var seq []provider.Response
+		for i := 0; i < 12; i++ {
+			seq = append(seq, mock.Call(fmt.Sprintf("%d", i), "read", map[string]string{"path": fmt.Sprintf("f%d.md", i)}))
+		}
+		seq = append(seq, mock.Text("finished"), mock.Text("finished, one-off"))
+		m := mock.New(seq...)
+		e := engine(t, m)
+		for i := 0; i < 12; i++ {
+			if err := os.WriteFile(filepath.Join(e.Root, fmt.Sprintf("f%d.md", i)), []byte("x\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		e.ForgeDemandAt = floor
+		r, err := e.Run(context.Background(), "tour the package")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m, r
+	}
+	m, r := run(12)
+	last := m.Requests[len(m.Requests)-1].Messages
+	ask := last[len(last)-1].Text
+	if !strings.Contains(ask, "forge question") || !strings.Contains(ask, "@FORGE skill:<name>") || !strings.Contains(ask, "crafted-skills/<name>/SKILL.md") || strings.Contains(ask, "three steps") {
+		t.Fatalf("the forge question must fire without the closing check and say what a register lands:\n%s", ask)
+	}
+	if r.Text != "finished, one-off" || r.Status != Done {
+		t.Fatalf("the answer after the question closes the run: %q %s", r.Text, r.Status)
+	}
+	m0, r0 := run(0)
+	for _, req := range m0.Requests {
+		if strings.Contains(req.Messages[len(req.Messages)-1].Text, "forge question") {
+			t.Fatal("demandAtSteps 0 is the policy switched off")
+		}
+	}
+	if r0.Text != "finished" {
+		t.Fatalf("off: the first close stands, got %q", r0.Text)
 	}
 }
 
@@ -227,13 +271,13 @@ func TestGutsRedPin(t *testing.T) {
 	benchOut := "=== RUN TestGutsRedPinX\n--- FAIL: TestGutsRedPinX (0.00s)\n    loop_test.go:000: boom\nFAIL\tgithub.com/Kaginari/agent-one/loop\t0.123s\nFAIL\n"
 	st := &StepRecord{}
 	// bench FAIL → red pin (0). res.Err=false so we exercise the output-lexicon path.
-	v, why := gutsValue(st, benchCall, tool.Result{Output: benchOut}, "")
+	v, why, _ := (*Guts)(nil).value(st, benchCall, tool.Result{Output: benchOut}, "")
 	if v != 0 || !strings.Contains(why, "red pin") {
 		t.Fatalf("bench FAIL must score 0 'red pin — failure is the signal', got v=%d why=%q", v, why)
 	}
 	// go vet bench failing must also pin.
 	vetCall := provider.ToolCall{Name: "shell.exec", Input: json.RawMessage(`{"command":"go vet ./..."}`)}
-	v2, _ := gutsValue(st, vetCall, tool.Result{Output: "# x\nvet.go:1: FAIL\n"}, "")
+	v2, _, _ := (*Guts)(nil).value(st, vetCall, tool.Result{Output: "# x\nvet.go:1: FAIL\n"}, "")
 	if v2 != 0 {
 		t.Fatalf("go vet FAIL must score 0 red pin, got v=%d", v2)
 	}
@@ -245,7 +289,7 @@ func TestGutsRedPin(t *testing.T) {
 	}
 	// non-test tool with FAIL output still eats the negative lexicon (−1).
 	catCall := provider.ToolCall{Name: "read", Input: json.RawMessage(`{"path":"loop.go"}`)}
-	v3, _ := gutsValue(st, catCall, tool.Result{Output: "FAILED\n"}, "")
+	v3, _, _ := (*Guts)(nil).value(st, catCall, tool.Result{Output: "FAILED\n"}, "")
 	if v3 == 0 {
 		t.Fatalf("non-test tool FAIL output must still score −1 via lexicon, got v=%d", v3)
 	}

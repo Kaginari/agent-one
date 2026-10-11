@@ -91,8 +91,9 @@ func TestSubagentCouncilWarrant(t *testing.T) {
 	}
 }
 
-// Forging drafts: a Subagent's @FORGE lines ride the report (DispatchReport carries them) and land
-// as workspace notes of kind "forge" — filed, never registered; the working notes registers.
+// Forging drafts: a Subagent's @FORGE lines ride the report (DispatchReport carries them) and the
+// dispatcher files them as workspace notes tagged "forge", each with its run and hash — filed, never
+// registered; the working notes registers.
 func TestForgingDraftsRideAndLand(t *testing.T) {
 	dir := fixture(t)
 	w := open(t, dir)
@@ -119,5 +120,9 @@ func TestForgingDraftsRideAndLand(t *testing.T) {
 	got := string(notes)
 	if !strings.Contains(got, `"tag":"forge"`) || !strings.Contains(got, `"kind":"team"`) || !strings.Contains(got, "tool:token-wrangler | rewrite tokens safe | ./wrangle {{path}}") || !strings.Contains(got, "skill:ttl-craft") {
 		t.Fatalf("the ledger holds both drafts:\n%s", got)
+	}
+	ledger := ReadForgeLedger(filepath.Join(dir, ".agent-one", "memory", "shared", "notes.jsonl"))
+	if len(ledger) != 2 || ledger[0].By != "zone-auth" || ledger[0].Run == "" || ledger[0].Hash == "" || ledger[0].Hash == ledger[1].Hash {
+		t.Fatalf("each draft carries its agent, run and hash: %+v", ledger)
 	}
 }

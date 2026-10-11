@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Kaginari/agent-one/discover"
 )
 
 // Rd reads a file with CRLF/CR normalised to LF; ok=false when it cannot be read.
@@ -229,13 +231,16 @@ type NamedPath struct {
 	Name, P string
 }
 
-var SkillBases = []string{".agent-one/crafted-skills", ".agent-one/base-skills", ".opencode/skills", ".opencode/skill", ".claude/skills"}
+// SkillBases are the project's Skill homes for a workspace dir, in the one precedence every reader
+// shares (discover.SkillBases): crafted > base > the hosts' project dirs.
+func SkillBases(dir string) []string { return discover.SkillBases(dir) }
+
 var CommandBases = []string{".claude/commands", ".opencode/commands", ".opencode/command"}
 
-func Skills(root string) []NamedPath {
+func Skills(root, dir string) []NamedPath {
 	var out []NamedPath
 	seen := map[string]bool{}
-	for _, base := range SkillBases {
+	for _, base := range SkillBases(dir) {
 		d := filepath.Join(root, base)
 		for _, e := range readDirSorted(d, true) {
 			if !e.IsDir() {
@@ -439,7 +444,11 @@ func RelationsOf(root, base, name string) Relations {
 			}
 		}
 	}
-	for _, m := range Skills(root) {
+	dir := DefaultWorkspaceDir
+	if r, err := filepath.Rel(root, base); err == nil && r != "." && !strings.HasPrefix(r, "..") {
+		dir = filepath.ToSlash(r)
+	}
+	for _, m := range Skills(root, dir) {
 		if NameIn(doc, m.Name) {
 			R.Skills = append(R.Skills, m.Name)
 		}

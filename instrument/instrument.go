@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Kaginari/agent-one/provider"
+	"github.com/Kaginari/agent-one/value"
 )
 
 const (
@@ -21,7 +22,7 @@ type Zone string
 
 const (
 	OK     Zone = "OK"
-	NEAR   Zone = "NEAR"   // past 75% of the stress line
+	NEAR   Zone = "NEAR"   // past value.CtxNear (75%) of the stress line
 	STRESS Zone = "STRESS" // past the stress line: write, dispatch, stop
 	UNREAD Zone = "UNREAD" // no reading yet — a finding, not a zero
 )
@@ -60,7 +61,7 @@ func (b Budget) Reading(u provider.Usage) Context {
 	switch {
 	case c.Tokens >= c.Stress:
 		c.Zone = STRESS
-	case float64(c.Tokens) >= float64(c.Stress)*0.75:
+	case float64(c.Tokens) >= float64(c.Stress)*value.CtxNear: // the context meter's warn band reads the same line
 		c.Zone = NEAR
 	default:
 		c.Zone = OK

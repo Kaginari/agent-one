@@ -253,7 +253,7 @@ func (w *Workspace) dirsOf(bases []string, pick func(d string, e os.DirEntry) (s
 }
 
 func (w *Workspace) skills() ([]string, map[string]*home) {
-	return w.dirsOf(memory.SkillBases, func(d string, e os.DirEntry) (string, string) {
+	return w.dirsOf(memory.SkillBases(w.dir()), func(d string, e os.DirEntry) (string, string) {
 		p := filepath.Join(d, e.Name(), "SKILL.md")
 		if e.IsDir() && memory.Exists(p) {
 			return e.Name(), p

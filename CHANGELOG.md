@@ -8,6 +8,52 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Each rank is valued by its own job.** One definition of success (`policy.value`: pass, fail and
+  neutral words; a run's word is the loop's when it did not close `DONE`, else the agent's `@S`) is
+  read by the promotion fold, the council, the dashboard's leaderboard and activity, and the loop
+  journal's new `word`. Every run of every agent is one row of an append-only value ledger
+  (`instruments/value.jsonl`), kept whether or not anything promotes, replayed at open and seeded
+  once from the old promotion tally. A gate verdict credits the agent that held the gate, and a
+  pass later failed on the same paths is an overturn. Holes split by kind — infra, harness, self —
+  and only harness holes cost; `holeRate` is per report and never passes 100%; the human's
+  `DENIED` and an interrupted run are neutral. A rank's flags give it a family (root, planner,
+  gate, author, steward, auditor, generic) and the family a score — an arithmetic expression over
+  the ledger's signals (`landRate`, `gateRate`, `gateRight`, `zoneHealth`, `planLandRate`,
+  `askDoneRate`, …) — and a meter with config's bands; `ranks.<r>.value` overrides both,
+  `promotesWhen` reads `score` and every signal with arithmetic, and a signal a rank can never
+  produce is a load-time hole. `/api/value` and `/api/meters` serve it; `agent-one config explain
+  value` prints each rank's policy with its origins.
+- **The dashboard ranks by value.** The Metrics leaderboard sorts by score (score, the rank's own
+  measure in its band, strain, work, tokens; an agent under its rank's record hatched and unranked)
+  under a row of each rank's meter; every neuron holds a band ring; the 3D health tint is the
+  ranked agents' score; every band the page draws comes from `/api/meters` (the context bands from
+  `policy.budget`, the one line the context instrument's NEAR zone reads too).
+- **Faces and sizes.** One portrait resolver (`board/icons.go`): the workspace's own
+  `portraits/<rank>.png`, `ranks.<r>.portrait`, the embedded rank portrait, the family's glyph
+  (Tabler outline icons, MIT), the generic glyph; `/portraits/<rank>` serves it and `/api/team`
+  nodes carry `icon`, `family`, `value` and `mass` (lines of code owned). Every member holds its
+  face at every depth, the focus card shows it large, the skills hold Lucide's `brain-circuit`
+  (ISC); neurons are small and sized by the code they own, and the 3D tint switch carries its key.
+- **The guts speak any language.** `policy.guts.benches` (go, pytest, the JS runners, cargo, make —
+  each with red and green lexemes), `lexemes`, `weights`, `clamp` and `ring` are config; a reading
+  journals a stable `class` (fail, neg-lexeme, echo, thrash, repeat, red-pin) and `lessons` groups
+  by it.
+
+- **The terminal UI holds the Cyberpunk palette, with volume.** The colours are one named palette
+  (`tui/palette.go`, role → hex for dark and light, read by one constructor): omoro.io's Cyberpunk —
+  Void ground, surfaces stepping toward Smog Purple, Scanner Cyan the primary, a Danger Red rose the
+  human's accent, Amber Haze the warning, the plan in Smog Purple's violet — retuned where a swatch
+  fails 4.5:1. Titles hold colour, each region its own gradient; a Subagent's card is tinted in its
+  rank's lane with a state chip, the plan its own violet family in the chat and the sidebar. Slabs
+  gain volume: a gradient face, a gloss under the top edge, a two-tone bevel, a soft two-column
+  shadow with quarter-block corners, a rim glow on the running Subagent, a fresh toast and the ask's
+  well while typing. The conversation and the sidebar hold a draggable scrollbar while they
+  overflow. The sidebar is a cockpit column: a header tile (sprite, workspace, model, state), the
+  vitals as a grid of meters, each rank's share of the work, the subagents live first, the plan's
+  progress and current step, the files. The ask's well starts three rows tall with a
+  placeholder, soft-wraps, grows to eight rows (or 35% of the window), then scrolls inside, its
+  rule saying the draft's size and what enter does.
+
 - **The 3D net is a brain.** The orchestrator sits at the centre and each rank is a shell further out
   (coordinators inner, domain owners middle, zone workers on the outer cortex); each lane is a region of the brain, tinted
   by a faint glow and switchable to its four weeks of work (heat) or its runs' pass rate (health).
@@ -163,13 +209,34 @@ All notable changes to Agent-One are recorded here. The format follows
   failure it catches is a mid-plan close ("let me merge…" with the merge never run). Off by
   default; the bench config enables it (`bench/configs/gateway.yaml`).
 
-- **The forge (`@FORGE` + `/forge`).** A run that proves a repeating need may carry its draft on
-  the report's wire — `@FORGE tool:<name> | <summary> | <argv>` (argv holes `{{param}}` declare
-  as string params) or `@FORGE skill:<name> | <text>`. Drafts ride up unminted and land as
-  shared notes tagged `forge` on the record beat; the working notes lists them (`/forge`) and registers by
-  index (`/forge register <n>`) — a skill lands as a workspace note, a tool lands as a `tools.custom`
-  patch that reloads live. Registered drafts mark themselves (`forge-registered`); nothing registers twice,
-  and an existing `tools.custom` name is never overwritten.
+- **The forge (`@FORGE`, `/forge`, `agent-one forge`).** A run that proves a repeating need carries
+  its draft on the report's wire — `@FORGE skill:<name> | <when> | <how>` or
+  `@FORGE tool:<name> | <summary> | <argv>` (holes `{{param}}`). The harness files each draft
+  from the report it holds (the dispatcher's own result — a report past the 600-byte envelope or
+  cut by `@CAP` keeps its draft; the salvage turn, the orchestrator's final answer and the Claude Code
+  Stop hook file theirs too) as a shared note tagged `forge` with the drafting agent, its run and
+  a content hash; a line relayed up the ranks is filed once, as its drafter's. The working notes lists
+  open drafts by that hash (`/forge`, `agent-one forge list`: name, version, agent, run, age, kind,
+  a tool's class), shows what a register would write (`show <id>`), and closes a draft with an
+  append-only mark (`reject <id> <why>`). A skill register writes
+  `.agent-one/crafted-skills/<name>/SKILL.md` in Claude Code's format (`name` in `[a-z0-9-]{1,64}`,
+  `description` the when, the agent the how) plus `version`, `status`, `by`, `provisioned`, `registered`; it
+  never overwrites — a newer draft of a crafted name shows as `v2` and lands only with
+  `--version`, the old file kept under `versions/`, and a name another home holds is refused. A
+  later agent whose doc names the skill holds it (`@T skill <name>`); any agent loads it with
+  `skill{name}`. A tool register writes `tools.custom.<name>` with its argv split by shell quoting (a
+  pipeline refused), its class from the classifier (never a hard-coded `write`), an interpreter
+  running a string (`bash -c`, `python -c`, `node -e`, `eval`) refused unless `--force`, an
+  outward or destructive tool landing only on the human's yes (`--yes` headless), the YAML
+  printed before it is written, and `crafted: {by, run, at, draft}` provenance. The `remember`
+  tool refuses the forge's tags. `policy.forge.demandAtSteps` (12; 0 = off, reported as switched
+  off) asks any turn that long, once, for its draft — with or without `policy.closingCheck`.
+
+- **One skill registry.** `discover.SkillBases` is the one list of skill homes, in one
+  precedence — the workspace's `crafted-skills`, its `base-skills`, the host's project dirs, its
+  global dirs, then the binary's own — read alike by the session's discovery (`status`'s skills,
+  the `skill` tool), the toolbox, memory and the ontology, under the distribution's workspace dir. A
+  name with two homes is an `@?` hole naming both paths, never a silent shadow.
 
 - **The container's trust (policy.humanGate.trustContainer).** Inside the harness's own runtime
   container — `<PREFIX>DOCKER_AGENT=1`, set only by the harness's own container argv, spoofable by
@@ -248,6 +315,15 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **A rank has one spelling.** `rank.Canon` (lower case, hyphenated) is used by config, the
+  workspace, the ontology's team, the board, the portraits' file names and the TUI's keys;
+  `auditor`, `auditor` and `Auditor` are read as `auditor`.
+- **Config is the one source of the default promotion band**; the workspace's table carries none.
+- **`status` names numeric and string switches** (`policy.stress.escalateAt`, `.relieveAt`,
+  `policy.doomLoop.threshold`, `policy.guts.benchThrashVisits`, `.digestEvery`,
+  `policy.budget.salvageTokens`, an empty `promotesWhen`) like any `enabled: false`; a guts floor of 0
+  is honoured and a positive one refused.
+
 - **`--containered` is now `--docker-agent`** — the flag that runs the whole binary inside a Docker
   container; the old name still works and says what it is called now. The marker inside the
   container is `<PREFIX>DOCKER_AGENT`.
@@ -283,6 +359,9 @@ All notable changes to Agent-One are recorded here. The format follows
   names the missing key and the rerun, and does not start a founding session it cannot finish.
 
 ### Fixed
+
+- A background Subagent's report that arrived while the session's turn was closing was lost; it now
+  waits in the inbox for the turn-done drain.
 
 - **The domain owner's verify check reads the zone worker's doc fresh.** A verify line the domain owner wrote earlier in
   the same turn now counts when it dispatches the zone worker.
