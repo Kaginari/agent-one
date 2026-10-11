@@ -167,7 +167,7 @@ func (s *Session) Run(ctx context.Context, cmd string, ro RunOptions) (Result, e
 		}
 		restarted = true
 	}
-	if ro.Network && s.opt.Sandbox.Mode() == sandbox.Bwrap {
+	if ro.Network && s.opt.Sandbox.Mode() != sandbox.None {
 		r, err := s.oneShot(ctx, cmd, ro)
 		r.Restarted = restarted
 		return r, err

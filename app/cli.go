@@ -101,7 +101,7 @@ func splitFlags(args []string) (cliFlags, []string) {
 	return f, rest
 }
 
-const globalFlags = "flags: --root <dir> --model <provider/id> --approve <classes> --dry-run --strict --set key=value --no-<feature> --format text|json|wire --json --quiet --session <id> --plain --no-board --containered [--image <ref>]"
+const globalFlags = "flags: --root <dir> --model <provider/id> --approve <classes> --dry-run --strict --set key=value --no-<feature> --format text|json|wire --json --quiet --session <id> --plain --no-board --docker-agent [--image <ref>]"
 
 // asked reports whether one of the flags is among the arguments, before a `--` that ends them.
 func asked(args []string, flags ...string) bool {
@@ -214,10 +214,10 @@ func Main(dist string, args []string, io IO, v Version) int {
 	if io.Err == nil {
 		io.Err = os.Stderr
 	}
-	if code, handled := Containered(dist, args, io); handled {
+	if code, handled := DockerAgent(dist, args, io); handled {
 		return code
 	}
-	args, _, _ = stripContainerFlags(args)
+	args, _, _, _ = stripContainerFlags(args)
 	helpFlag, versionFlag, replNamed := asked(args, "-h", "--help"), asked(args, "--version"), named(args, "repl")
 	name, args := command(args)
 	switch {

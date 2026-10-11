@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,7 @@ func TestNoneMode(t *testing.T) {
 	if nilS.Mode() != None || nilS.Status() == "" {
 		t.Fatal("nil sandbox is None")
 	}
+	onOS(t, "linux")
 	bad := New(Options{Enabled: true, Bwrap: "/nonexistent/bwrap"})
 	if bad.Mode() != None || bad.Why() == "" {
 		t.Fatalf("missing binary: %s %q", bad.Mode(), bad.Why())
@@ -133,5 +135,42 @@ func TestScrubCommonCredentialNames(t *testing.T) {
 	got := strings.Join(ScrubEnv(env, nil, nil), " ")
 	if got != "PUBLIC_URL=https://example.com/a@b NOTASECRET=1 TOKENIZER=bpe" {
 		t.Fatalf("scrubbed to %q", got)
+	}
+}
+
+// Inside the sandbox the home's credentials read as nothing and the host's processes are out of
+// sight, while the workspace itself stays writable.
+func TestBwrapMasksSecretsAndHostProcesses(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".ssh", "id_ed25519"), []byte("SECRET-KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".netrc"), []byte("machine x password SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	sb := New(Options{Enabled: true, Root: root, Timeout: 10 * time.Second})
+	if sb.Mode() != Bwrap {
+		t.Skip("bwrap unavailable: " + sb.Why())
+	}
+	run := func(script string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		out, _ := sb.Command(ctx, Call{Cwd: root}, os.Environ(), "bash", "-c", script).CombinedOutput()
+		return string(out)
+	}
+	if out := run("cat ~/.ssh/id_ed25519 ~/.netrc 2>/dev/null; ls -A ~/.ssh"); strings.Contains(out, "SECRET") || strings.Contains(out, "id_ed25519") {
+		t.Fatalf("a credential was readable inside the sandbox: %q", out)
+	}
+	// in its own pid namespace the command sees bwrap's init, the shell and ls — a handful, never the host
+	if n, err := strconv.Atoi(strings.TrimSpace(run("ls /proc | grep -c '^[0-9]'"))); err != nil || n > 8 {
+		t.Fatalf("the host's processes are visible inside the sandbox: %d pids (%v)", n, err)
+	}
+	if out := run("echo ok > inside.txt && cat inside.txt"); !strings.Contains(out, "ok") {
+		t.Fatalf("the workspace must stay writable: %q", out)
 	}
 }

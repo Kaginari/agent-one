@@ -9,9 +9,9 @@ import (
 	"github.com/Kaginari/agent-one/sandbox"
 )
 
-// newSandbox builds the bash sandbox from config: bwrap unless tools.bash.sandbox is none, the
-// workspace root and the machine-shared tier read-write, every provider's key variable dropped
-// from the child environment, envAllow honoured.
+// newSandbox builds the bash sandbox from config: the platform's fence (bwrap on Linux, Seatbelt
+// on macOS) unless tools.bash.sandbox is none, the workspace root and the machine-shared tier
+// read-write, every provider's key variable dropped from the child environment, envAllow honoured.
 func newSandbox(cfg *config.Config, root string) *sandbox.Sandbox {
 	var drop []string
 	for _, name := range cfg.ProviderNames() {
@@ -41,9 +41,12 @@ func newSandbox(cfg *config.Config, root string) *sandbox.Sandbox {
 
 // sandboxLine is the status line for the sandbox: the mode, and why when it is none.
 func sandboxLine(sb *sandbox.Sandbox) string {
-	if sb.Mode() == sandbox.Bwrap {
+	switch sb.Mode() {
+	case sandbox.Bwrap:
 		p := sb.Probe()
 		return "sandbox: bwrap (" + strings.TrimSpace(p.Path+" "+p.Version) + ")"
+	case sandbox.Seatbelt:
+		return sb.Status()
 	}
 	return "@? sandbox: none — " + sb.Why()
 }

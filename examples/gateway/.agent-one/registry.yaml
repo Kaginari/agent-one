@@ -16,7 +16,7 @@ tools:
 #   tokenEnv: ARTIFACTORY_TOKEN        # let through by name — give the agent a read-only token
 #   env: { GONOSUMDB: example.corp }
 
-# --containered pulls from the private registry.
+# --docker-agent pulls from the private registry.
 # containers:
 #   base: artifactory.example.corp/docker-remote/debian:bookworm-slim
 #   apt:  https://artifactory.example.corp/artifactory/debian-remote

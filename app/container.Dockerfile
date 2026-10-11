@@ -1,4 +1,4 @@
-# The runtime a containered session runs in (--containered; canon/binary.md). The binary is not in
+# The runtime a docker-agent session runs in (--docker-agent). The binary is not in
 # the image: it is mounted read-only from the host, so the image never goes stale with it. The
 # agent's bash sees these tools; name a richer image with --image <ref> or registry.containers.image.
 # BASE and APT come from registry.containers: a private registry's mirror of the base image, and an

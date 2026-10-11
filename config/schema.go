@@ -341,7 +341,7 @@ type HumanGate struct {
 	Approve []string `json:"approve"`
 	DryRun  bool     `json:"dryRun"`
 	// TrustContainer: true = when the harness lives inside its own runtime container
-	// (<PREFIX>CONTAINERED=1 — set only by container.go's argv, never by an agent), every action
+	// (<PREFIX>DOCKER_AGENT=1 — set only by container.go's argv, never by an agent), every action
 	// class reads as pre-approved: the sandbox is the membrane, so outward/destructive no
 	// longer ask. The guard denylist still refuses first (the workspace dir is mounted read-write,
 	// inside the container or not).
@@ -712,7 +712,7 @@ type Guard struct {
 
 // Registry is where things come from: the models a gateway serves, the external tools the toolbox
 // indexes, the package registries (a private Artifactory) the shell and the container use, and the
-// container registry --containered pulls from. Keys and tokens are named, never written.
+// container registry --docker-agent pulls from. Keys and tokens are named, never written.
 type Registry struct {
 	// Models is the model catalogue, keyed "<provider>/<model-id>"; each entry joins
 	// providers.<provider>.models unless the provider already declares it.
@@ -744,9 +744,9 @@ type Packages struct {
 	Env      map[string]string `json:"env"` // anything else: PIP_TRUSTED_HOST, GONOSUMDB, CARGO_REGISTRIES_…
 }
 
-// Containers is --containered's registry: a prebuilt runtime image, or the base and apt mirror to
+// Containers is --docker-agent's registry: a prebuilt runtime image, or the base and apt mirror to
 // build one from.
-// Containers is --containered's registry: a prebuilt runtime image, or the base and apt mirror to
+// Containers is --docker-agent's registry: a prebuilt runtime image, or the base and apt mirror to
 // build one from. Login fields resolve env-first (usernameEnv/tokenEnv) with literal fallback
 // (username/token); the values never print, never log.
 type Containers struct {

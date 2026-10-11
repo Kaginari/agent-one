@@ -20,8 +20,9 @@ into a **workspace** governed by [`AGENT-ONE.md`](AGENT-ONE.md) and runs the age
 - **Human approval** — every action is classified (`read` · `write` · `outward` ·
   `destructive`) before it runs. Outward and destructive actions ask you; per-command rules
   (`bash:git push*` → allow / ask / deny) tune it. A model can only make a classification stricter.
-- **Sandbox** — `bash` runs in a persistent shell under `bwrap`: read-only filesystem except the
-  workspace, no network unless the action was approved as outward, secrets stripped from the env.
+- **Sandbox** — `bash` runs in a persistent shell under `bwrap` (Linux) or Seatbelt (macOS):
+  read-only filesystem except the workspace, no network unless the action was approved as outward,
+  secrets stripped from the env.
 - **Native memory** — recall before every step, record after; knowledge the agent held but never
   wrote down is surfaced and filed. When the context window fills, it is **drained** to memory by
   reference instead of being summarized away.
@@ -44,10 +45,11 @@ Release archives for linux/macOS × amd64/arm64 ship with `checksums.txt` and bu
 `gh attestation verify <archive> --repo Kaginari/agent-one`. A container image to try the binary:
 `docker run --rm -it -e ANTHROPIC_API_KEY -v "$PWD:/work" ghcr.io/kaginari/agent-one:latest` — the
 binary alone on Debian slim (no bubblewrap, git or toolchains); for real work in a container use
-`--containered`, which builds a runtime with them.
+`--docker-agent`, which builds a runtime with them.
 
 **Requirements.** Linux or macOS. `bubblewrap` (`bwrap`) for the sandboxed shell on Linux — without it
-the shell runs unsandboxed and `status` says so; macOS has no bwrap. Docker for `--containered`.
+the shell runs unsandboxed and `status` says so; macOS uses its built-in `sandbox-exec`. Docker for
+`--docker-agent`.
 Chromium or Chrome for `ui check`'s screenshots.
 
 **Data boundary.** No telemetry. The binary contacts only the providers you configure (and the
@@ -171,7 +173,7 @@ everything the workspace enforces without asking an agent to believe anything.
 **Never in any prompt — coded and enforced:**
 
 - the guard (dangerous commands refused before any approval) and the gate (who may approve)
-- the sandbox knot (bwrap / `--containered` envelope)
+- the sandbox knot (bwrap / the `--docker-agent` container)
 - budgets read as instruments: context window % readings, stress-zone behavior, session wallets
 - the closing witness's admissibility rule (machine-check or independent method)
 - the guts' scoring, the echo penalty, and where every reading journals
@@ -240,7 +242,7 @@ reviews the change before the turn is done:
 | `ui init\|scan\|check` | web pages built from one token system: lay the foundation, regenerate the legend, lint and screenshot at 360/768/1280 in both themes |
 | `dash [--open]` | the session in the browser: the console, the neural net, metrics, relations; approvals answered there |
 | `board` | the board and a read-only dashboard without a session, on 127.0.0.1 |
-| `--containered` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
+| `--docker-agent` | the whole binary in a Docker container: the workspace read-write, the rest read-only |
 | `init [--level light\|medium\|complex]` | found a workspace: the policy only; a team read from the tree with no model — the build files (go.mod, package.json workspaces, pyproject, Cargo, Maven, Gradle), sizes and imports give a zone worker per package or module dir, domain owners over related zone workers, a coordinator per three domain owners (lane coordinators and a design coordinator on a large project), a service owner for CI and infra, verify lines only where tests exist, existing docs kept; or a founding session that reads all the code and decides the coordinators, domain owners, zone workers, service owner, skills, agents and relations |
 | `selftest` · `version` | |
 
@@ -266,7 +268,7 @@ Providers prefer `apiKeyEnv` (name the variable, never the value). Where an env 
 headless containers — the designated escape is `providers.<name>.apiKey` holding the
 literal; every other field still refuses credentials in a file (headers, urls, unknown keys).
 
-`--containered`'s registry pulls authenticate the same way: env-first, literal fallback —
+`--docker-agent`'s registry pulls authenticate the same way: env-first, literal fallback —
 `registry.containers: { usernameEnv, tokenEnv }` or `{ username, token }`. Docker receives the
 token on stdin, never argv.
 
@@ -323,7 +325,7 @@ packages:                                   # set in every shell command and in 
   go:  https://artifactory.example.corp/artifactory/api/go/go-remote
   tokenEnv: ARTIFACTORY_TOKEN               # let through by name — the agent can read it: use a read-only token
   env: { GONOSUMDB: example.corp }
-containers:                                 # for --containered
+containers:                                 # for --docker-agent
   base: artifactory.example.corp/docker-remote/debian:bookworm-slim
   apt:  https://artifactory.example.corp/artifactory/debian-remote
   # image: artifactory.example.corp/docker-local/agent-one-runtime:1   # pull a prebuilt runtime instead
@@ -423,19 +425,85 @@ and 1280px in light and dark, failing any component that scrolls sideways. The g
 every turn that touched the ui dir (`policy.gate.ui`). A project already on Tailwind, Bootstrap or a
 design-system package keeps it: the skill follows the existing system.
 
-## Safety, in code
+## Security
 
-Beyond the review gate, human approval and the sandbox described above:
+Defence in layers: what an agent may do is decided in code, before and around every act — never by
+asking the model to behave.
 
+- **Every act is classed** — read, write, outward (leaves the machine: network, `git push`, a
+  read of `/etc` or your home's secrets) or destructive (`rm -rf`, `git reset --hard`, history
+  rewrites). Writes stay inside the workspace's ownership; outward and destructive acts ask you first
+  (the human gate), in the terminal or the dashboard. A command is classed by its real name
+  however it is called (`/usr/bin/git`, `\rm`, `sudo env -i /bin/rm`, `xargs`, `bash -c "…"`), and
+  an allow rule never carries a chained act (`npm test && curl …` needs the curl allowed too).
 - **The guard** — the catastrophic and irreversible are refused before any approval, held to a
-  151-case test corpus; `agent-one guard install --yes` wires the same list into Claude Code and
+  155-case test corpus; `agent-one guard install --yes` wires the same list into Claude Code and
   OpenCode (without `--yes` it only shows the change).
-- **The review gate, hardened** — it runs the checks as they were before the turn, fails a turn that
-  deleted or skipped tests, and sends a failure back to the model once, then to you.
+- **The review gate** — at the end of a turn it checks the author, the members' verify lines as they
+  stood *before* the turn (an agent never runs a check it just wrote), the duties and the docs; it
+  fails a turn that deleted or skipped tests and sends a failure back once, then to you.
+- **A clone cannot loosen the policy** — the tracked `.agent-one/config.yaml` may tighten but never
+  switch off the human gate or pre-approve outward/destructive acts; that only comes from
+  `config.local.yaml` or your global config, and `status` names every standing approval.
+- **Secrets never ride along** — API keys are named by their environment variable, never written
+  in a file; every child process gets a scrubbed environment (names holding `API_KEY`, `TOKEN`,
+  `SECRET`, `PASSWORD`, `PRIVATE_KEY`, `ACCESS_KEY`, `CREDENTIAL`, and URLs carrying a password).
+- **Every command has a deadline** — a timeout kills the command's whole process tree.
+- **The dashboard** binds `127.0.0.1` only, guards every act with a session token and a same-origin
+  check, and serves a strict self-only Content-Security-Policy (no CDN, fonts bundled).
+- **Inside Claude Code** the hooks only ever tighten Claude Code's own permissions — they deny or
+  ask, never allow.
 - **Dry-run and previews** — `--dry-run` plans and shows what it would run or ask, running nothing;
-  every edit shows its diff; `/board` and `ctrl+t` show every agent live.
-- **The sandbox** (`bwrap`) or **the container** (`--containered`: the workspace read-write, the rest
-  read-only, pulled or built from your private registry).
+  every edit shows its diff; `ctrl+t` and the dashboard show every agent live.
+
+### The sandbox
+
+Every shell command, verify line, hook and custom tool runs fenced, by the platform's own
+sandbox, probed once at start — on **Linux** [bubblewrap](https://github.com/containers/bubblewrap)
+(`bwrap`), on **macOS** Seatbelt (`/usr/bin/sandbox-exec`). `agent-one status` prints
+`sandbox: bwrap (<version>)` or `sandbox: seatbelt (sandbox-exec)`, or why it is off:
+
+| inside the sandbox | Linux (bwrap) | macOS (Seatbelt) |
+|---|---|---|
+| the workspace's directory | read-write | read-write |
+| temp | a private `/tmp` | read-write `/tmp` and `$TMPDIR` (`/private/var/folders`) — shared with the host |
+| the rest of the disk | read-only | read-only |
+| your credentials — `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud`, `~/.config/gh`, password stores, keyrings, browser profiles | masked: they read as empty | denied (read and write), plus `~/Library/Keychains`, `~/Library/Cookies` and the Safari, Chrome, Chromium, Brave, Edge, Firefox and Arc profiles |
+| the network | off, unless the act passed the human gate as outward | off but loopback and unix sockets (DNS too), unless outward |
+| other processes | out of sight (own pid, ipc and uts namespaces) | still listed (`ps`), but cannot be inspected or signalled |
+| the command's life | dies with agent-one; killed whole at its timeout | killed whole at its timeout |
+
+It is a strong fence for a coding agent, not a virtual machine: the read-only rest of the disk is
+still readable (the classifier asks before an outward read, the sandbox does not hide it), and
+bwrap needs unprivileged user namespaces — some kernels and containers refuse them, and then the
+shell runs unsandboxed and `status` says so. `tools.bash.sandbox: none` turns it off on purpose,
+on either OS (`bwrap`, the default, means "the platform's fence" on a Mac too).
+
+On a Mac, Seatbelt's limits:
+
+- **It starts from allow-all and fences** — writes, network, credentials, other processes, Apple
+  Events to other apps, LaunchServices (`open`) and the clipboard — rather than denying all and
+  listing what toolchains need, which breaks Xcode, JVMs and native builds it cannot foresee (the
+  choice Bazel's macOS sandbox makes). Mach IPC otherwise stays open: a hostile binary could ask
+  launchd (`launchctl`) to start something outside the fence, and the login keychain answers the
+  `security` tool through its own prompts. It fences a model's mistakes; for untrusted code use
+  `--docker-agent`.
+- **No pid namespace** — other processes stay visible to `ps`; a command does not die with
+  agent-one if agent-one itself is killed hard (it still dies at its timeout).
+- **Loopback and unix sockets stay open** with the network off, so a test can serve itself — and
+  a local daemon (a database on `localhost`, Docker's socket, `ssh-agent`) stays reachable, as
+  under bwrap.
+- **Caches under your home are read-only** (`~/Library/Caches`, so `GOCACHE`): point them into
+  the workspace or `$TMPDIR`.
+- **`sandbox-exec` is deprecated by Apple** but ships with every macOS and runs Codex CLI's and
+  Claude Code's sandboxes. agent-one's CI has no Mac: `go test ./sandbox/ -run Seatbelt -v` on a Mac
+  proves the fence there; if this macOS refuses the profile, `status` says `sandbox: none —
+  sandbox-exec refused: …`.
+
+For a harder boundary on either OS, **`--docker-agent`** runs the whole binary inside a Docker
+container (Docker Desktop, OrbStack or colima on a Mac): the workspace mounted read-write, the rest
+read-only, pulled or built from your private registry (`registry.containers`). Inside it,
+`policy.humanGate.trustContainer` lets the container be the membrane.
 
 ## Benchmarks
 

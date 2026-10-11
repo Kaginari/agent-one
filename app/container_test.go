@@ -16,7 +16,7 @@ func TestContainerArgsMountTheWorldReadWriteAndTheRestReadOnly(t *testing.T) {
 	for _, want := range []string{
 		"-v /w:/w ", "-v /opt/agent-one:/usr/local/bin/agent-one:ro", "-v /home/u/.config/agent-one:/home/u/.config/agent-one:ro",
 		"-v /home/u/.local/share/agent-one:/home/u/.local/share/agent-one ", "--user 1000:1000", "-e OPENROUTER_API_KEY ",
-		"-e AGENT_ONE_CONTAINERED=1", "-e ARTIFACTORY_TOKEN ", "-e NPM_CONFIG_REGISTRY=https://art/npm/", "-w /w/src agent-one-runtime:x /usr/local/bin/agent-one run hi", "--network host",
+		"-e AGENT_ONE_DOCKER_AGENT=1", "-e ARTIFACTORY_TOKEN ", "-e NPM_CONFIG_REGISTRY=https://art/npm/", "-w /w/src agent-one-runtime:x /usr/local/bin/agent-one run hi", "--network host",
 	} {
 		if !strings.Contains(got+" ", want) {
 			t.Fatalf("docker argv misses %q:\n%s", want, got)
@@ -28,11 +28,11 @@ func TestContainerArgsMountTheWorldReadWriteAndTheRestReadOnly(t *testing.T) {
 }
 
 func TestContainerFlagsAndEnv(t *testing.T) {
-	rest, on, img := stripContainerFlags([]string{"--containered", "--image", "my:img", "run", "x", "--image=ignored-later"})
+	rest, on, img, _ := stripContainerFlags([]string{"--docker-agent", "--image", "my:img", "run", "x", "--image=ignored-later"})
 	if !on || img != "ignored-later" || strings.Join(rest, " ") != "run x" {
 		t.Fatalf("strip: %v %v %q", rest, on, img)
 	}
-	keys := strings.Join(passEnv("agent-one", []string{"PATH=/bin", "HOME=/h", "OPENROUTER_API_KEY=k", "AGENT_ONE_THEME=light", "AGENT_ONE_CONTAINERED=1", "TERM=xterm", "AWS_SECRET=s"}), " ")
+	keys := strings.Join(passEnv("agent-one", []string{"PATH=/bin", "HOME=/h", "OPENROUTER_API_KEY=k", "AGENT_ONE_THEME=light", "AGENT_ONE_DOCKER_AGENT=1", "TERM=xterm", "AWS_SECRET=s"}), " ")
 	if keys != "AGENT_ONE_THEME OPENROUTER_API_KEY TERM" {
 		t.Fatalf("passed env %q", keys)
 	}
@@ -43,12 +43,12 @@ func TestContainerFlagsAndEnv(t *testing.T) {
 
 func TestContaineredIsANoOpInside(t *testing.T) {
 	io := IO{Env: func(k string) string {
-		if k == "AGENT_ONE_CONTAINERED" {
+		if k == "AGENT_ONE_DOCKER_AGENT" {
 			return "1"
 		}
 		return ""
 	}}
-	if _, handled := Containered("agent-one", []string{"--containered", "status"}, io); handled {
+	if _, handled := DockerAgent("agent-one", []string{"--docker-agent", "status"}, io); handled {
 		t.Fatal("inside the container the flag must not start another one")
 	}
 }
@@ -61,7 +61,7 @@ func TestTrustContainerPreapprovesInsideOnly(t *testing.T) {
 	cfg.Dist.Name = "agent-one"
 	cfg.Policy.HumanGate.TrustContainer = true
 	envIn := func(k string) string {
-		if k == "AGENT_ONE_CONTAINERED" {
+		if k == "AGENT_ONE_DOCKER_AGENT" {
 			return "1"
 		}
 		return ""
@@ -151,4 +151,16 @@ func TestRegistryToolsReachTheToolbox(t *testing.T) {
 		}
 	}
 	t.Fatal("a registry.tools entry is not in the toolbox")
+}
+
+// The flag's former name still runs the agent, and says what it is called now.
+func TestContaineredIsTheDockerAgentsFormerName(t *testing.T) {
+	_, on, _, legacy := stripContainerFlags([]string{"--containered", "run", "x"})
+	if !on || !legacy {
+		t.Fatalf("--containered must still turn the docker agent on (on=%v legacy=%v)", on, legacy)
+	}
+	_, on, _, legacy = stripContainerFlags([]string{"--docker-agent", "run", "x"})
+	if !on || legacy {
+		t.Fatalf("--docker-agent is the flag (on=%v legacy=%v)", on, legacy)
+	}
 }

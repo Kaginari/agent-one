@@ -20,7 +20,7 @@ import (
 	"github.com/Kaginari/agent-one/workspace"
 )
 
-// --containered runs the binary itself inside a Docker container: the
+// --docker-agent runs the binary itself inside a Docker container: the
 // workspace mounted read-write at its own path, what the session needs from the host mounted
 // read-only, the session store read-write, the host network (the model API and the board), the
 // caller's uid. The container is the boundary, so the tool sandbox does not nest inside it.
@@ -28,7 +28,7 @@ import (
 //go:embed container.Dockerfile
 var runtimeDockerfile []byte
 
-// ContainerSpec is everything a containered run is made of; Args builds the docker argv from it.
+// ContainerSpec is everything a docker-agent run is made of; Args builds the docker argv from it.
 type ContainerSpec struct {
 	Dist    string
 	Image   string
@@ -47,7 +47,7 @@ type ContainerSpec struct {
 }
 
 // containerEnvVar marks a process already inside; the flag is then ignored.
-func containerEnvVar(dist string) string { return prefixOf(dist) + "CONTAINERED" }
+func containerEnvVar(dist string) string { return prefixOf(dist) + "DOCKER_AGENT" }
 
 func prefixOf(dist string) string { return strings.ToUpper(strings.ReplaceAll(dist, "-", "_")) + "_" }
 
@@ -131,12 +131,15 @@ func passEnv(dist string, environ []string) []string {
 	return out
 }
 
-// stripContainerFlags drops --containered and --image <x> from the argv the inner binary gets.
-func stripContainerFlags(args []string) (rest []string, on bool, image string) {
+// stripContainerFlags drops --docker-agent (and its former name --containered, still accepted)
+// and --image <x> from the argv the inner binary gets; legacy reports the old name was used.
+func stripContainerFlags(args []string) (rest []string, on bool, image string, legacy bool) {
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
-		case a == "--containered":
+		case a == "--docker-agent":
 			on = true
+		case a == "--containered":
+			on, legacy = true, true
 		case a == "--image" && i+1 < len(args):
 			image = args[i+1]
 			i++
@@ -146,21 +149,24 @@ func stripContainerFlags(args []string) (rest []string, on bool, image string) {
 			rest = append(rest, a)
 		}
 	}
-	return rest, on, image
+	return rest, on, image, legacy
 }
 
-// Containered runs the binary inside the container and returns its exit code; handled false
+// DockerAgent runs the binary inside the container and returns its exit code; handled false
 // means the flag was absent or the process is already inside, and Main goes on.
-func Containered(dist string, args []string, io IO) (code int, handled bool) {
-	rest, on, image := stripContainerFlags(args)
+func DockerAgent(dist string, args []string, io IO) (code int, handled bool) {
+	rest, on, image, legacy := stripContainerFlags(args)
 	if !on {
 		return 0, false
+	}
+	if legacy {
+		fmt.Fprintf(io.Err, "@? --containered is now --docker-agent; the old name still works for now\n")
 	}
 	if io.Env(containerEnvVar(dist)) != "" {
 		return 0, false // already inside: the flag is a no-op
 	}
 	fail := func(format string, a ...any) (int, bool) {
-		fmt.Fprintf(io.Err, "@S FAIL\n@? --containered: "+format+"\n", a...)
+		fmt.Fprintf(io.Err, "@S FAIL\n@? --docker-agent: "+format+"\n", a...)
 		return 2, true
 	}
 	docker, err := exec.LookPath("docker")
@@ -263,7 +269,7 @@ func ensureImage(docker, image string, c config.Containers, w io.Writer) error {
 	if exec.Command(docker, "image", "inspect", image).Run() == nil {
 		return nil
 	}
-	fmt.Fprintf(w, "building the runtime image %s (first containered run; pulls its base image)…\n", image)
+	fmt.Fprintf(w, "building the runtime image %s (first docker-agent run; pulls its base image)…\n", image)
 	args := []string{"build", "-t", image}
 	if c.Base != "" {
 		args = append(args, "--build-arg", "BASE="+c.Base)

@@ -1,8 +1,10 @@
-// Package sandbox runs a command under bubblewrap: the filesystem read-only except the workspace
-// root and a private /tmp, no network unless the call passed the human gate as outward, the
-// child dying with its parent. Where bwrap is missing or cannot run (some kernels and
-// containers refuse user namespaces) the mode is None and the reason is kept for `status`.
-// Secrets never cross: the environment is scrubbed before any child sees it.
+// Package sandbox runs a command fenced: under bubblewrap on Linux, under Seatbelt
+// (sandbox-exec) on macOS. Either way the filesystem is read-only except the workspace root and the
+// temp dirs, the home's credential paths read as nothing, and there is no network unless the call
+// passed the human gate as outward. Where the fence is missing or cannot run (some kernels and
+// containers refuse user namespaces; a Mac whose sandbox-exec refuses the profile) the mode is
+// None and the reason is kept for `status`. Secrets never cross: the environment is scrubbed
+// before any child sees it.
 package sandbox
 
 import (
@@ -12,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,8 +25,9 @@ import (
 type Mode string
 
 const (
-	Bwrap Mode = "bwrap"
-	None  Mode = "none"
+	Bwrap    Mode = "bwrap"    // Linux: bubblewrap
+	Seatbelt Mode = "seatbelt" // macOS: sandbox-exec with an SBPL profile
+	None     Mode = "none"
 )
 
 // Options is the sandbox configuration; the integrator fills it from config.
@@ -31,7 +35,7 @@ type Options struct {
 	Enabled  bool     // false: Mode None, why "disabled by config"
 	Root     string   // the workspace root, bound read-write
 	RWPaths  []string // more read-write binds (the machine-shared tier, a build cache)
-	Bwrap    string   // the bwrap binary; "" looks it up on PATH
+	Bwrap    string   // the bwrap binary; "" looks it up on PATH (Linux only; Seatbelt is always /usr/bin/sandbox-exec)
 	EnvDrop  []string // more env names to drop; `*` globs allowed (e.g. AWS_*)
 	EnvAllow []string // names that survive scrubbing; wins over every drop rule
 	EnvSet   []string // NAME=value set after scrubbing (the package registries); wins over the process env
@@ -44,8 +48,9 @@ type Call struct {
 	Cwd     string
 }
 
-// Probe is the reading from trying bwrap once.
+// Probe is the reading from trying the platform's fence once.
 type Probe struct {
+	Mode      Mode // the fence probed: Bwrap or Seatbelt ("" reads as Bwrap)
 	Available bool
 	Path      string
 	Version   string
@@ -70,18 +75,21 @@ func (s *Sandbox) Options() Options {
 	return s.opt
 }
 
-// Mode reports bwrap or none.
+// Mode reports bwrap, seatbelt or none.
 func (s *Sandbox) Mode() Mode {
 	if s == nil || !s.opt.Enabled {
 		return None
 	}
-	if s.Probe().Available {
-		return Bwrap
+	if p := s.Probe(); p.Available {
+		if p.Mode == "" {
+			return Bwrap
+		}
+		return p.Mode
 	}
 	return None
 }
 
-// Why explains a None mode; "" under bwrap.
+// Why explains a None mode; "" under a fence.
 func (s *Sandbox) Why() string {
 	if s == nil {
 		return "no sandbox configured"
@@ -92,13 +100,31 @@ func (s *Sandbox) Why() string {
 	return s.Probe().Why
 }
 
-// Probe runs bwrap once with the options the sandbox will use and caches the result.
+// Probe tries the platform's fence once and caches the result: bwrap on Linux, Seatbelt on
+// macOS, nothing elsewhere.
 func (s *Sandbox) Probe() Probe {
 	if s == nil {
 		return Probe{Why: "no sandbox configured"}
 	}
-	s.once.Do(func() { s.probe = ProbeBwrap(s.opt.Bwrap, s.opt.Timeout) })
+	s.once.Do(func() { s.probe = probeFor(hostOS, s.opt) })
 	return s.probe
+}
+
+// The OS and the probes are variables so the choice of fence is testable on any machine.
+var (
+	hostOS        = runtime.GOOS
+	probeBwrap    = ProbeBwrap
+	probeSeatbelt = ProbeSeatbelt
+)
+
+func probeFor(goos string, opt Options) Probe {
+	switch goos {
+	case "linux":
+		return probeBwrap(opt.Bwrap, opt.Timeout)
+	case "darwin":
+		return probeSeatbelt(SeatbeltBin, opt.Timeout)
+	}
+	return Probe{Why: "no sandbox for " + goos + " (bwrap is Linux's, Seatbelt macOS's)"}
 }
 
 // ProbeBwrap tries to run /bin/true under bwrap with the flags this package uses and reports
@@ -107,7 +133,7 @@ func ProbeBwrap(bin string, timeout time.Duration) Probe {
 	if bin == "" {
 		p, err := exec.LookPath("bwrap")
 		if err != nil {
-			return Probe{Why: "bwrap not on PATH"}
+			return Probe{Mode: Bwrap, Why: "bwrap not on PATH"}
 		}
 		bin = p
 	}
@@ -125,9 +151,9 @@ func ProbeBwrap(bin string, timeout time.Duration) Probe {
 		if why == "" {
 			why = err.Error()
 		}
-		return Probe{Path: bin, Version: strings.TrimSpace(string(ver)), Why: "bwrap cannot run here: " + firstLine(why)}
+		return Probe{Mode: Bwrap, Path: bin, Version: strings.TrimSpace(string(ver)), Why: "bwrap cannot run here: " + firstLine(why)}
 	}
-	return Probe{Available: true, Path: bin, Version: strings.TrimSpace(string(ver))}
+	return Probe{Mode: Bwrap, Available: true, Path: bin, Version: strings.TrimSpace(string(ver))}
 }
 
 func firstLine(s string) string {
@@ -143,9 +169,11 @@ func baseArgs(opt Options, call Call) []string {
 		"--tmpfs", "/tmp",
 		"--dev", "/dev",
 		"--proc", "/proc",
+		"--unshare-pid", "--unshare-ipc", "--unshare-uts", // the child sees its own processes only
 		"--die-with-parent",
 		"--new-session",
 	}
+	args = append(args, maskSecrets()...)
 	if opt.Root != "" {
 		args = append(args, "--bind", opt.Root, opt.Root)
 	}
@@ -165,12 +193,48 @@ func baseArgs(opt Options, call Call) []string {
 	return args
 }
 
-// Wrap prefixes argv with the bwrap invocation for this call; under None it returns argv as is.
+// secretHomes are the home paths that hold credentials: inside the sandbox each existing one is
+// masked — an empty tmpfs over a directory, /dev/null over a file — so a command reads nothing
+// there even though the rest of the disk is readable.
+var secretHomes = []string{
+	".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".netrc", ".git-credentials", ".npmrc",
+	".pypirc", ".config/gcloud", ".config/gh", ".config/hub", ".password-store", ".local/share/keyrings",
+	".mozilla", ".config/google-chrome", ".config/chromium", ".config/BraveSoftware", "snap/chromium",
+}
+
+func maskSecrets() []string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return nil
+	}
+	var out []string
+	for _, rel := range secretHomes {
+		p := path.Join(home, rel)
+		fi, err := os.Stat(p)
+		switch {
+		case err != nil:
+			continue
+		case fi.IsDir():
+			out = append(out, "--tmpfs", p)
+		default:
+			out = append(out, "--ro-bind", "/dev/null", p)
+		}
+	}
+	return out
+}
+
+// Wrap prefixes argv with the fence's invocation for this call — bwrap's flags, or
+// sandbox-exec's profile and parameters; under None it returns argv as is.
 func (s *Sandbox) Wrap(call Call, argv []string) []string {
-	if s.Mode() != Bwrap {
+	var out []string
+	switch s.Mode() {
+	case Bwrap:
+		out = append([]string{s.probe.Path}, baseArgs(s.opt, call)...)
+	case Seatbelt:
+		out = append([]string{s.probe.Path}, seatbeltArgs(s.opt, call)...)
+	default:
 		return argv
 	}
-	out := append([]string{s.probe.Path}, baseArgs(s.opt, call)...)
 	out = append(out, "--")
 	return append(out, argv...)
 }
@@ -285,8 +349,11 @@ func match(pattern, name string) bool {
 
 // Status renders the sandbox for the status board.
 func (s *Sandbox) Status() string {
-	if s.Mode() == Bwrap {
+	switch s.Mode() {
+	case Bwrap:
 		return fmt.Sprintf("sandbox: bwrap (%s)", s.probe.Version)
+	case Seatbelt:
+		return "sandbox: seatbelt (sandbox-exec)"
 	}
 	return "sandbox: none — " + s.Why()
 }

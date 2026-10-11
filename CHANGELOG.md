@@ -8,6 +8,18 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **A native sandbox on macOS: Seatbelt.** On a Mac every shell command, verify line, hook,
+  custom tool and stdio MCP server now runs under `/usr/bin/sandbox-exec` with a profile that
+  mirrors bwrap's fence: writes only to the workspace, its read-write paths and the temp dirs; no
+  network but loopback and unix sockets unless the act passed the gate as outward; the home's
+  credentials (plus the keychains, cookies and browser profiles) unreadable; other processes not
+  inspectable or signalable; Apple Events, LaunchServices and the clipboard closed. Paths cross as
+  `-D` parameters, never as profile text. `status` prints `sandbox: seatbelt (sandbox-exec)`, or
+  `sandbox: none — sandbox-exec refused: …` when a macOS refuses the profile;
+  `tools.bash.sandbox: none` opts out. README's Security section has the table and the limits (no
+  pid namespace; allow-default with mach IPC open); `go test ./sandbox/ -run Seatbelt -v` on a Mac
+  proves it there.
+
 - **The terminal UI is one frame.** A window of 60×26 or more is a single box-drawn grid under the
   headroom row: a header (the brand on its gradient, the workspace, the model, the session and its
   state), the conversation titled in its edge, the input inside the main column only (never under
@@ -119,7 +131,7 @@ All notable changes to Agent-One are recorded here. The format follows
   and an existing `tools.custom` name is never overwritten.
 
 - **The container's trust (policy.humanGate.trustContainer).** Inside the harness's own runtime
-  container — `<PREFIX>CONTAINERED=1`, set only by the harness's own container argv, spoofable by
+  container — `<PREFIX>DOCKER_AGENT=1`, set only by the harness's own container argv, spoofable by
   no agent — every action class reads as pre-approved at the Gate: the sandbox is the membrane,
   so outward and destructive stop asking. The guard denylist still refuses first; the workspace dir
   mounts read-write inside the sandbox or out.
@@ -169,6 +181,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Security
 
+- **The sandbox hides the host's processes and your credentials.** bwrap now gives every command its
+  own pid, ipc and uts namespaces, and masks the home's credential paths (`~/.ssh`, `~/.gnupg`,
+  `~/.aws`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.config/gcloud`, `~/.config/gh`, keyrings, browser
+  profiles …) — they read as empty inside, while the workspace stays writable. README's new Security
+  section says what the sandbox fences, what it does not, and how to fence a Mac.
 - **The gate runs no command the model wrote this turn.** A verify line added to a member doc in
   the same turn is a hole for the gate holder, not a reading; every verify line and injected check
   runs under the sandbox (no network, secrets scrubbed, its process group killed at the timeout).
@@ -190,6 +207,9 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **`--containered` is now `--docker-agent`** — the flag that runs the whole binary inside a Docker
+  container; the old name still works and says what it is called now. The marker inside the
+  container is `<PREFIX>DOCKER_AGENT`.
 - **Promotion happens.** The principal coordinator and the principal domain owner promote by default on a long, clean record —
   `reports >= 20 && passRate >= 90% && holeRate <= 10%` (`ranks.principal-coordinator.promotesWhen`,
   `ranks.principal-domain-owner.promotesWhen`; `""` turns it off). A promoted rank lives in its own dir and
