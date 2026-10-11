@@ -86,6 +86,25 @@ agent-one install --claude --global --yes   # or for every workspace on this mac
 | `PostToolUse` | the paths a file tool wrote, for the gate |
 | `Stop` | the gate over everything the turn changed (shell writes too): an owned path changed without its doc, or a failing verify line, sends the turn back with the reasons; the verdict lands in `log.md` |
 
+### The workspace's memory over MCP
+
+`agent-one mcp serve` serves the workspace's memory to any MCP client on stdio — Claude Code, OpenCode,
+or another harness. Three tools, the instrument the binary's own loop uses: **`recall`** (what the
+workspace remembers about a question — log entries, docs, the policy, notes from earlier sessions, ranked
+by meaning, then by relation), **`remember`** (file a note every later session recalls; `machine:
+true` files it for every workspace on this machine) and **`memory_status`**. The workspace is the one found
+from the working directory up, or `--root <dir>`; a note filed by one client is recalled at once by
+any other, and by agent-one's own sessions.
+
+```sh
+claude mcp add agent-one-memory -- agent-one mcp serve        # Claude Code
+```
+
+```jsonc
+// .mcp.json (Claude Code) — or opencode.json: "mcp": { "agent-one-memory": { "type": "local", "command": ["agent-one", "mcp", "serve"] } }
+{ "mcpServers": { "agent-one-memory": { "command": "agent-one", "args": ["mcp", "serve"] } } }
+```
+
 ## The CLI, seen
 
 A working session: the ask up top, every classified step drawn as it lands:

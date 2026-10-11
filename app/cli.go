@@ -155,6 +155,7 @@ var commands = []struct{ name, summary string }{
 	{"status", "every reading — models, sandbox, guard, memory — and every policy feature switched off, with where"},
 	{"config", "config show [--yaml] | explain | check | path | patch"},
 	{"memory", "the memory instrument (status, index, recall, remember, forget)"},
+	{"mcp", "the workspace's memory as an MCP server on stdio — mcp serve (recall, remember, memory_status)"},
 	{"toolbox", "the toolbox instrument (index, brief, pick, load, status)"},
 	{"onto", "the ontology (check, project, query)"},
 	{"evolve", "the evolution queue (policy.evolution, propose mode): evolve list | show <id> | apply <id> | reject <id> <why>"},
@@ -282,6 +283,8 @@ func Main(dist string, args []string, io IO, v Version) int {
 		return config.CLI(append(cargs, rest...), io.Out, io.Err)
 	case "memory", "toolbox", "onto":
 		return cmdInstrument(name, dist, f, leftover, io)
+	case "mcp":
+		return cmdMCP(dist, f, leftover, io, v)
 	case "housekeep":
 		return cmdHousekeep(dist, f, io)
 	case "guard":
