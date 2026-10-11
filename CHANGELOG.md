@@ -30,6 +30,13 @@ doc rule and polices non-orchestrator agents exactly as before.
 
 ### Added
 
+- **A full runtime image for `--docker-agent`.** `docker/runtime/` builds the machine the agent works
+  in: Go, Node.js LTS with npm, pnpm and yarn, Python with pip and uv, build essentials, gopls,
+  staticcheck, ruff, pytest and a headless Chromium, every cache and global install under `/tmp` for
+  the session's uid; published as `montabouagina/kagirinai:v0.3.0` (`--image`, or
+  `registry.containers.image`). The README's terminal screens are the current TUI's, written by
+  `README_SHOTS`.
+
 - **Private package registries log in, and can be the only source.** `registry.packages.auth` (and
   `npmAuth`, `pipAuth`, `goAuth` over it) is the login each manager presents, written at every start
   under the workspace's `tmp/registry/`, owner-only: npm an npmrc whose bearer token stays a `${VAR}`

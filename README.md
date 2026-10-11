@@ -649,6 +649,19 @@ container (Docker Desktop, OrbStack or colima on a Mac): the workspace mounted r
 read-only, pulled or built from your private registry (`registry.containers`). Inside it,
 `policy.humanGate.trustContainer` lets the container be the membrane.
 
+The built-in runtime is a slim Debian with git, Python and the text tools. For a full one — Go,
+Node.js LTS with npm, pnpm and yarn, Python with pip and uv, build essentials, gopls, staticcheck,
+ruff, pytest and a headless Chromium — use the prebuilt image, or build it from
+[`docker/runtime/`](docker/runtime/Dockerfile):
+
+```bash
+agent-one --docker-agent --image montabouagina/kagirinai:v0.3.0
+# or keep it in config:  registry: { containers: { image: montabouagina/kagirinai:v0.3.0 } }
+```
+
+The session runs as your uid with a fresh tmpfs home, so tools keep their caches and global installs
+under `/tmp` (GOPATH, npm's global prefix, pip's user base) and leave nothing behind.
+
 ## Benchmarks
 
 Benchmarks run under [Harbor](https://github.com/harbor-framework/harbor) in Docker — one container
