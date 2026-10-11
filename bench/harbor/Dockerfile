@@ -1,7 +1,9 @@
 # The Harbor runner: Harbor's CLI in a container. Task containers are siblings started through
 # the host's Docker socket (mounted at run time), so nothing lands in the host's Python.
-FROM registry.example.com/docker:27-cli AS dockercli
-FROM registry.example.com/python:3.13-slim
+# REGISTRY: a private mirror of Docker Hub's official images; the default is Docker Hub itself
+ARG REGISTRY=docker.io/library
+FROM ${REGISTRY}/docker:27-cli AS dockercli
+FROM ${REGISTRY}/python:3.13-slim
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=dockercli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \

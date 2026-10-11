@@ -2,7 +2,9 @@
 # read-only from the host), so this is the machine the agent works in — the toolchains a coding
 # agent reaches for, ready offline once pulled.
 #
-#   docker build -t <repo>:<tag> docker/runtime
+# It is also the runtime --docker-agent builds on its first run when no image is named (embedded
+# as app/container.Dockerfile — the two are kept byte-equal by a test):
+#   docker build --network host -t <repo>:<tag> docker/runtime
 #   agent-one --docker-agent --image <repo>:<tag>      (or registry.containers.image in config)
 #
 # The session runs as your host uid with HOME a fresh tmpfs, so everything a tool writes for
@@ -10,6 +12,13 @@
 # gone with the container. The world itself is the bind-mounted project.
 ARG BASE=debian:bookworm-slim
 FROM ${BASE}
+
+# APT: a private apt mirror (an Artifactory debian remote) replaces deb.debian.org when set
+ARG APT=
+RUN if [ -n "$APT" ]; then \
+      sed -i "s#http://deb.debian.org/debian#${APT}#g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+      sed -i "s#http://deb.debian.org/debian#${APT}#g" /etc/apt/sources.list 2>/dev/null || true; \
+    fi
 
 ARG GO_VERSION=1.27.1
 ARG NODE_VERSION=24.21.0

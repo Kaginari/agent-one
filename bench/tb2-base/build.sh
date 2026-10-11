@@ -15,7 +15,7 @@
 set -euo pipefail
 
 B=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-DOCKER_PROXY=registry.example.com/alexgshaw
+DOCKER_PROXY=${DOCKER_PROXY:-docker.io/alexgshaw}
 TAG=20251031
 TASKS=${@:-"bn-fit-modify constraints-scheduling feal-differential-cryptanalysis filter-js-from-html fix-git gcode-to-text"}
 

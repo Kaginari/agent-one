@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -162,5 +163,16 @@ func TestContaineredIsTheDockerAgentsFormerName(t *testing.T) {
 	_, on, _, legacy = stripContainerFlags([]string{"--docker-agent", "run", "x"})
 	if !on || legacy {
 		t.Fatalf("--docker-agent is the flag (on=%v legacy=%v)", on, legacy)
+	}
+}
+
+// The runtime --docker-agent builds is the one docker/runtime/ documents and publishes.
+func TestEmbeddedRuntimeIsThePublishedOne(t *testing.T) {
+	b, err := os.ReadFile("../docker/runtime/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != string(runtimeDockerfile) {
+		t.Fatal("app/container.Dockerfile and docker/runtime/Dockerfile differ — keep them byte-equal")
 	}
 }

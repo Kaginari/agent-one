@@ -272,7 +272,9 @@ func ensureImage(docker, image string, c config.Containers, w io.Writer) error {
 		return nil
 	}
 	fmt.Fprintf(w, "building the runtime image %s (first docker-agent run; pulls its base image)…\n", image)
-	args := []string{"build", "-t", image}
+	// the host network: a bridge that cannot resolve (common behind a corporate DNS) would fail
+	// every apt and download step, and the session itself runs on the host network too
+	args := []string{"build", "--network", "host", "-t", image}
 	if c.Base != "" {
 		args = append(args, "--build-arg", "BASE="+c.Base)
 	}
