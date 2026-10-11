@@ -30,6 +30,13 @@ func TestNoForkedVocabularyLeaks(t *testing.T) {
 			if rel == ".git" || rel == "board/assets" || rel == "bin" { // bin/: a built binary is bytes, not words
 				return filepath.SkipDir
 			}
+			// the workspace's machine state: generated, gitignored, never shipped — the long
+			// index's snippets are cut at a fixed width ("orchestrator" can end as its first
+			// three letters), the journals are what a session wrote
+			switch rel {
+			case ".agent-one/memory/long", ".agent-one/memory/short", ".agent-one/instruments", ".agent-one/tmp":
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if rel == "FORKED.md" || rel == "discover/foreign.go" || rel == "discover/foreign_test.go" {
