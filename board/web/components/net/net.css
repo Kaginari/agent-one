@@ -1,4 +1,4 @@
-/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --ok, --warn, --danger, --focus, --focus-width, --weight-medium, --weight-bold, --font-code, --font-body, --step--2, --step--1, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --radius-m, --radius-l, --radius-pill, --hairline, --time, --time-slow, --ease, --font-heading, --tracking-label, --radius-s, --shadow. The workspace as a neural net: the hierarchy as layers (the orchestrator, then each rank, skills beside), every neuron a rank-coloured tile whose cells are its last four weeks of work, tree bonds weighted by the commissions they carried; hover or focus lights a neuron's path to the orchestrator and its subtree; a Subagent's dispatch travels down as a pulse and its report returns up. A 3D stage (WebGL2) draws the same tree as a brain: the orchestrator at the centre, each rank a shell further out, each lane a tinted region, the skills a crown above, every rank its own lit solid. */
+/* @component net — tokens: --surface, --ink, --ink-muted, --line, --accent, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --ok, --warn, --danger, --focus, --focus-width, --weight-medium, --weight-bold, --font-code, --font-body, --step--2, --step--1, --space-3xs, --space-2xs, --space-xs, --space-s, --space-m, --radius-m, --radius-l, --radius-pill, --hairline, --time, --time-slow, --ease, --font-heading, --tracking-label, --radius-s. The workspace as a neural net: the hierarchy as layers (the orchestrator, then each rank, skills beside), every neuron a rank-coloured tile whose cells are its last four weeks of work, tree bonds weighted by the commissions they carried; hover or focus lights a neuron's path to the orchestrator and its subtree; a Subagent's dispatch travels down as a pulse and its report returns up. A 3D stage (WebGL2) draws the same tree as a brain: the orchestrator at the centre, each rank a shell further out, each lane a tinted region, the skills a crown above, every rank its own lit solid. */
 @layer components {
   .net { position: relative; inline-size: 100%; --net-node: var(--ink-muted); }
   .net-frame { container-type: inline-size; min-inline-size: 0; }
@@ -7,10 +7,11 @@
      the stage, scrolling inside when the net is shorter than the card */
   .net-float { position: absolute; z-index: 4; inset-block-start: 4.75rem; inset-inline-end: var(--space-s);
     inline-size: min(22rem, calc(100% - 2 * var(--space-s))); max-block-size: calc(100% - 4.75rem - var(--space-s)); overflow: auto; overscroll-behavior: contain;
-    border-radius: var(--radius-m); box-shadow: var(--shadow); animation: net-float-in var(--time-slow) var(--ease); }
+    border-radius: var(--radius-m); animation: net-float-in var(--time-slow) var(--ease); }
   .net-float[hidden] { display: none; }
+  .panel-tools .button[hidden] { display: none; }
   /* in 3D the stage's own switches hold the corner: the card sits under them */
-  [data-net="3d"] .net-float { inset-block-start: 7.25rem; max-block-size: calc(100% - 7.25rem - var(--space-s)); }
+  [data-net="3d"] .net-float { inset-block-start: 8.75rem; max-block-size: calc(100% - 8.75rem - var(--space-s)); }
   @keyframes net-float-in { from { opacity: 0; transform: translateY(-0.4rem); } }
   @media (prefers-reduced-motion: reduce) { .net-float { animation: none; } }
   .net-layout { display: grid; gap: var(--space-m); grid-template-columns: minmax(0, 1fr); align-items: start; }

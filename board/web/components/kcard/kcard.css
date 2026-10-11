@@ -1,4 +1,4 @@
-/* @component kcard — tokens: --surface, --line, --ink, --ink-muted, --radius-m, --space-2xs, --space-xs, --space-s, --step--1, --step-0, --font-code, --hairline, --leading, --weight-bold, --radius-l, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --step--2, --tracking-label. The knowledge card of one node: the rank's face (its resolved portrait, else its family's glyph, ringed in the rank's hue), what it is, its value, what it owns, its bonds, the head of its doc. */
+/* @component kcard — tokens: --surface, --line, --ink, --ink-muted, --radius-m, --space-2xs, --space-xs, --space-s, --step--1, --step-0, --font-code, --hairline, --leading, --weight-bold, --radius-l, --series-1, --series-2, --series-3, --series-4, --series-5, --series-6, --step--2, --tracking-label, --accent, --ok, --time-slow, --ease, --focus, --focus-width, --radius-pill. The knowledge card of one node: the rank's face (its resolved portrait, else its family's glyph, ringed in the rank's hue), what it is, its value, what it owns, its bonds, the head of its doc. */
 @layer components {
   .kcard { display: grid; gap: var(--space-xs); padding: var(--space-s); background: var(--surface); border: var(--hairline) solid var(--line); border-radius: var(--radius-m); font-size: var(--step--1); }
   .kcard-title { font-size: var(--step-0); font-weight: var(--weight-bold); color: var(--ink); display: flex; flex-wrap: wrap; gap: var(--space-2xs); align-items: center; }
@@ -31,7 +31,60 @@
   .kcard[data-compact] .kcard-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: var(--space-s); }
   .kcard[data-compact] .kcard-doc { display: none; }
   /* floating over the net: a lit glass card, a smaller face beside the title, the doc kept short */
-  .kcard[data-float] { background: color-mix(in oklch, var(--surface) 90%, transparent); backdrop-filter: blur(0.5rem); border-color: var(--kcard-rank, var(--line)); }
+  /* floating over the net: an ID block — glass you see the net through, a lit rank-hued edge with
+     corner brackets, faint scanlines and one slow sweep, the ID code on a mono rail, a ✕ that puts
+     the card away while the neuron stays selected */
+  .kcard[data-float] {
+    position: relative; overflow: hidden; isolation: isolate;
+    background:
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) top left / 1.1rem 0.12rem no-repeat,
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) top left / 0.12rem 1.1rem no-repeat,
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) top right / 1.1rem 0.12rem no-repeat,
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) top right / 0.12rem 1.1rem no-repeat,
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) bottom left / 1.1rem 0.12rem no-repeat,
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) bottom left / 0.12rem 1.1rem no-repeat,
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) bottom right / 1.1rem 0.12rem no-repeat,
+      linear-gradient(var(--kcard-rank, var(--accent)), var(--kcard-rank, var(--accent))) bottom right / 0.12rem 1.1rem no-repeat,
+      linear-gradient(160deg, color-mix(in oklch, var(--kcard-rank, var(--accent)) 14%, transparent), transparent 55%),
+      color-mix(in oklch, var(--surface) 38%, transparent);
+    backdrop-filter: blur(0.6rem) saturate(1.4);
+    border: var(--hairline) solid color-mix(in oklch, var(--kcard-rank, var(--accent)) 45%, transparent);
+    border-radius: var(--radius-m);
+    box-shadow: 0 0 1.4rem color-mix(in oklch, var(--kcard-rank, var(--accent)) 22%, transparent), inset 0 0 1.2rem color-mix(in oklch, var(--kcard-rank, var(--accent)) 10%, transparent);
+  }
+  .kcard[data-float]::after {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, transparent 0 0.2rem, color-mix(in oklch, var(--kcard-rank, var(--accent)) 7%, transparent) 0.2rem 0.26rem);
+  }
+  .kcard[data-float]::before {
+    content: ""; position: absolute; inset-inline: 0; block-size: 2.5rem; z-index: -1; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, color-mix(in oklch, var(--kcard-rank, var(--accent)) 12%, transparent), transparent);
+    animation: kcard-sweep 6s var(--ease) infinite;
+  }
+  @keyframes kcard-sweep { from { transform: translateY(-3rem); } to { transform: translateY(40rem); } }
+  @media (prefers-reduced-motion: reduce) { .kcard[data-float]::before { animation: none; display: none; } }
+  .kcard-id {
+    display: flex; align-items: center; gap: var(--space-xs); padding-block-end: var(--space-2xs); padding-inline-end: 2rem; white-space: nowrap;
+    border-block-end: var(--hairline) dashed color-mix(in oklch, var(--kcard-rank, var(--accent)) 50%, transparent);
+    font: var(--weight-bold) var(--step--2) var(--font-code); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  }
+  .kcard-id-tag { color: var(--ink-muted); }
+  .kcard-id-code { color: var(--kcard-rank, var(--accent)); text-shadow: 0 0 0.6rem color-mix(in oklch, var(--kcard-rank, var(--accent)) 60%, transparent); }
+  .kcard-id-state { padding: 0 var(--space-2xs); border: var(--hairline) solid var(--line); border-radius: var(--radius-pill); color: var(--ink-muted); }
+  .kcard-id-state[data-live] { color: var(--ok); border-color: var(--ok); }
+  .kcard-id-bars {
+    margin-inline-start: auto; inline-size: 3.5rem; block-size: 0.7rem; opacity: 0.55;
+    background: repeating-linear-gradient(90deg, var(--kcard-rank, var(--accent)) 0 0.0625rem, transparent 0.0625rem 0.18rem, var(--kcard-rank, var(--accent)) 0.18rem 0.3rem, transparent 0.3rem 0.4rem);
+  }
+  .kcard-x {
+    position: absolute; z-index: 1; inset-block-start: var(--space-2xs); inset-inline-end: var(--space-2xs);
+    inline-size: 1.6rem; block-size: 1.6rem; display: grid; place-items: center; cursor: pointer;
+    font: var(--weight-bold) var(--step--1) var(--font-code); color: var(--ink-muted);
+    background: color-mix(in oklch, var(--surface) 40%, transparent); border: var(--hairline) solid color-mix(in oklch, var(--kcard-rank, var(--accent)) 45%, transparent); border-radius: var(--radius-m);
+    transition: color var(--time-slow) var(--ease), border-color var(--time-slow) var(--ease);
+  }
+  .kcard-x:hover { color: var(--kcard-rank, var(--accent)); border-color: var(--kcard-rank, var(--accent)); }
+  .kcard-x:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: 0.1rem; }
   .kcard[data-float] .kcard-portrait, .kcard[data-float] .kcard-glyph { inline-size: 4.5rem; block-size: 4.5rem; }
   .kcard[data-float] .kcard-glyph { padding: 0.9rem; }
   .kcard[data-float] .kcard-face { grid-template-columns: auto 1fr; justify-items: start; align-items: center; gap: var(--space-s); }
