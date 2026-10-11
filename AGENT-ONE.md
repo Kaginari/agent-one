@@ -83,6 +83,7 @@ live register, so context is spent on work, not on words.
 | `@V` | a verdict on a claim, with evidence |
 | `@?` | a hole — named, never guessed |
 | `@U <kind> …` | the unsaid: one piece of knowledge that was in the worker's head and nowhere on disk; kind is `policy`, `team` or `domain` (§The unsaid) |
+| `@FORGE <kind>:<name> \| <text>` | a draft the run proved — kind `tool` or `skill`; rides the report up, is filed by the harness as a team note tagged `forge` (its agent, run and hash), and registers only from the operator's queue (`/forge`, `agent-one forge`) |
 | `@E <bytes>` | closes the response |
 
 **Hygiene**
@@ -179,10 +180,11 @@ asked to bring it to the operator. A member never sits on confusion, and never g
      observation — two is a pattern.
    - Provisioning is always part of the same change and announced out loud, never later.
 5. **Memory consolidation — notes are kept, then cleared, but intelligence is retained.**
-   - Every member keeps a dated `## Working notes` section — and per the member split (see
-     Skills & Agents), that buffer sits in the held SKILL: the skill that did the work holds
-     what the work taught; the agent keeps identity, ownership, invariants, verdicts. Skill
-     overload (notes past ~5) changes the configuration and the agent adapts in the same change.
+   - Every member keeps a dated `## Working notes` buffer. Per the member split (see Skills &
+     Agents), the buffer sits in the held skill when the work was done holding one — the skill
+     that did the work holds what the work taught — and in the member's own doc when it held
+     none. The agent keeps identity, ownership, invariants, verdicts. Notes overload (past ~5)
+     changes the configuration and the agent adapts in the same change.
    - Analysis flows up: zone worker → domain owner (→ principal domain owner) → coordinator
      (→ principal coordinator). Guidance flows down.
    - Past ~5 entries, each note is consolidated to its final form, then the list is cleaned:
@@ -208,6 +210,9 @@ asked to bring it to the operator. A member never sits on confusion, and never g
      operator's agreement.
    - "Outward" is anything beyond `.agent-one/` and the target directory: network calls,
      external services, other repos, other machines.
+   - The one standing outward act is the session's own call to the model the operator
+     configured: choosing the model is the agreement. Nothing else rides on it — no other act
+     leaves because that one does.
    - This gives Policy 6 the status of a principle, not a checklist item: consent is the
      workspace's shape, not a step someone can forget.
 8. **Wire protocol — one live channel between machine endpoints.**
@@ -240,65 +245,51 @@ stale.
 - Instruments are not tracked the way `log.md` is: they are overwritten freely, since they are
   a window, not a record. What an instrument reveals that matters gets written into a
   document (and the log) — the instrument itself is disposable.
-- **The orchestrator's own stress is an instrument reading too, not a feeling.**
-  `.agent-one/tools/context-check.sh` reads the running session's own transcript and reports
-  its current context occupancy against a conservative, model-independent budget (default
-  200,000 tokens — deliberately far below any single model's real window, since the
-  orchestrator runs on whichever model the human picked, and some are much smaller than
-  others). Past 180,000 (90% of budget) is the stress zone: write anything not yet durable to
-  `log.md` or its owning doc immediately, dispatch any remaining heavy work to an ephemeral
-  subagent rather than running it inline from here on, and tell the human plainly that this is
-  a good point for a break, a `/clear`, or a fresh session picking up from what was just
-  written down. The number is an estimate (cross-checked against the host's own context
-  reporting to within ~7%), not a billing figure — good enough to catch the zone, not to argue
-  precision.
+- **The guts** (`policy.guts`, default on) score every act as it lands and journal the reading;
+  past a slide they speak once inside the failing act's own result. `lessons` ranks what the
+  journals learned — the instrument aggregates; crystallizing a class into a skill or a policy is
+  a writer's act.
+- **The orchestrator's own stress is an instrument reading too, not a feeling.** The context
+  reading measures the running session's occupancy against a conservative, model-independent
+  budget (default 200,000 tokens — below any model's real window, since the orchestrator runs
+  on whichever model the human picked). Past 90% is the stress zone: write anything not yet
+  durable to `log.md` or its owning doc at once, dispatch remaining heavy work to an ephemeral
+  subagent instead of running it inline, and tell the human plainly this is a good point for a
+  break or a fresh session picking up from what was just written down. The number is an
+  estimate, not a billing figure.
+
+**Instruments by host.** The policy names instruments, not programs; each host provides them:
+
+| Instrument | The agent-one binary | A Claude Code or OpenCode workspace |
+|---|---|---|
+| context reading | the footer, `agent-one status` | `.agent-one/tools/context-check.sh` |
+| memory | `agent-one memory` | `.agent-one/tools/memory.js` |
+| toolbox | `agent-one toolbox` | `.agent-one/tools/toolbox.js` |
+| the loop | every session | `.agent-one/tools/loop.js` |
+| import a skill / register an agent | discovered from `.opencode/` and `.claude/` | `/import-skill`, `/import-agent` |
 
 ## Memory tiers
 
-Principle 5 says how memory *moves* — kept to ~5, consolidated, cleared; analysis up, guidance
-down. This section says where it *lives*. Every member — orchestrator, coordinator, domain
-owner, zone worker, service owner, and every ephemeral subagent — has the same three memories.
-None is a feeling: each has a file or an instrument that answers for it, and
-`.agent-one/tools/memory.js` reads all three.
+Principle 5 says how memory *moves*; this says where it *lives*. Every member and every
+ephemeral subagent has the same three memories, each answered for by a file or an instrument —
+never a feeling. The full spec is `design/memory-tiers.md`.
 
-**Short memory — per agent, per task; dies with the session.**
-- *Context window* — the agent's live context. Measured (`context-check.sh`, the board's
-  context chip, `memory.js status`), never guessed; past the stress zone it drains into the
-  tiers below.
-- *Working memory* — the dated `## Working notes` buffer on the held skill: ~5 live notes, the
-  fast buffer. Over ~5 is an instrument reading (Principle 5, Skills & Agents).
-- *Semantic cache* — recent recalls keyed by meaning, so the same question asked twice in a
-  task costs one search. Lives in `.agent-one/memory/short/<member>.jsonl`: machine-local,
-  disposable, gitignored, cleared freely (`memory.js forget --short`).
+- **Short — per agent, per task; dies with the session.** The context window (measured by the
+  context reading, never guessed), the working buffer (`## Working notes`, ~5 live), and a
+  semantic cache of recent recalls (`.agent-one/memory/short/`, machine-local, disposable).
+- **Long — the workspace's; durable; git is its record.** Episodic (`log.md`), procedural
+  (skills, commands, tools), semantic (this file, member docs, design docs). Files are the
+  truth; every index over them is derived and rebuildable. Recall ranks by meaning, then by
+  relation — a memory that names the asker, its domain owner or a skill it holds is pulled
+  closer — locally, with no model by default (Principle 7).
+- **Shared — across agents and workspaces.** Workspace-shared notes
+  (`.agent-one/memory/shared/notes.jsonl`, append-only, tracked) and machine-shared notes
+  (`~/.agent-one/shared/`) for the one machine-wide orchestrator. What should outlive an
+  ephemeral subagent goes there or to its owning doc *before* its wire report.
 
-**Long-term memory — the workspace's; durable; git is its record.** Files are the truth; every
-index over them is derived and rebuildable (`memory.js index` → `.agent-one/memory/long/`,
-gitignored). Three kinds, each already a file the workspace keeps:
-- *Episodic* — what happened: `log.md`, one memory per dated entry. Append-only (Policy 4).
-- *Procedural* — how to do: skills (`SKILL.md`), commands, tools.
-- *Semantic* — what is true: this file, member docs (invariants, ownership, verdicts), design
-  docs, README.
-- Recall ranks by meaning first, then by **relation** — the same typed links the wire draws
-  (zone worker ⇒ domain owner ground-truth link, domain owner ⇒ coordinator verdict link,
-  agent ⇌ skill skill link): a memory that names the asker, its domain owner, or a skill it
-  holds is pulled closer. Ranking is local and model-free by default (Principle 7 — nothing
-  leaves the workspace); a real embedding model or a database tier is the same boundary with a
-  bigger engine (see `design/memory-tiers.md`), never a different source of truth.
-
-**Shared memory — across agents, and across workspaces.**
-- *Workspace-shared* — `.agent-one/memory/shared/notes.jsonl`: what every agent in this
-  workspace reads; append-only (Policy 4); tracked, so it travels by git — the text channel
-  between machines.
-- *Machine-shared* — `~/.agent-one/shared/notes.jsonl`: across the workspaces on this machine,
-  since the orchestrator is one machine-wide agent across all of them. Inside the machine is
-  inward (Principle 7).
-- An ephemeral subagent's context dies with its task. What should outlive it goes to shared
-  memory or to its owning doc *before* the wire report — never left in a dying context.
-
-**The flow.** Short → consolidated → long (Principle 5); shared is the bus between agents; the
-wire (Absolute Rule II) points at all three by path and never carries them. `memory.js status`
-is the instrument: a silent tier (no transcript, no index, HEAD moved since the index was
-built) is a finding, reported as `@?`, never routed around (Principle 9).
+Short consolidates into long; shared is the bus between agents; the wire points at all three by
+path and never carries them. A silent tier — no index, an index older than HEAD — is a finding
+(`@?`), never routed around (Principle 9).
 
 ## The unsaid
 
@@ -321,19 +312,20 @@ context that dies. Three kinds of knowledge, each with a home in the tiers above
 context dies (the `@U` line of its wire report, Absolute Rule II), before a gate verdict (the
 domain owner asks what the zone worker knew and did not write), before a consolidation pass
 (working notes are consolidated from what was said *and* what was not). One piece at a time,
-to its home: a rule to policy or a design doc, a team fact to a shared note
-(`memory.js remember --kind team`) or its owning working notes, domain meaning to the zone
+to its home: a rule to policy or a design doc, a team fact to a shared note (the memory
+instrument's `remember --kind team`) or its owning working notes, domain meaning to the zone
 worker's doc. "Nothing unsaid" is a claim about current state — a memory, not a fact
 (Principle 9); the dispatcher may ask.
 
 ## The loop
 
 An ephemeral subagent works to one rhythm, six beats per step: perceive → recall → plan → act
-→ verify → record — both a tool (`.agent-one/tools/loop.js`, for scripted plans) and a
-protocol (the same beats, followed by hand when the work is not scriptable); the shape is one.
+→ verify → record — run by the loop instrument for scripted plans, and followed by hand as a
+protocol when the work is not scriptable; the shape is one. The full spec is
+`design/agent-loop.md`.
 - **Budgets are readings.** Steps, wall clock and the context window are read from instruments
-  before every step (`memory.js status`, the same method as `context-check.sh`). Past any of
-  them the run checkpoints and stops honestly; it never presses on.
+  before every step. Past any of them the run checkpoints and stops honestly; it never presses
+  on.
 - **Recall before, remember after.** Each step recalls by its question and carries anchors, not
   payloads — memories from the tiers, and the tool manifest the toolbox picks for that ask
   (level 1 only; an agent loads level 2 on its own decision). A step that learned something
@@ -354,43 +346,33 @@ protocol (the same beats, followed by hand when the work is not scriptable); the
   moment it is formed, so a failure always sits in the newest layer or the newest interface.
   Building several layers and testing at the end is the anti-pattern: the defect could be
   anywhere, and every layer above it is paid for twice.
+- **Recovery — a gate fail is not a rollback.** Writes that landed before a fail verdict stay;
+  the repair is the same turn: the moving agent's doc carries the correction note
+  (Principle 1), the parent's working notes carry the same-turn acknowledgement, and the verdict
+  lands in `log.md`. The failed act is never re-run to pass a second time; the repair is a new
+  step on the same journal — the record keeps the fail honest.
 
 ## Skills & Agents
 
 Rank (below, "Roles") says **what a member is responsible for**. Skills and agents say **how it
 exists**. Every member is one rank, holding some skills, running on one agent.
 
-**The separation rule.** Skills and agents are two planes on one grid — never one crowd (a
-fused graph was judged unreadable). Any instrument that draws the team draws the distinction,
-but formally the skill lanes keep their place BETWEEN the ranks on a single uniform grid, and
-every skill lane stands LEFT of the rank it serves — tools before hands: zone skills · zone
-worker · review skills · domain owner · global skills · coordinator · principals (the principals
-are agents of agents — a seventh lane, never an under-chart band). The planes read through the
-elements' rendering — agents are solid nodes on wide tints; skills are dashed rings on slim
-tints. The chart is a two-row stack: row 1 the seven lanes; row 2 the **shared skills**, full
-width — host commands and host-provided skills that are not agent-one skills (the row does not
-overload the workspace's rules with the host repo's tools; it names them plainly for what they
-are) — the last remainder, never a side-by-side cell (cells collide with the lanes' columns
-above). **The links are typed and colored:** zone worker ⇒ domain owner is the GROUND-TRUTH
-LINK (cyan); domain owner ⇒ coordinator the VERDICT LINK (gold); agent ⇌ held skill is a
-SKILL LINK — one dashed shape tinted by lane (zone/review/global/shared). **Skills carry a
-reasoning badge:** a skill node paints its badge in its lane's reasoning color (zone gathers
-facts, review weighs rulings, global shapes the voice, shared is the host toolbox) — "whose
-work does this skill do?" answered at a glance. **The triad:** ANALYST reads → JUDGE verdicts →
-DRAFTER drafts — one reasoning chain, direction fixed; a draft that skipped the read writes
-blind. Each role's model is named beside it, resolved from the registered agents, never
-hand-typed. A skill's place is *whom it serves*, derived from real holders/links, never
-hand-assigned; a skill nobody holds is nobody's private tool.
+**Two planes, never one crowd.** Skills and agents are distinct things and any view of the
+workspace draws them apart: an agent is the ranked member, a skill the know-how it holds, joined
+by the hold and never fused. A skill's place is *whom it serves*, derived from its real holders,
+never hand-assigned; a skill nobody holds is nobody's private tool. The reasoning triad runs one
+way — the analyst reads → the judge rules → the drafter drafts; a draft that skipped the read
+writes blind. How the dashboard draws all this is `design/binary.md` §The board.
 
 **The member split & the adaptation loop.** Every role-prefixed skill IS two things, and any
 view of the workspace must draw both: the AGENT — the ranked member in its lane (badge, node,
 working notes, stress) — and its held SKILL — the know-how in its service lane (the agent's
 role picks the lane), linked to its agent by the hold-edge, never fused. Then the loop, because
 the two halves carry different halves of life:
-- **Working notes live in the SKILL.** The buffer (dated `## Working notes`) sits in the held
-  know-how — the skill that was loaded during the work holds what the work taught. An agent
-  keeps identity, ownership, invariants, gate verdicts — durable facts; experience accumulates
-  in the skill.
+- **Working notes live in the skill that was held.** The buffer (dated `## Working notes`) sits
+  in the held know-how — the skill that was loaded during the work holds what the work taught —
+  or in the agent's own doc for work done holding none. An agent keeps identity, ownership,
+  invariants, gate verdicts — durable facts; experience accumulates in the skill.
 - **Skill overload is an instrument reading** (working notes over their ~5-note limit —
   measured, never felt). An overloaded skill must change the configuration *in the same pass
   it is relieved*: consolidate the notes to their final forms (Principle 5 — rule / invariant
@@ -399,15 +381,38 @@ the two halves carry different halves of life:
 - **Repetition is the verdict:** the same overload in the same skill twice means the
   adaptation failed — escalate the form (split the skill's know-how, promote the agent's rank),
   per Continuous improvement's own measure (Principle 3: the same mistake never repeats).
+- **The agent-one binary codes this loop** (`policy.evolution`, `design/ranks.md` §Evolution): a
+  member overloaded by an instrument (council strain, a failing gate streak, a doom checkpoint)
+  whose working notes hold more than `notesMax` (7) notes evolves in the same pass by one arm
+  chosen from evidence — split its zone in two, mutate (consolidate the notes into invariants; a
+  recurring how becomes a crafted skill it holds), or rebirth (a fresh configuration from the
+  code, the old one in the attic) — proven before it lands, logged, then on cooldown; `propose`
+  mode queues it for the operator instead.
 
 **Skills — knowledge, loaded on demand.**
 - A skill is reusable know-how, loaded when invoked. It does no work by itself — a member
-  loads it to gain capability for a task, then moves on. Exception: the skill DOES keep its own
+  loads it to gain capability for a task, then moves on. Exception: the skill does keep its own
   working notes — notes live in the skill that was loaded when they were earned.
-- Sourced from `.opencode/skill(s)/<name>/SKILL.md` and brought over with `/import-skill`
-  into a Claude Code skill. `/import-skill --project` installs it for this workspace only
-  (`.claude/skills/<name>/`); `/import-skill --global` installs it for the orchestrator
-  (`~/.claude/skills/<name>/`), so it is available in every workspace from then on.
+- Sourced from one registry, in one precedence: the workspace's crafted skills
+  (`.agent-one/crafted-skills/<name>/SKILL.md`, registered by the forge), its base skills
+  (`.agent-one/base-skills/`), then the host's project dirs (`.claude/skills/`,
+  `.opencode/skill(s)/`, `.agents/skills/`), then the host's machine-wide dirs. A name with two
+  homes is a hole naming both, never a silent shadow. Host skills come into the workspace by the
+  host's import (Instruments by host): for this workspace only, or for the orchestrator across
+  every workspace.
+- **The forge — a skill crafted from proof.** A run that walked a path worth repeating names its
+  draft on the wire (`@FORGE skill:<name> | <when> | <how>`). The harness files it from the
+  report it holds: one ledger note naming the drafting agent, its run and a content hash; a line
+  relayed up the ranks is filed once, as its drafter's. No draft registers itself — the operator
+  registers it from the queue (`/forge`, `agent-one forge`), and a registration writes
+  `.agent-one/crafted-skills/<name>/SKILL.md` in the host's skill format (name, description) with
+  the workspace's fields (version, status, the drafting agent, its run, who registered it and
+  when). A registration never overwrites: a newer draft of a crafted name lands as the next
+  version only when asked, the old one kept beside it. A tool draft registers as a declared tool
+  at the class the classifier reads, and one that reaches outward or destroys waits on the
+  operator's yes. The one registration without a draft is evolution's mutate arm (the adaptation
+  loop above): an overloaded agent's recurring how lands as a skill it holds, at `trial` status
+  until the operator promotes it.
 - **Loading is already two-tiered — this is not a lever the convention needs to pull.** A
   skill's `description` is the only part that sits in context by default, on every turn; its
   full body loads only when the skill is actually invoked. Write descriptions the way a context
@@ -416,26 +421,21 @@ the two halves carry different halves of life:
   that tries to also be the content is not saving anything — that is context load with extra
   steps, not lazy loading.
 - **The toolbox — two levels, one budget.** An agent never carries the whole shelf. Everything
-  it could pick up — skills, commands, workspace tools, agents, and the externals
-  `.agent-one/toolbox/extra.jsonl` names — is indexed by `.agent-one/tools/toolbox.js` into a
-  derived registry, each entry priced before anything is injected. A turn receives **level 1,
-  the manifest**: names, one-line descriptions, triggers, paths and the cost of level 2 — only
-  the entries that fit the ask (meaning, trigger, relation) and a token budget, on the wire as
-  `@T` lines under `@TOOLS`. **Level 2, the load**, is the agent's own decision to use the
-  tool, never pre-emptive: `toolbox.js load <name>` (whole, or one section by anchor), a skill
-  invoked by name, an agent dispatched — and every load is journaled, so `status` reports what
-  was loaded against what was merely offered. The toolbox never pastes a tool's body into a
-  prompt; it hands over pointers with known costs, and the receiving agent loads on demand.
-  This is "loading is already two-tiered" made an instrument and extended past skills to
-  commands, tools, agents and externals: the registry may grow without bound; the prompt does
-  not.
+  it could pick up — skills, commands, workspace tools, agents, declared externals — is indexed
+  by the toolbox instrument into a derived, priced registry. A turn receives **level 1, the
+  manifest**: names, one-line descriptions, triggers, paths and the cost of level 2, only for the
+  entries that fit the ask and a token budget. **Level 2, the load**, is the agent's own
+  decision, never pre-emptive, and every load is journaled. The toolbox hands over pointers with
+  known costs, never a tool's body: the registry may grow without bound; the prompt does not.
+  The full spec is `design/toolbox.md`.
 
 **Agents — runtimes, registered on name only.**
 - An agent is the thing that actually runs and holds context. An agent is never registered
   generic — it is registered already named for the rank it will serve: `domain-security`,
   `zone-auth`, `coord-frontend`.
-- Sourced from `.opencode/agents/*.md` and brought over with `/import-agent` into a Claude
-  Code sub-agent (`.claude/agents/<name>.md`).
+- The member doc IS the agent card: `.agent-one/<rank dir>/<name>/README.md` is the agent. No
+  mirror is registered under `.claude/agents/` — the workspace is self-contained (the operator's
+  decision of 2026-10-02: agent cards live inside the workspace, never on the host).
 - Two agent modes:
   - **Persistent agent** (`mode: all`) — custodian of this workspace's rules. Persistent: it
     outlives a single task and stands watch over `AGENT-ONE.md` itself. A service owner's
@@ -506,6 +506,12 @@ by role.
   A question for another system goes up to the organization above both, which asks the right
   system, which asks the right workspace — never sideways across a system's boundary (Policy 2,
   Absolute Rule III).
+- **A workspace wanting change in another workspace asks that workspace's agent.** Whatever
+  agent lives there — its session agent, the machine-wide orchestrator it runs on, its
+  coordinator — receives the ask and applies its own gate. **Never a direct write across a
+  workspace's boundary.** When no agent lives in that workspace, the need returns to the
+  operator: named twice (Principle 4), then the operator grants. The operator's emergency
+  override is always allowed, and it is always recorded in `log.md`.
 - **The orchestrator holds the map.** It is one agent across every workspace; systems and
   organizations are how it sees them. The board opens on that map: organizations, systems, their
   workspaces, workspaces within workspaces, and the relations between them.
@@ -519,13 +525,21 @@ No change lands without its domain owner's pass. The domain owner checks:
 3. **Duties done** — everything the task required was done.
 4. **Doc truthful** — the owning doc changed in the same change (Docs-as-code).
 
+Two seats sit outside authorship policing, checked differently: a member's own doc
+(`<dir>/README.md`) — the orchestrator authors the skeleton at provisioning, the member edits it
+after — and the orchestrator's own seat files (the system manifest `.agent-one/system.yaml` and
+the policy file), which are the orchestrator's own work product, not any member's ownership. When
+the orchestrator or an orchestrator-rank runtime writes a seat file, neither *right zone worker
+authored* nor *doc truthful* fires; any other agent on the same file still fails right-author.
+
 The verdict (pass / fail + reason) is recorded in `log.md`.
 
 ## Policies
 
 1. **The operator's decision is final.** It overrides everything here.
 2. **Stay in your rank.** Work only within what your rank and assignment cover; anything
-   beyond goes up, not sideways (except domain owner ⇄ domain owner).
+   beyond goes up, not sideways (except domain owner ⇄ domain owner within a workspace, and
+   coordinator ⇄ coordinator between the workspaces of one system).
 3. **Nothing lands without the gate.** See above.
 4. **Everything is recorded, nothing is rewritten.** Every landed change and every verdict is
    appended to `log.md`. Past entries are never edited.
