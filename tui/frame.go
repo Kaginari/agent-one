@@ -456,9 +456,10 @@ func (t Theme) StatusBar(f FooterView, width int) string {
 	var parts []string
 	ctx := t.dim.Render("ctx ") + t.dim.Render("—")
 	if f.CtxKnown {
-		meter := t.Meter(f.CtxPct, 10)
+		cm := meterDef(f.Meters, "ctx")
+		meter := t.MeterFor(f.CtxPct, 10, cm)
 		if t.Depth {
-			meter = t.gauge(float64(f.CtxPct)/100, 10, nil, t.ctxHue)
+			meter = t.gauge(float64(f.CtxPct)/100, 10, nil, t.meterHue(cm))
 		}
 		ctx = t.dim.Render("ctx ") + meter + " " + t.text.Render(fmt.Sprintf("%d%%", f.CtxPct))
 		if f.CtxTokens > 0 && f.CtxLimit > 0 && width >= 100 {

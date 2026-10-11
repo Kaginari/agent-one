@@ -319,6 +319,8 @@ func webEvent(msg tea.Msg) map[string]any {
 		return map[string]any{"type": "notice", "text": e.Text}
 	case tui.EvEvolution:
 		return map[string]any{"type": "evolution", "id": e.ID, "agent": e.Agent, "arm": e.Arm, "into": e.Into, "reason": e.Reason, "status": e.Status, "mode": e.Mode, "hole": e.Hole, "skill": e.Skill, "line": e.Line}
+	case tui.EvTheme:
+		return map[string]any{"type": "theme", "name": e.Name, "mode": e.Mode}
 	case tui.EvError:
 		return map[string]any{"type": "error", "text": e.Text}
 	case tui.EvLines:

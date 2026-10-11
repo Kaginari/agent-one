@@ -14,7 +14,7 @@ var fileLayers = map[string]bool{"global": true, "project": true, "local": true}
 func (c *Config) finish() error {
 	steps := []func() error{
 		c.checkScalars, c.checkProviders, c.checkTools, c.checkMCP, c.checkPermissions,
-		c.resolveRules, c.mergeRegistry, c.buildRanks, c.resolveValues, c.checkModels, c.checkGate, c.checkCompaction, c.checkGuts, c.checkEvolution,
+		c.resolveRules, c.mergeRegistry, c.buildRanks, c.resolveValues, c.checkModels, c.checkGate, c.checkCompaction, c.checkGuts, c.checkEvolution, c.checkTheme,
 	}
 	for _, s := range steps {
 		if err := s(); err != nil {

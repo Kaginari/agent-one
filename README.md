@@ -209,7 +209,10 @@ ranks:
 
 The dashboard's Metrics tab ranks the members by score (an agent under its rank's record is shown,
 never ranked), each rank shows its own meter, every neuron holds a band ring, and `promotesWhen`
-can read `score` and every signal. `agent-one config explain value` prints each rank's resolved policy
+can read `score` and every signal. The terminal's sidebar holds them too: each rank's meter (its
+label, its reading, a bar in its band; a short record dimmed and unranked), each Subagent's reading
+beside its state, the orchestrator's own score and the agent nearest its promotion (`domain-engine · reports
+17/20 to promote`); its context and plan gauges band by the same meters (`ui.meters`). `agent-one config explain value` prints each rank's resolved policy
 and where each part came from; the full policy is [`docs/canon/ranks.md`](docs/canon/ranks.md) §Value.
 
 **Evolution.** A member that reads stressed (council strain, a streak of failed gates, a doom
@@ -284,7 +287,37 @@ reviews the change before the turn is done:
 | `pgup` · `pgdn` · wheel | scroll the chat |
 | drag · `ctrl+y` · `/mouse` | select and copy · copy the last answer · the mouse to the terminal |
 | `alt+s` · `alt+c` / `alt+p` / `alt+f` | hide the sidebar · fold its subagents / plan / files |
-| `/settings` · `/roles` | theme, mouse and sidebar in one form · every role and its model |
+| `/settings` · `/roles` | theme, mode, mouse and sidebar in one form · every role and its model |
+| `/theme [name] [dark\|light\|system]` | hold another palette — the dashboard follows; alone, flip dark and light |
+
+### Themes
+
+One palette dresses both faces — the terminal and the dashboard — from one package of named
+palettes (`theme/`), each with the same roles in a dark and a light variant: the tonal anchors of
+the depth, the text tones, the primary and accent, the verdicts, the plan, the rank lanes and the
+tool classes. Seven are omoro.io's cyberpunk family, the eighth the dashboard's own HUD:
+
+| `ui.theme` | from | the look |
+|---|---|---|
+| `cyberpunk` (default) | Void · Smog Purple · Danger Red · Amber Haze · Scanner Cyan | cyan on smog-violet, amber orchestrator |
+| `neon-dystopia` | Dark Street · Smog Sky · Danger Signal · System Green · Radiation | green and acid lime on a navy night |
+| `corporate-rebellion` | Corp Shadow · Dark Grey · Warning Orange · Corp Blue · Report White | warning orange on grey, corp blue |
+| `rain-city` | Night Rain · Wet Asphalt · Neon Reflection · Kanji Red · Rain Silver | neon blue on wet asphalt, kanji red |
+| `synthwave` | Void · Dark Purple · Electric Purple · Neon Magenta · Electric Cyan | magenta and cyan on deep purple |
+| `glitch` | Void · Alert Red · Data Cyan · Error Magenta · Bleed White | the RGB split on black |
+| `chromecore` | Void Steel · Dark Steel · Gunmetal · Steel · Chrome White | liquid steel with a pale sheen |
+| `realm` | the dashboard's neon HUD | cyan and magenta brackets on black |
+
+Every text role holds 4.5:1 on every surface of every palette in both modes (a table test, and the
+terminal's own over every row of its gradients); where a swatch could not, the palette's comment
+says how it was retuned. `ui.mode` is `dark` (default), `light` or `system` (the terminal's
+background, the browser's `prefers-color-scheme`). Switch live with `/theme synthwave light`,
+`/settings`, or the dashboard's theme and mode menus: every surface follows at once, and the choice
+is written to the workspace's `config.local.yaml`. `agent-one config explain theme` lists them.
+
+```yaml
+ui: { theme: rain-city, mode: system }
+```
 
 ## The CLI
 
@@ -460,6 +493,7 @@ rules:
 | `policy.evolution` | when a stressed member with an overflowing working notes evolves (split, mutate, rebirth), auto or proposed | `evolution: { mode: propose, notesMax: 9, cooldownRuns: 20 }` |
 | `policy.guts` | the per-step gut: benches (go, pytest, js, cargo, make), lexemes, weights, clamp | `benches: [{ name: mix, match: ["mix test"], red: [failure], green: ["0 failures"] }]` |
 | `ui` · `output` | the dashboard, the status line, the session's meters (ctx bands follow `policy.budget`), output format | `board: { autostart: false }` · `meters: { score: { signal: score, bands: { ok: 75, warn: 45 } } }` |
+| `ui.theme` · `ui.mode` | the palette both faces hold and its variant (§Themes) | `theme: synthwave` · `mode: system` |
 | `sessions` · `undo` | where sessions and undo snapshots live, how long | `sessions: { keepDays: 30 }` |
 
 | `toolbox` · `ontology` · `instruments` | the searchable tool registry, the ownership graph, the journals | `toolbox: { budgetTokens: 1500 }` |

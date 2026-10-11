@@ -159,7 +159,9 @@ func (b *Board) dash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	words, _ := json.Marshal(b.names)
-	out := strings.NewReplacer("{{TOKEN}}", b.token, "{{WORDS}}", htmlAttr(string(words)), "{{DIST}}", htmlAttr(b.names.get("bin"))).Replace(string(page))
+	name, mode := b.look()
+	out := strings.NewReplacer("{{TOKEN}}", b.token, "{{WORDS}}", htmlAttr(string(words)), "{{DIST}}", htmlAttr(b.names.get("bin")),
+		"{{SCHEME}}", name, " {{MODE}}", modeAttr(mode)).Replace(string(page))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'")

@@ -4,22 +4,26 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/Kaginari/agent-one/theme"
 )
 
-// /settings: the session's view settings as one huh form floating over the frame — the theme,
-// who owns the mouse, the sidebar. The form is a tea.Model living inside ours: while it is open
+// /settings: the session's view settings as one huh form floating over the frame — the palette
+// and its mode (kept in the workspace's config.local.yaml, the dashboard following), who owns the
+// mouse, the sidebar. The form is a tea.Model living inside ours: while it is open
 // every message reaches it first (its own field and group messages included), and its
 // completion applies the picks. esc closes it unchanged.
 
 type settingsState struct {
-	form                  *huh.Form
-	theme, mouse, sidebar string
+	form                        *huh.Form
+	theme, mode, mouse, sidebar string
 }
 
 func (m *Model) openSettings() tea.Cmd {
-	st := &settingsState{theme: "dark", mouse: "panes", sidebar: "shown"}
-	if !m.theme.Dark {
-		st.theme = "light"
+	st := &settingsState{theme: m.theme.Name, mode: m.theme.lookMode(), mouse: "panes", sidebar: "shown"}
+	var themes []huh.Option[string]
+	for _, p := range theme.All {
+		themes = append(themes, huh.NewOption(p.Name, p.Name))
 	}
 	if m.mouseTerm {
 		st.mouse = "terminal"
@@ -28,13 +32,14 @@ func (m *Model) openSettings() tea.Cmd {
 		st.sidebar = "hidden"
 	}
 	st.form = huh.NewForm(huh.NewGroup(
-		huh.NewSelect[string]().Title("theme").Inline(true).
-			Options(huh.NewOption("dark", "dark"), huh.NewOption("light", "light")).Value(&st.theme),
+		huh.NewSelect[string]().Title("theme").Inline(true).Options(themes...).Value(&st.theme),
+		huh.NewSelect[string]().Title("mode").Inline(true).
+			Options(huh.NewOption("dark", "dark"), huh.NewOption("light", "light"), huh.NewOption("system", "system")).Value(&st.mode),
 		huh.NewSelect[string]().Title("mouse").Inline(true).
 			Options(huh.NewOption("panes", "panes"), huh.NewOption("terminal", "terminal")).Value(&st.mouse),
 		huh.NewSelect[string]().Title("sidebar").Inline(true).
 			Options(huh.NewOption("shown", "shown"), huh.NewOption("hidden", "hidden")).Value(&st.sidebar),
-	)).WithTheme(huh.ThemeFunc(m.huhStyles)).WithShowHelp(false).WithWidth(40)
+	)).WithTheme(huh.ThemeFunc(m.huhStyles)).WithShowHelp(false).WithWidth(46)
 	m.settings = st
 	m.menu, m.comp, m.palette = nil, nil, nil
 	return st.form.Init()
@@ -65,11 +70,8 @@ func (m *Model) settingsUpdate(msg tea.Msg) (tea.Cmd, bool) {
 
 func (m *Model) applySettings(st *settingsState) tea.Cmd {
 	var cmds []tea.Cmd
-	if dark := st.theme == "dark"; dark != m.theme.Dark {
-		t := NewTheme(dark)
-		t.Forced = true
-		m.setTheme(t)
-		cmds = append(cmds, m.reflow())
+	if st.theme != m.theme.Name || st.mode != m.theme.lookMode() {
+		cmds = append(cmds, m.switchLook(st.theme, st.mode))
 	}
 	if term := st.mouse == "terminal"; term != m.mouseTerm {
 		cmds = append(cmds, m.toggleMouse())
@@ -77,7 +79,11 @@ func (m *Model) applySettings(st *settingsState) tea.Cmd {
 	if off := st.sidebar == "hidden"; off != m.railOff {
 		cmds = append(cmds, m.toggleSidebar())
 	}
-	m.say("settings saved for this session")
+	if len(cmds) == 0 {
+		m.say("settings unchanged")
+	} else {
+		m.say("settings saved")
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -85,7 +91,7 @@ func (m *Model) applySettings(st *settingsState) tea.Cmd {
 func (m *Model) settingsView() string {
 	t := m.theme
 	rows := []string{m.settings.form.View(), "", t.keys("←→ change · tab next · enter save · esc close")}
-	return t.panelIn(t.accent, t.title("settings"), rows, 50)
+	return t.panelIn(t.accent, t.title("settings"), rows, 56)
 }
 
 // huhStyles dresses huh in the theme: titles in the label tone, the picked value in the

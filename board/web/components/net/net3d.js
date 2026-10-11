@@ -815,7 +815,7 @@
       };
     }
     const mo = new MutationObserver(() => palette());
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette'] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette', 'data-scheme'] });
     const mq = matchMedia('(prefers-color-scheme: dark)');
     const onScheme = () => palette();
     mq.addEventListener('change', onScheme);

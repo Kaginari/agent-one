@@ -271,7 +271,7 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 	case "quit", "exit", "q":
 		return true
 	case "help", "?":
-		fmt.Fprintln(out, "/dash · /agents · /send <agent> <text> · /forge [show|register|reject <id>] · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
+		fmt.Fprintln(out, "/dash · /agents · /send <agent> <text> · /forge [show|register|reject <id>] · /theme [name] [dark|light|system] · /usage · /status · /config [explain] · /compact · /review [range] · /handoff [read] · /sessions · /resume <id> · /quit")
 		var names []string
 		for _, c := range a.Found.Commands {
 			names = append(names, "/"+c.Name)
@@ -282,6 +282,8 @@ func (a *App) slash(ctx context.Context, line string, s *loop.Session, busy bool
 		if len(names) > 0 {
 			fmt.Fprintln(out, "commands: "+strings.Join(names, " "))
 		}
+	case "theme":
+		a.themeSlash(rest, out, errw)
 	case "dash", "dashboard":
 		a.mu.Lock()
 		addr := a.boardAddr

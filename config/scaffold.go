@@ -40,6 +40,8 @@ func scaffoldFiles(known map[string]bool) []scaffoldFile {
 	files := []scaffoldFile{{"config.local.yaml", fmt.Sprintf(localHead, "config.local.yaml") + `
 # Anything may be set here whole-map style (all sections, nested keys); for one section per
 # file, prefer <section>.local.yaml beside this file — it loads after this file, so it wins.
+# The look is machine-local too — /theme and the dashboard's menu write it here:
+#   ui: { theme: cyberpunk, mode: dark }   # 'agent-one config explain theme' lists the palettes
 {}
 `}}
 	type namedAgent struct{ name, section string }

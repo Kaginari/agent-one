@@ -8,6 +8,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Kaginari/agent-one/theme"
+	"github.com/Kaginari/agent-one/value"
 )
 
 // The sidebar as a cockpit column: a header tile (the workspace's sprite, its name, the model and
@@ -133,7 +136,7 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 			cells = valW - ansi.StringWidth(pct) - 1
 		}
 		cells = min(max(cells, 3), 18)
-		ctx = t.gauge(float64(v.CtxPct)/100, cells, nil, t.ctxHue) + " " + pct + capS
+		ctx = t.gauge(float64(v.CtxPct)/100, cells, nil, t.meterHue(meterDef(v.Meters, "ctx"))) + " " + pct + capS
 	}
 	line(kv("ctx", ctx))
 	switch {
@@ -150,6 +153,12 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 		}
 		line(kv("cost", cost))
 	}
+	if v.Score != nil && v.Score.Meter.Label != "" {
+		line(kv("val", t.valueBar(*v.Score, valW)))
+	}
+	if v.Promote != "" {
+		line(kv("next", t.label.Render(ansi.Truncate(v.Promote, max(valW, 8), "…"))))
+	}
 	if v.Evolved != "" {
 		line(kv("evo", t.plan.Render(ansi.Truncate("✦ "+v.Evolved, max(valW, 8), "…"))))
 	}
@@ -159,36 +168,14 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 		line(kv("dash", t.dim.Render("↗ ")+lipgloss.NewStyle().Hyperlink(v.Dash).Underline(true).Foreground(t.accent.GetForeground()).Render(shown)))
 	}
 
-	// ── ranks: each rank's share of the session's tokens, a bar in its lane
-	if len(v.Layers) > 0 {
-		total := 0
-		nw := 0
-		for _, l := range v.Layers {
-			total += l.Tokens
-			nw = max(nw, ansi.StringWidth(l.Rank))
-		}
-		open("ranks", "ranks", true, fmt.Sprint(len(v.Layers)))
+	// ── ranks: each rank's value meter (policy.value) — its label, its reading and a bar in its
+	// band's colour; confident ranks first by their mean score, a rank with no confident record
+	// dimmed and unranked; the session's token spend per rank at the row's end when it fits
+	if rows := t.rankRows(v); len(rows) > 0 {
+		open("ranks", "ranks", true, fmt.Sprint(len(rows)))
 		if !v.Collapsed["ranks"] {
-			nw = min(nw, max(inner/3, 6))
-			for _, l := range v.Layers {
-				hue := l.Lane
-				if hue == nil {
-					hue = t.dim.GetForeground()
-				}
-				fg := lipgloss.NewStyle().Foreground(hue)
-				name := ansi.Truncate(l.Rank, nw, "…")
-				tok := humanTokens(l.Tokens)
-				cells := inner - 2 - nw - 1 - 1 - 5
-				share := 0.0
-				if total > 0 {
-					share = float64(l.Tokens) / float64(total)
-				}
-				row := fg.Render("●") + " " + t.text.Render(name) + strings.Repeat(" ", nw-ansi.StringWidth(name)) + " "
-				if cells >= 3 {
-					row += t.gauge(share, cells, hue, nil) + " "
-				}
-				row += strings.Repeat(" ", max(5-ansi.StringWidth(tok), 0)) + t.label.Render(tok)
-				line(row)
+			for _, r := range t.rankLines(rows, inner) {
+				line(r)
 			}
 		}
 	}
@@ -240,6 +227,11 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 				}
 				chip = t.pillChip(lane, w)
 			}
+			// the agent's value meter beside its state, where the row has room: its reading in its
+			// band's colour, dimmed when the record is too short to rank
+			if c.Value != nil && c.Value.Meter.Label != "" && inner-ansi.StringWidth(c.Name)-ansi.StringWidth(chip) >= 12 {
+				chip = t.valueChip(*c.Value) + " " + chip
+			}
 			dot := lipgloss.NewStyle().Foreground(lane).Render("●")
 			name := t.text.Render
 			if c.Done {
@@ -274,7 +266,14 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 				}
 				frac := fmt.Sprintf(" %d/%d", done, len(v.Plan.Items))
 				cells := min(inner-ansi.StringWidth(frac), 24)
-				line(t.gauge(float64(done)/float64(len(v.Plan.Items)), cells, hue.GetForeground(), nil) + t.label.Render(frac))
+				// the bar in the plan's own violet; the count in the plan meter's band (config's
+				// ui.meters.plan) once a slice is done — a deck with nothing done has no basis yet
+				pct := 100 * float64(done) / float64(len(v.Plan.Items))
+				fracS := t.label.Render(frac)
+				if done > 0 {
+					fracS = lipgloss.NewStyle().Foreground(t.bandHue(value.Render(meterDef(v.Meters, "plan"), pct, true).Band)).Render(frac)
+				}
+				line(t.gauge(pct/100, cells, hue.GetForeground(), nil) + fracS)
 			}
 			for _, it := range v.Plan.Items {
 				var mark string
@@ -375,4 +374,186 @@ func (t Theme) railState(v RailView) string {
 		return t.pillChip(t.accent.GetForeground(), "● "+verb)
 	}
 	return t.dim.Render("○ idle")
+}
+
+// rankHue is a rank's colour: its own lane, else its family's (a custom rank), else the quiet
+// tone.
+func (t Theme) rankHue(rank, family string) color.Color {
+	if c := t.lane(rank); c != nil {
+		return c
+	}
+	if l, ok := theme.FamilyLane[family]; ok {
+		return t.lane(l)
+	}
+	return t.dim.GetForeground()
+}
+
+// rankRow is one row of the ranks tile: a rank's standing and its session spend.
+type rankRow struct {
+	rank, family string
+	meter        *value.Meter
+	low          bool
+	mean         float64
+	tokens       int
+}
+
+// rankRows merges the value policy's ranks with the session's spend per rank: every rank with a
+// agent or a token, confident ranks first by their mean score, then the rest in spend order.
+func (t Theme) rankRows(v RailView) []rankRow {
+	var out []rankRow
+	at := map[string]int{}
+	for _, l := range v.Layers {
+		at[l.Rank] = len(out)
+		out = append(out, rankRow{rank: l.Rank, tokens: l.Tokens, low: true})
+	}
+	for _, r := range v.RankNames {
+		if r.Agents == 0 {
+			if _, ok := at[r.Rank]; !ok {
+				continue
+			}
+		}
+		i, ok := at[r.Rank]
+		if !ok {
+			at[r.Rank] = len(out)
+			i = len(out)
+			out = append(out, rankRow{rank: r.Rank})
+		}
+		m := r.Meter
+		out[i].family, out[i].meter, out[i].low, out[i].mean = r.Family, &m, r.Confident == 0, r.Mean
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].low != out[j].low {
+			return !out[i].low
+		}
+		return !out[i].low && out[i].mean > out[j].mean
+	})
+	return out
+}
+
+// rankLines draws the ranks tile's rows inner cells wide: the rank's dot and name in its hue,
+// its meter's label, a bar in its band and the reading; a rank with no confident record dimmed
+// (its reading "low"), one with no record at all a dash; its tokens at the end on a wide column.
+func (t Theme) rankLines(rows []rankRow, inner int) []string {
+	valued := false
+	for _, r := range rows {
+		valued = valued || r.meter != nil
+	}
+	if !valued {
+		return t.spendLines(rows, inner)
+	}
+	nw := 0
+	for _, r := range rows {
+		nw = max(nw, ansi.StringWidth(r.rank))
+	}
+	nw = min(nw, max(inner/4+1, 6)) // "orchestrator" whole in a 48-cell sidebar
+	labW := 0
+	if inner >= 34 {
+		labW = min(12, inner/4)
+	}
+	tokW := 0
+	if inner >= 46 {
+		tokW = 5
+	}
+	var out []string
+	for _, r := range rows {
+		hue := t.rankHue(r.rank, r.family)
+		name := ansi.Truncate(r.rank, nw, "…")
+		nameS := t.text.Render(name)
+		if r.low {
+			nameS = t.label.Render(name)
+		}
+		row := lipgloss.NewStyle().Foreground(hue).Render("●") + " " + nameS + strings.Repeat(" ", nw-ansi.StringWidth(name)) + " "
+		reading, label := "—", ""
+		frac, fill := 0.0, t.dim.GetForeground()
+		readS := t.dim.Render
+		if r.meter != nil {
+			label = strings.ToLower(r.meter.Label)
+			if r.low {
+				reading = "low"
+			} else {
+				reading, frac = r.meter.Text, r.meter.Pct/100
+				fill = t.bandHue(r.meter.Band)
+				readS = lipgloss.NewStyle().Foreground(fill).Bold(true).Render
+			}
+		}
+		if labW > 0 {
+			l := ansi.Truncate(label, labW, "…")
+			row += t.dim.Render(l) + strings.Repeat(" ", labW-ansi.StringWidth(l)) + " "
+		}
+		cells := inner - ansi.StringWidth(row) - 5 - tokW
+		if tokW > 0 {
+			cells--
+		}
+		if cells >= 3 {
+			row += t.gauge(frac, cells, fill, nil) + " "
+		}
+		row += strings.Repeat(" ", max(4-ansi.StringWidth(reading), 0)) + readS(reading)
+		if tokW > 0 {
+			tok := ""
+			if r.tokens > 0 {
+				tok = humanTokens(r.tokens)
+			}
+			row += " " + strings.Repeat(" ", max(tokW-ansi.StringWidth(tok), 0)) + t.label.Render(tok)
+		}
+		out = append(out, ansi.Truncate(row, inner, "…"))
+	}
+	return out
+}
+
+// spendLines is the ranks tile without a value record (the policy off, a young workspace): each rank's
+// share of the session's tokens, a bar in its lane.
+func (t Theme) spendLines(rows []rankRow, inner int) []string {
+	total, nw := 0, 0
+	for _, r := range rows {
+		total += r.tokens
+		nw = max(nw, ansi.StringWidth(r.rank))
+	}
+	nw = min(nw, max(inner/3, 6))
+	var out []string
+	for _, r := range rows {
+		hue := t.rankHue(r.rank, r.family)
+		name := ansi.Truncate(r.rank, nw, "…")
+		tok := humanTokens(r.tokens)
+		cells := inner - 2 - nw - 1 - 1 - 5
+		share := 0.0
+		if total > 0 {
+			share = float64(r.tokens) / float64(total)
+		}
+		row := lipgloss.NewStyle().Foreground(hue).Render("●") + " " + t.text.Render(name) + strings.Repeat(" ", nw-ansi.StringWidth(name)) + " "
+		if cells >= 3 {
+			row += t.gauge(share, cells, hue, nil) + " "
+		}
+		row += strings.Repeat(" ", max(5-ansi.StringWidth(tok), 0)) + t.label.Render(tok)
+		out = append(out, row)
+	}
+	return out
+}
+
+// valueBar is a value reading as a vitals row: a bar in its band, the reading, its label.
+func (t Theme) valueBar(v RailValue, w int) string {
+	m := v.Meter
+	hue := t.bandHue(m.Band)
+	text := lipgloss.NewStyle().Foreground(hue).Bold(true).Render(m.Text)
+	if v.Low {
+		hue, text = t.dim.GetForeground(), t.dim.Render("low")
+	}
+	label := t.dim.Render(" " + strings.ToLower(m.Label))
+	cells := min(w-ansi.StringWidth(text)-ansi.StringWidth(label)-1, 12)
+	if cells < 3 {
+		return text + label
+	}
+	frac := m.Pct / 100
+	if v.Low {
+		frac = 0
+	}
+	return ansi.Truncate(t.gauge(frac, cells, hue, nil)+" "+text+label, w, "…")
+}
+
+// valueChip is an agent's reading as a small chip in its band's hue (dimmed when the record is
+// too short to rank).
+func (t Theme) valueChip(v RailValue) string {
+	if v.Low {
+		return t.dim.Render("·" + v.Meter.Text)
+	}
+	return lipgloss.NewStyle().Foreground(t.bandHue(v.Meter.Band)).Render(v.Meter.Text)
 }

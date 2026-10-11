@@ -55,6 +55,9 @@ type Model struct {
 
 	evolved string // the session's last evolution (policy.evolution), the sidebar's line
 
+	// the terminal's own answer about its background: what ui.mode system holds
+	sysDark, sysKnown bool
+
 	// the turn
 	busy          bool
 	turnStart     time.Time
@@ -339,7 +342,14 @@ func (m *Model) welcome() tea.Cmd {
 		wel.Dash = m.footer.Dash
 	}
 	m.wel = wel
-	return m.print(func(w int) string { return m.theme.Welcome(wel, w) })
+	b := &block{render: func(w int) string { return m.theme.Welcome(wel, w) }}
+	if len(m.blocks) == 0 || m.board != nil || m.bview != nil {
+		return m.push(b)
+	}
+	// a first ask that ran inside the background wait (a fast turn, a queued line) landed its
+	// blocks before the welcome: the welcome still heads the conversation, never lands under it
+	m.blocks = append([]*block{b}, m.blocks...)
+	return m.reflow()
 }
 
 // setTheme switches the palette, the textarea's and the spinner's styles with it.
@@ -450,8 +460,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.reflow()
 	case tea.BackgroundColorMsg:
+		m.sysDark, m.sysKnown = msg.IsDark(), true
 		if !m.theme.Forced && msg.IsDark() != m.theme.Dark {
-			m.setTheme(NewTheme(msg.IsDark()))
+			t := ThemeNamed(m.theme.Name, msg.IsDark())
+			t.Mode, t.Color, t.TrueColor = m.theme.Mode, m.theme.Color, m.theme.TrueColor
+			m.setTheme(t)
 		}
 		// the depth steps its surfaces from the terminal's own background
 		m.ground = msg.Color
@@ -716,6 +729,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.finish(msg)
 	case EvNotice:
 		return m, m.print(func(w int) string { return m.theme.Notice(msg.Text, w) })
+	case EvTheme:
+		if msg.Name == m.theme.Name && msg.Mode == m.theme.lookMode() {
+			return m, nil
+		}
+		return m, m.applyLook(msg.Name, msg.Mode)
+	case evLookSaved:
+		if msg.err != nil {
+			m.say("theme " + msg.name + " · " + msg.mode + " — held, not saved: " + msg.err.Error())
+		} else {
+			m.say("theme " + msg.name + " · " + msg.mode + " — saved to " + m.words.ConfigRel)
+		}
+		return m, nil
 	case EvEvolution:
 		m.evolved = msg.Line
 		pill := m.theme.pill("")
@@ -967,6 +992,10 @@ func (m *Model) railView(rw int) RailView {
 		CtxMax:    m.footer.CtxMax,
 		Layers:    m.footer.Layers,
 		Evolved:   m.evolved,
+		Meters:    m.footer.Meters,
+		RankNames: m.footer.RankNames,
+		Score:     m.footer.Score,
+		Promote:   m.footer.Promote,
 	}
 	switch {
 	case m.choice != nil:
@@ -1023,7 +1052,7 @@ func (m *Model) railView(rw int) RailView {
 		if c.Elapsed > 0 {
 			aged = c.Elapsed.Round(time.Second).String()
 		}
-		v.Subagents = append(v.Subagents, RailSubagent{Name: n, State: st, Aged: aged, Lane: m.theme.lane(c.Rank), Done: c.State == "done", Failed: c.Failed})
+		v.Subagents = append(v.Subagents, RailSubagent{Name: n, State: st, Aged: aged, Lane: m.rankLane(c.Rank), Done: c.State == "done", Failed: c.Failed, Value: m.agentValue(n)})
 	}
 	for i := len(m.logOrder) - 1; i >= 0 && len(v.Subagents) < 8; i-- {
 		b := m.logOrder[i]
@@ -1034,12 +1063,34 @@ func (m *Model) railView(rw int) RailView {
 		if l == nil || l.state != "done" {
 			continue
 		}
-		v.Subagents = append(v.Subagents, RailSubagent{Name: b, State: "done", Lane: m.theme.lane(l.rank), Done: true})
+		v.Subagents = append(v.Subagents, RailSubagent{Name: b, State: "done", Lane: m.rankLane(l.rank), Done: true, Value: m.agentValue(b)})
 	}
 	if len(v.Subagents) > 8 {
 		v.Subagents = v.Subagents[:8]
 	}
 	return v
+}
+
+// rankLane is a rank's hue: its lane, else its family's (the value policy names a custom rank's
+// family), else nil (the quiet tone).
+func (m *Model) rankLane(rank string) color.Color {
+	if c := m.theme.lane(rank); c != nil {
+		return c
+	}
+	for _, r := range m.footer.RankNames {
+		if r.Rank == rank {
+			return m.theme.rankHue(rank, r.Family)
+		}
+	}
+	return nil
+}
+
+// agentValue is an agent's value reading for its subagent row, nil when the policy has none.
+func (m *Model) agentValue(name string) *RailValue {
+	if v, ok := m.footer.Values[name]; ok {
+		return &v
+	}
+	return nil
 }
 
 func (m *Model) isSession(agent string) bool {
@@ -1147,6 +1198,12 @@ func (m *Model) firstPiece() bool {
 
 func (m *Model) push(b *block) tea.Cmd {
 	m.syncDepth()
+	if !m.ready {
+		// no window size yet, so no layout: a print now would land above a frame that may
+		// become the panes; the block waits, and the first frame (panes or catchUp) draws it
+		m.blocks = append(m.blocks, b)
+		return nil
+	}
 	if m.paneMode() {
 		// the pane draws it at the chat's width: render there once, never at the full width too
 		if m.rendered(b, m.chatW()) == "" {
@@ -1578,6 +1635,23 @@ func chosen(v ChoiceView, a ChoiceAnswer) ChoiceView {
 	out.Cursor = 0
 	out.Answered = true
 	return out
+}
+
+// Transcript is the conversation as plain text: every landed block at the width it is drawn at,
+// then the frame as it stands (the live rows, an open card). A host or a test reads it on the
+// program's goroutine (an Update): the renderer writes only the cells that changed, so the byte
+// stream never carries a partly changed line whole, and the frame shows only the pane's window.
+func (m *Model) Transcript() string {
+	frame := m.Render()
+	w := m.chatW()
+	parts := make([]string, 0, len(m.blocks)+1)
+	for _, b := range m.blocks {
+		if t := m.rendered(b, w); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	parts = append(parts, frame)
+	return ansi.Strip(strings.Join(parts, "\n\n"))
 }
 
 // Abort answers a pending choice when the program goes away.

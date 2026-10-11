@@ -10,6 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Kaginari/agent-one/theme"
 )
 
 // defaultFg is the terminal's own text colour the text role inherits (VS Code's).
@@ -72,44 +74,64 @@ func faces(t Theme) map[string]color.Color {
 	return out
 }
 
-// The contrast policy: every text role holds 4.5:1 on every surface it can sit on (every row of
-// every gradient), dark and light; every rank lane, tool class and the plan's hue as text on
-// the surfaces that hold them.
-func TestDepthContrast(t *testing.T) {
-	for _, dark := range []bool{true, false} {
-		th := NewTheme(dark)
-		roles := map[string]rgb{"term": defaultFg(dark), "text": toRGB(th.text.GetForeground()), "dim": toRGB(th.dim.GetForeground()), "label": toRGB(th.label.GetForeground()),
-			"user": toRGB(th.user.GetForeground()), "accent": toRGB(th.accent.GetForeground()), "magenta": toRGB(th.magenta.GetForeground()),
-			"ok": toRGB(th.ok.GetForeground()), "bad": toRGB(th.bad.GetForeground()), "warn": toRGB(th.warn.GetForeground()), "plan": toRGB(th.plan.GetForeground())}
-		for _, r := range []string{"orchestrator", "coord", "domain", "zone", "service", "auditor"} {
-			roles["lane."+r] = toRGB(th.lane(r))
-		}
-		for _, c := range []string{"read", "write", "outward", "destructive"} {
-			roles["class."+c] = toRGB(th.class(c).GetForeground())
-		}
-		// a chip's face: its own hue as the word, the quiet and agent tones beside it
-		th.Depth = true
-		hues := map[string]color.Color{"ok": th.ok.GetForeground(), "bad": th.bad.GetForeground(), "accent": th.accent.GetForeground(),
-			"magenta": th.magenta.GetForeground(), "plan": th.plan.GetForeground(), "warn": th.warn.GetForeground()}
-		for _, r := range []string{"orchestrator", "coord", "domain", "zone", "service", "auditor"} {
-			hues["lane."+r] = th.lane(r)
-		}
-		for hn, h := range hues {
-			f := th.chipFace(h)
-			for rn, r := range map[string]rgb{hn: toRGB(h), "dim": roles["dim"], "text": roles["text"], "label": roles["label"]} {
-				if c := contrast(r, f); c < 4.5 {
-					t.Errorf("dark=%v: %s (%s) on the %s chip (%s) is %.2f:1", dark, rn, r.hex(), hn, f.hex(), c)
-				}
+// contrastMiss is one text role under 4.5:1 on one surface.
+type contrastMiss struct {
+	role, face string
+	fg, bg     string
+	ratio      float64
+}
+
+// contrastMisses holds a theme to the contrast policy: every text role on every surface it can sit
+// on (every row of every gradient, every chip's face), the terminal's own text colour on the
+// faces of its background.
+func contrastMisses(th Theme) []contrastMiss {
+	dark := th.Dark
+	var out []contrastMiss
+	roles := map[string]rgb{"term": defaultFg(dark), "text": toRGB(th.text.GetForeground()), "dim": toRGB(th.dim.GetForeground()), "label": toRGB(th.label.GetForeground()),
+		"user": toRGB(th.user.GetForeground()), "accent": toRGB(th.accent.GetForeground()), "magenta": toRGB(th.magenta.GetForeground()),
+		"ok": toRGB(th.ok.GetForeground()), "bad": toRGB(th.bad.GetForeground()), "warn": toRGB(th.warn.GetForeground()), "plan": toRGB(th.plan.GetForeground())}
+	for _, r := range []string{"orchestrator", "coord", "domain", "zone", "service", "auditor"} {
+		roles["lane."+r] = toRGB(th.lane(r))
+	}
+	for _, c := range []string{"read", "write", "outward", "destructive"} {
+		roles["class."+c] = toRGB(th.class(c).GetForeground())
+	}
+	// a chip's face: its own hue as the word, the quiet and agent tones beside it
+	th.Depth = true
+	hues := map[string]color.Color{"ok": th.ok.GetForeground(), "bad": th.bad.GetForeground(), "accent": th.accent.GetForeground(),
+		"magenta": th.magenta.GetForeground(), "plan": th.plan.GetForeground(), "warn": th.warn.GetForeground()}
+	for _, r := range []string{"orchestrator", "coord", "domain", "zone", "service", "auditor"} {
+		hues["lane."+r] = th.lane(r)
+	}
+	for hn, h := range hues {
+		f := th.chipFace(h)
+		for rn, r := range map[string]rgb{hn: toRGB(h), "dim": roles["dim"], "text": roles["text"], "label": roles["label"]} {
+			if c := contrast(r, f); c < 4.5 {
+				out = append(out, contrastMiss{rn, hn + " chip", r.hex(), f.hex(), c})
 			}
 		}
-		for fname, f := range faces(th) {
-			for rname, r := range roles {
-				if rname == "term" && dark != (toRGB(f).lum() < 0.25) {
-					continue
-				}
-				if c := contrast(r, toRGB(f)); c < 4.5 {
-					t.Errorf("dark=%v: %s (%s) on %s (%s) is %.2f:1", dark, rname, r.hex(), fname, toRGB(f).hex(), c)
-				}
+	}
+	for fname, f := range faces(th) {
+		for rname, r := range roles {
+			if rname == "term" && dark != (toRGB(f).lum() < 0.25) {
+				continue
+			}
+			if c := contrast(r, toRGB(f)); c < 4.5 {
+				out = append(out, contrastMiss{rname, fname, r.hex(), toRGB(f).hex(), c})
+			}
+		}
+	}
+	return out
+}
+
+// The contrast policy, for every palette (package theme), dark and light: every text role holds
+// 4.5:1 on every surface it can sit on (every row of every gradient), every rank lane, tool
+// class and the plan's hue as text on the surfaces that hold them.
+func TestDepthContrast(t *testing.T) {
+	for _, p := range theme.All {
+		for _, dark := range []bool{true, false} {
+			for _, m := range contrastMisses(NewThemeFrom(p, dark)) {
+				t.Errorf("%s dark=%v: %s (%s) on %s (%s) is %.2f:1", p.Name, dark, m.role, m.fg, m.face, m.bg, m.ratio)
 			}
 		}
 	}

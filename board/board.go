@@ -104,6 +104,10 @@ type Options struct {
 	Poll          time.Duration // how often the watcher looks for changes (default 1s)
 	Logger        *log.Logger
 	Live          Live // the running session, for the dashboard; nil = read-only
+	// Theme is the look in force (ui.theme, ui.mode); nil = the defaults. SetTheme keeps a
+	// look the dashboard chose (written, every surface told); nil = the menu only previews.
+	Theme    func() (name, mode string)
+	SetTheme func(name, mode string) error
 }
 
 // Board is the handler.
@@ -233,6 +237,7 @@ func (b *Board) routes() {
 	b.mux.HandleFunc("/api/meters", guarded(b.apiMeters))
 	b.mux.HandleFunc("/portraits/", guarded(b.apiPortrait))
 	b.liveRoutes()
+	b.themeRoutes()
 	b.workspaceRoutes()
 }
 

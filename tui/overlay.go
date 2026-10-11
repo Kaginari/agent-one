@@ -32,13 +32,13 @@ type paletteHit struct {
 // paletteActions are the UI's own entries beside the host's commands.
 var paletteActions = []MenuItem{
 	{Name: "board", Description: "the board, full screen"},
-	{Name: "theme", Description: "switch between the dark and the light theme"},
+	{Name: "theme", Description: "flip dark and light — /theme <name> [dark|light|system] holds another palette"},
 	{Name: "help", Description: "commands and shortcuts"},
 	{Name: "copy", Description: "copy the last answer's markdown"},
 	{Name: "mouse", Description: "the mouse to the terminal (its own selection) or back to the panes"},
 	{Name: "sidebar", Description: "hide or show the sidebar (alt+s)"},
 	{Name: "roles", Description: "every role and the model it runs on"},
-	{Name: "settings", Description: "theme, mouse and sidebar in one form"},
+	{Name: "settings", Description: "theme, mode, mouse and sidebar in one form"},
 	{Name: "clear", Description: "clear the screen"},
 	{Name: "quit", Description: "end the session"},
 }
@@ -124,8 +124,7 @@ func (m *Model) paletteKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 		name := hs[min(p.cursor, len(hs)-1)].item.Name
 		if name == "theme" {
-			m.setTheme(NewTheme(!m.theme.Dark))
-			return m.reflow()
+			return m.themeSlash("")
 		}
 		if noArgs[name] {
 			m.setInput("/" + name)

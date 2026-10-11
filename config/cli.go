@@ -122,6 +122,10 @@ func cli(args []string, stdout, stderr io.Writer, base Options) int {
 				fmt.Fprint(stdout, c.ExplainEvolution())
 				return 0
 			}
+			if a == "theme" {
+				fmt.Fprint(stdout, c.ExplainTheme())
+				return 0
+			}
 		}
 		fmt.Fprint(stdout, c.Explain())
 		return 0

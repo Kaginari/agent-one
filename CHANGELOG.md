@@ -8,6 +8,24 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Themes for both faces.** One package of named palettes (`theme/`) dresses the terminal and
+  the dashboard, the same roles in a dark and a light variant: omoro.io's Cyberpunk (unchanged,
+  the default) and six more of its cyberpunk family — Neon Dystopia, Corporate Rebellion, Rain
+  City, Synthwave, Glitch, Chromecore — plus Realm, the dashboard's own neon HUD. Each role is
+  derived from the palette's swatches, every retune documented, and every text role holds 4.5:1
+  on every surface of every palette in both modes (a table test; the terminal's own over every
+  gradient row). `ui.theme` and `ui.mode` (dark · light · system) pick the look; an unknown palette
+  is refused at load with the list; `agent-one config explain theme`. `/theme <name>
+  [dark|light|system]`, `/settings` and the dashboard's theme and mode menus switch it live for
+  every surface and write it to the workspace's `config.local.yaml`; the dashboard's colour roles are
+  generated at `/theme.css` and swapped in place (a `theme` event on the session stream carries a
+  terminal switch; `GET`/`POST /api/theme`), the 3D net repainting with them.
+- **Value meters in the terminal.** The sidebar's ranks tile reads each rank's value meter (its
+  label, its reading, a bar in its band; confident ranks first by their mean, a short record
+  dimmed and unranked, a custom rank in its family's hue), each Subagent's row its agent's reading,
+  the vitals the orchestrator's score and the agent nearest its promotion; the context and plan gauges
+  band by config's meters (`cfg.Meters()`, `ui.meters`) instead of numbers of their own.
+
 - **Stress-driven evolution.** A member that is stressed — council strain at
   `policy.evolution.stressAt` (the council's `escalateAt` by default), its last `failStreak` gate
   verdicts failed, or a doom checkpoint — while its Notes working notes (its doc's plus its held
@@ -386,6 +404,13 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- The terminal's conversation pane kept following the bottom only while its height held: a
+  smaller window or a draft growing the ask box read as the human scrolling up, and new blocks —
+  a slash command's output among them — landed out of sight, the pane sometimes pinned to its top.
+  The welcome now heads the conversation even when a first ask lands inside its background wait,
+  and no block prints before the window's size is known.
+- The dashboard's topbar no longer sets the page's width: its vitals row contains its inline
+  size, so the shell stopped overflowing sideways (by 176px at 1024px wide).
 - A background Subagent's report that arrived while the session's turn was closing was lost; it now
   waits in the inbox for the turn-done drain.
 

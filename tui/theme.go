@@ -23,6 +23,10 @@ import (
 // a dark and a light variant, and nothing at all when the terminal has no colour (NO_COLOR,
 // a pipe): lipgloss drops every escape on an ASCII profile, so a plain run is the same text.
 type Theme struct {
+	// Name is the palette the theme was built from (theme.Names); Mode the ui.mode it was
+	// chosen for (dark | light | system; "" when the caller did not say)
+	Name  string
+	Mode  string
 	Dark  bool
 	Color bool
 	// Forced is true when the environment chose dark or light: the terminal's own answer
@@ -70,7 +74,7 @@ func DefaultWords() Words {
 	return Words{Subagent: "subagent", Subagents: "subagents", Workspace: "workspace", Human: "the operator", Gate: "gate", Dist: "agent-one", ConfigRel: ".agent-one/config.local.yaml", SessionName: "orchestrator"}
 }
 
-// NewTheme builds the theme for a dark or light background from the default palette.
+// NewTheme builds the theme for a dark or light background from the default palette (theme.Default).
 func NewTheme(dark bool) Theme { return NewThemeFrom(Cyberpunk, dark) }
 
 // laneAlias maps the names that ride another rank's lane onto it: agent-one's ranks, the
@@ -87,8 +91,9 @@ var laneAlias = map[string]string{
 func NewThemeFrom(p Palette, dark bool) Theme {
 	pr := colorprofile.Detect(os.Stdout, os.Environ())
 	t := Theme{Dark: dark, Color: pr != colorprofile.Ascii && pr != colorprofile.NoTTY, TrueColor: pr == colorprofile.TrueColor}
-	r := p.roles(dark)
+	r := p.Variant(dark)
 	t.pal = r
+	t.Name = p.Name
 	t.dep = newDepthScale(dark, r)
 	fg := func(hex string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)) }
 	// the roles: borders sit quieter than any text; text, then label, then dim carry the
@@ -232,28 +237,12 @@ func (t Theme) Brand(dist string) string {
 }
 
 // DetectTheme picks dark unless the environment says the background is light (COLORFGBG's
-// background code, or <PREFIX>_THEME=light); the terminal is never queried, so a start is never
-// held by an unanswered escape.
+// background code, or <PREFIX>_THEME=light), in the default palette; the terminal is never
+// queried, so a start is never held by an unanswered escape. DetectThemeFor is config's.
 func DetectTheme(env func(string) string, prefix string) Theme {
-	if env == nil {
-		env = os.Getenv
-	}
-	forced := func(dark bool) Theme {
-		t := NewTheme(dark)
-		t.Forced = true
-		return t
-	}
-	if v := strings.ToLower(env(prefix + "THEME")); v == "light" {
-		return forced(false)
-	} else if v == "dark" {
-		return forced(true)
-	}
-	if v := env("COLORFGBG"); v != "" {
-		parts := strings.Split(v, ";")
-		bg := parts[len(parts)-1]
-		return forced(!(bg == "7" || bg == "15"))
-	}
-	return NewTheme(true) // until the terminal answers the background query
+	t := DetectThemeFor(env, prefix, Cyberpunk.Name, "system")
+	t.Mode = ""
+	return t
 }
 
 func (t Theme) class(name string) lipgloss.Style {

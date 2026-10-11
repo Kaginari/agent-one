@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-palette="realm" data-theme="dark">
+<html lang="en" data-palette="realm" data-scheme="{{SCHEME}}" {{MODE}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,6 +8,7 @@
 <title>{{DIST}} · dashboard</title>
 <link rel="stylesheet" href="web/tokens.css">
 <link rel="stylesheet" href="web/palettes.css">
+<link rel="stylesheet" href="theme.css?name={{SCHEME}}" id="scheme-css">
 <link rel="stylesheet" href="web/theme.css">
 <link rel="stylesheet" href="web/layout.css">
 <link rel="stylesheet" href="web/components/shell/shell.css">
@@ -56,7 +57,8 @@
       <span id="gatewait" class="pill" hidden data-live title="a card waits for a human answer — the workspace is blocked on you"></span>
     </div>
     <div class="topbar-tools">
-      <button class="button" data-size="s" data-variant="quiet" type="button" id="theme" aria-label="theme: dark — change">theme · dark</button>
+      <label class="topbar-pick"><small>theme</small> <select id="scheme" aria-label="theme: the palette the dashboard and the terminal hold"></select></label>
+      <label class="topbar-pick"><small>mode</small> <select id="theme" aria-label="mode: dark, light, or the system's"><option value="dark">dark</option><option value="light">light</option><option value="system">system</option></select></label>
     </div>
   </header>
   <nav class="tabs" id="tabs" aria-label="views">

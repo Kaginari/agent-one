@@ -3,6 +3,8 @@ package tui
 import (
 	"image/color"
 	"strings"
+
+	"github.com/Kaginari/agent-one/value"
 )
 
 // gauge is a horizontal bar exactly cells wide, filled to frac (0..1) in hue over a quiet
@@ -59,16 +61,39 @@ func (t Theme) gauge(frac float64, cells int, hue color.Color, hueAt func(x floa
 	return b.String()
 }
 
-// ctxHue is the context meter's colour at a point along it: calm, then warning, then danger.
-func (t Theme) ctxHue(x float64) color.Color {
-	ok, warn, bad := toRGB(t.ok.GetForeground()), toRGB(t.warn.GetForeground()), toRGB(t.bad.GetForeground())
-	if x < 0.6 {
-		return ok.col()
+// meterDef is a session meter as config resolved it (FooterView.Meters), the binary's own when
+// the host said nothing.
+func meterDef(ms map[string]value.MeterDef, name string) value.MeterDef {
+	if d, ok := ms[name]; ok && d.Signal != "" {
+		return d
 	}
-	if x < 0.85 {
-		return ok.mix(warn, (x-0.6)/0.25).col()
+	switch name {
+	case "ctx":
+		return value.CtxMeter(0, 0)
+	case "plan":
+		return value.PlanMeter()
 	}
-	return warn.mix(bad, min((x-0.85)/0.15, 1)).col()
+	return value.ScoreMeter()
+}
+
+// bandHue is a band's colour: ok, warn, bad — and the quiet tone when a reading has no basis.
+func (t Theme) bandHue(band string) color.Color {
+	switch band {
+	case value.BandOK:
+		return t.ok.GetForeground()
+	case value.BandWarn:
+		return t.warn.GetForeground()
+	case value.BandBad:
+		return t.bad.GetForeground()
+	}
+	return t.dim.GetForeground()
+}
+
+// meterHue colours a gauge cell by the band its position reads under the meter's policy: the
+// context meter is calm to its ok line, warns to its stress line, and is danger past it — the
+// bands config resolves (policy.budget, ui.meters.ctx), never a number of the terminal's own.
+func (t Theme) meterHue(d value.MeterDef) func(x float64) color.Color {
+	return func(x float64) color.Color { return t.bandHue(value.Render(d, x*100, true).Band) }
 }
 
 // bar is the thin scrollbar of a pane rows tall over content total rows long, its window top

@@ -11,6 +11,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/harmonica"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Kaginari/agent-one/value"
 )
 
 // Motion and colour: the intro (the mascot drops in on a spring, lands where the welcome box
@@ -190,6 +192,24 @@ func shimmerPhase(tick, n int) int {
 // Meter is a context meter: a bubbles progress bar at the given cell width, half-block
 // precise, the fill tinted with the 3-stop zone blend (green → amber → red) so the gauge
 // still says where the run stands. pct < 0 renders the empty track (ctx unknown).
+// MeterFor is Meter coloured by a meter's bands (each cell the band its position reads).
+func (t Theme) MeterFor(pct, cells int, d value.MeterDef) string {
+	hue := t.meterHue(d)
+	bar := progress.New(
+		progress.WithColorFunc(func(total, current float64) color.Color {
+			if total <= 0 {
+				return hue(0)
+			}
+			return hue(min(current/total, 1))
+		}),
+		progress.WithWidth(cells),
+		progress.WithoutPercentage(),
+	)
+	bar.FullColor = t.ok.GetForeground()
+	bar.EmptyColor = t.border.GetForeground()
+	return bar.ViewAs(float64(pct) / 100)
+}
+
 func (t Theme) Meter(pct, cells int) string {
 	// a 101-stop zone ramp (green → amber → red); the fill takes the colour of how full the
 	// gauge is, so a soothing low run and a sweating high run read at a glance

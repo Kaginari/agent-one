@@ -115,7 +115,7 @@ mcp:
 budgets:
   session: {tokens: 2000000, usd: 20}           # honest stop lines; 0 = off
   subagent: {tokens: 400000, usd: 4}
-ui: {statusLine: true, announceSubagents: true}
+ui: {statusLine: true, announceSubagents: true, theme: synthwave, mode: system}
 
 ranks:
   # rank model pins are dead: the ladder routes member → role → task → default, so

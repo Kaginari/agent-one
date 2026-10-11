@@ -45,22 +45,53 @@
   };
   for (const n of document.querySelectorAll('[data-word]')) n.textContent = word(n.dataset.word, n.textContent);
 
-  // ---------- the theme: one design, light and dark; the system decides unless the reader does ----------
-  // dark is the default (nothing chosen yet); "system" follows the reader's system
-  const THEMES = [['dark', 'theme · dark', 'dark'], ['light', 'theme · light', 'light'], ['system', 'theme · system', 'follows the system']];
-  const themeBtn = $('#theme');
-  function theme(v) {
-    const t = THEMES.find(x => x[0] === v) || THEMES[0];
-    if (t[0] !== 'system') document.documentElement.setAttribute('data-theme', t[0]); else document.documentElement.removeAttribute('data-theme');
-    themeBtn.textContent = t[1];
-    themeBtn.setAttribute('aria-label', 'theme: ' + t[2] + ' — change');
-    store.set('theme', t[0]);
+  // ---------- the look: the palette (ui.theme) and its mode (ui.mode) — one choice with the terminal ----------
+  // The page arrives holding the workspace's look (data-scheme, data-theme, /theme.css). The menu lists
+  // every palette and the three modes; a pick is POSTed to the session, which writes the workspace's
+  // config.local.yaml and tells every surface (the terminal follows; a "theme" event brings a pick
+  // made in the terminal here). The palette's roles are a stylesheet swapped in place — no reload;
+  // the 3D net repaints when data-scheme changes (its probes re-read the colours).
+  const root = document.documentElement;
+  const schemeSel = $('#scheme'), themeSel = $('#theme');
+  function holdMode(m) {
+    if (m === 'dark' || m === 'light') root.setAttribute('data-theme', m); else root.removeAttribute('data-theme');
+    themeSel.value = m === 'dark' || m === 'light' ? m : 'system';
   }
-  themeBtn.addEventListener('click', () => {
-    const i = THEMES.findIndex(x => x[0] === (document.documentElement.getAttribute('data-theme') || 'system'));
-    theme(THEMES[(i + 1) % THEMES.length][0]);
-  });
-  theme(store.get('theme'));
+  function holdScheme(name) {
+    if (!name) return;
+    schemeSel.value = name;
+    const old = $('#scheme-css');
+    if (root.dataset.scheme === name && old) return;
+    const next = el('link', { rel: 'stylesheet', href: 'theme.css?name=' + encodeURIComponent(name) + '&v=' + Date.now() });
+    next.addEventListener('load', () => {
+      for (const l of document.querySelectorAll('link[data-scheme-css]')) if (l !== next) l.remove();
+      if (old && old !== next) old.remove();
+      next.id = 'scheme-css';
+      root.dataset.scheme = name;
+    }, { once: true });
+    next.setAttribute('data-scheme-css', '');
+    (old || $('link[href="web/theme.css"]')).after(next);
+  }
+  function look(name, mode) {
+    if (mode) holdMode(mode);
+    if (name) holdScheme(name);
+  }
+  holdMode(root.getAttribute('data-theme') || 'system');
+  getJSON('api/theme').then(t => {
+    schemeSel.replaceChildren(...t.themes.map(p => el('option', { value: p.name, text: p.label.toLowerCase(), title: p.swatches.map(s => s.name + ' ' + s.hex).join(' · ') })));
+    schemeSel.value = t.name;
+    holdMode(t.mode);
+    if (!t.settable) { schemeSel.title = themeSel.title = 'this board previews a theme; the session keeps it'; }
+  }).catch(() => { schemeSel.replaceChildren(el('option', { value: root.dataset.scheme, text: root.dataset.scheme })); });
+  function pick(body) {
+    post('api/theme', body).then(r => look(r.name, r.mode)).catch(err => {
+      // a board that cannot keep it still shows it, for this page only
+      look(body.name, body.mode);
+      schemeSel.title = 'not kept: ' + err.message;
+    });
+  }
+  schemeSel.addEventListener('change', () => pick({ name: schemeSel.value }));
+  themeSel.addEventListener('change', () => pick({ mode: themeSel.value }));
 
   // ---------- views ----------
   const main = $('#main');
@@ -184,7 +215,9 @@
   }
   const metaFade = edgeFade($('.topbar-meta'));
   const HASH0 = parseHash(), HASH = HASH0.params;
-  if (HASH.get('theme')) theme(HASH.get('theme'));
+  // a link may preview a look for this page alone (#…&scheme=synthwave&theme=light)
+  if (HASH.get('theme')) holdMode(HASH.get('theme'));
+  if (HASH.get('scheme')) holdScheme(HASH.get('scheme'));
   // the page the workspace exposes to its other scripts (workspace.js): the helpers and the bus
   window.agentOneDash = { el, getJSON, word, pill, esc, num, store, bus, view: (v, arg) => view(v, arg), current: () => main.dataset.view, hashArg: () => parseHash().arg, setArg: arg => setHash(main.dataset.view, arg) };
   view(HASH0.view || 'overview', HASH0.arg);
@@ -469,6 +502,7 @@
       }
       case 'notice': note(e.text); break;
       case 'evolution': evolution(e); break;
+      case 'theme': look(e.name, e.mode); break;
       case 'error': note(e.text, 'danger'); break;
       case 'lines': add(el('pre', { class: 'console-lines', text: (e.lines || []).join('\n') })); break;
       case 'choice': choiceCard(e); break;

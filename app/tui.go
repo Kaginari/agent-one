@@ -34,7 +34,7 @@ func (a *App) TUI(ctx context.Context) int {
 		fmt.Fprintf(a.Opt.Err, "@S FAIL\n@? %v\n", err)
 		return 2
 	}
-	ui := tui.Start(ctx, h, tui.DetectTheme(a.Opt.Env, a.Cfg.Dist.EnvPrefix), h.words, nil, nil)
+	ui := tui.Start(ctx, h, tui.DetectThemeFor(a.Opt.Env, a.Cfg.Dist.EnvPrefix, a.Cfg.UI.Theme, a.Cfg.UI.Mode), h.words, nil, nil)
 	// the zone worker lives in the sidebar now; the launch drop is retired
 	h.attach(fanout{ui, a.webBus()})
 	a.webBus().attach(h)
@@ -312,7 +312,8 @@ func (h *tuiHost) Footer() tui.FooterView {
 	ranks := a.Journal.Ranks()
 	order := []string{"orchestrator", "coord", "domain", "zone", "service", "auditor", "principal-domain-owner", "principal-coordinator"}
 	seen := map[string]bool{}
-	th := tui.DetectTheme(func(k string) string { return a.Opt.Env(k) }, a.Cfg.Dist.EnvPrefix)
+	name, mode := a.look()
+	th := tui.DetectThemeFor(func(k string) string { return a.Opt.Env(k) }, a.Cfg.Dist.EnvPrefix, name, mode)
 	mk := func(rank string) {
 		if seen[rank] || rank == "" {
 			return
@@ -330,6 +331,7 @@ func (h *tuiHost) Footer() tui.FooterView {
 	for r := range ranks {
 		mk(r)
 	}
+	a.footerValue(&fv)
 	return fv
 }
 
@@ -429,6 +431,7 @@ var builtinCommands = []tui.MenuItem{
 	{Name: "handoff", Description: "/handoff [focus] writes one for a fresh session · /handoff read picks the last up"},
 	{Name: "sessions", Description: "the sessions of this workspace"},
 	{Name: "resume", Description: "/resume <id> — reopen a session"},
+	{Name: "theme", Description: "/theme <name> [dark|light|system] — the palette the terminal and the dashboard hold; alone, flip dark and light"},
 	{Name: "copy", Description: "copy the last answer's markdown to the clipboard"},
 	{Name: "mouse", Description: "hand the mouse to the terminal (its own selection) or back to the panes"},
 	{Name: "clear", Description: "clear the screen"},
@@ -976,7 +979,7 @@ func (h *tuiHost) approve(r gate.Request) (gate.Answer, bool) {
 			h.send(tui.EvError{Text: "the rule was not written: " + err.Error()})
 			return gate.Answer{Decision: gate.Approved, By: "tty", Why: r.Why}, true
 		}
-		h.send(tui.EvNotice{Text: "rule " + match + " → allow written to " + where})
+		h.send(tui.EvNotice{Text: "rule " + match + " → allow · in " + where})
 		return gate.Answer{Decision: gate.Approved, By: "tty", Why: r.Why + "; rule " + match + " written"}, true
 	}
 	reason := strings.TrimSpace(ans.Text)

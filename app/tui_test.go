@@ -29,9 +29,69 @@ type tmSender struct{ tm *teatest.TestModel }
 
 func (s tmSender) Send(m tea.Msg) { s.tm.Send(m) }
 
+// screen is what a junction test reads: the program's byte stream, and — asked of the program
+// on its own goroutine — the conversation as it stands (tui.Model.Transcript). The stream alone
+// is not enough: the renderer writes only the cells that changed, so a line that changed in part
+// ("⎿ running…" → "⎿ ok · 4ms") never reaches the bytes whole, and the frame alone shows only the
+// pane's window. A wait passes on either; nothing sleeps as synchronisation.
 type screen struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
+	tm  *teatest.TestModel // set: reads ask the program for its transcript
+}
+
+// framed wraps the model so the test can ask for the transcript inside an Update.
+type framed struct{ m *tui.Model }
+
+type transcriptReq chan string
+
+func (f framed) Init() tea.Cmd { return f.m.Init() }
+func (f framed) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch req := msg.(type) {
+	case transcriptReq:
+		req <- f.m.Transcript()
+		return f, nil
+	case frameReq:
+		req <- ansi.Strip(f.m.Render())
+		return f, nil
+	}
+	_, cmd := f.m.Update(msg)
+	return f, cmd
+}
+func (f framed) View() tea.View { return f.m.View() }
+
+// transcript is the conversation's plain text with the live frame under it, or "" when the
+// program does not answer in time (it has ended, or is busy past the bound).
+func (s *screen) transcript() string {
+	if s.tm == nil {
+		return ""
+	}
+	req := make(transcriptReq, 1)
+	go s.tm.Send(req) // never block the test on a program that has stopped reading
+	select {
+	case f := <-req:
+		return f
+	case <-time.After(time.Second):
+		return ""
+	}
+}
+
+type frameReq chan string
+
+// frame is the live frame alone — what the window shows now — or "" when the program does not
+// answer in time.
+func (s *screen) frame() string {
+	if s.tm == nil {
+		return ""
+	}
+	req := make(frameReq, 1)
+	go s.tm.Send(req)
+	select {
+	case f := <-req:
+		return f
+	case <-time.After(time.Second):
+		return ""
+	}
 }
 
 func (s *screen) follow(r io.Reader) {
@@ -55,20 +115,44 @@ func (s *screen) follow(r io.Reader) {
 	}()
 }
 
+// text is the byte stream so far, stripped — order-faithful for whole lines only.
 func (s *screen) text() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return ansi.Strip(s.buf.String())
 }
 
+// shows: want is on screen — in the byte stream, or in the transcript and live frame.
+func (s *screen) shows(want string) bool {
+	return strings.Contains(s.text(), want) || strings.Contains(s.transcript(), want)
+}
+
+// waitFrame waits for want in the window itself — the pane's visible rows, not the scrollback.
+func (s *screen) waitFrame(t testing.TB, want string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for !strings.Contains(s.frame(), want) {
+		if time.Now().After(deadline) {
+			t.Fatalf("waited for %q in the window; the frame:\n%s", want, s.frame())
+		}
+		time.Sleep(15 * time.Millisecond) // a poll interval, not a synchronisation
+	}
+}
+
 func (s *screen) wait(t testing.TB, want string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
-	for !strings.Contains(s.text(), want) {
-		if time.Now().After(deadline) {
-			t.Fatalf("waited for %q; the screen so far:\n%s", want, s.text())
+	for tick := 0; ; tick++ {
+		if strings.Contains(s.text(), want) || (tick%4 == 3 && strings.Contains(s.transcript(), want)) {
+			return
 		}
-		time.Sleep(15 * time.Millisecond)
+		if time.Now().After(deadline) {
+			if strings.Contains(s.transcript(), want) {
+				return
+			}
+			t.Fatalf("waited for %q; the transcript:\n%s\nthe stream so far:\n%s", want, s.transcript(), s.text())
+		}
+		time.Sleep(15 * time.Millisecond) // a poll interval, not a synchronisation
 	}
 }
 
@@ -84,12 +168,12 @@ func tuiSessionHost(t *testing.T, w *testWorkspace) (*tuiHost, *teatest.TestMode
 		t.Fatal(err)
 	}
 	m := tui.New(h, tui.NewTheme(true), h.words)
-	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(100, 30))
+	tm := teatest.NewTestModel(t, framed{m}, teatest.WithInitialTermSize(100, 30))
 	m.Attach(tm.Send)
 	h.attach(tmSender{tm})
-	sc := &screen{}
+	sc := &screen{tm: tm}
 	sc.follow(tm.Output())
-	sc.wait(t, "✦ agent-one")
+	sc.wait(t, "⏎ ask") // the welcome card itself, not the header that is drawn before it
 	t.Cleanup(func() {
 		tm.Send(tui.EvQuit{})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -108,12 +192,12 @@ func tuiSession(t *testing.T, w *testWorkspace) (*App, *teatest.TestModel, *scre
 		t.Fatal(err)
 	}
 	m := tui.New(h, tui.NewTheme(true), h.words)
-	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(100, 30))
+	tm := teatest.NewTestModel(t, framed{m}, teatest.WithInitialTermSize(100, 30))
 	m.Attach(tm.Send)
 	h.attach(tmSender{tm})
-	sc := &screen{}
+	sc := &screen{tm: tm}
 	sc.follow(tm.Output())
-	sc.wait(t, "✦ agent-one")
+	sc.wait(t, "⏎ ask") // the welcome card itself, not the header that is drawn before it
 	t.Cleanup(func() {
 		tm.Send(tui.EvQuit{})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
@@ -146,12 +230,15 @@ func TestTUIJunctionTurn(t *testing.T) {
 	sc.wait(t, "+ the login zone")
 	sc.wait(t, "hi was said and the file edited")
 	sc.wait(t, "✓ gate · ")
-	s := sc.text()
-	if strings.Index(s, "Let me run it.") > strings.Index(s, "● bash") {
+	s := sc.transcript()
+	if i, j := strings.Index(s, "Let me run it."), strings.Index(s, "● bash"); i < 0 || j < 0 || i > j {
 		t.Fatalf("the streamed text lands before the tool block:\n%s", s)
 	}
 	if !strings.Contains(s, "+2 −0") {
 		t.Fatalf("the diff stat is missing:\n%s", s)
+	}
+	if i, j := strings.Index(s, "⏎ ask"), strings.Index(s, "▌ say hi"); i < 0 || i > j {
+		t.Fatalf("the welcome must head the conversation, before the first ask:\n%s", s)
 	}
 	if !strings.Contains(w.read(".agent-one/log.md"), "Gate") {
 		t.Fatal("the gate verdict did not reach log.md")
@@ -163,6 +250,13 @@ func TestTUIJunctionTurn(t *testing.T) {
 	sc.wait(t, "❯ /status")
 	enter(tm)
 	sc.wait(t, "sandbox: none")
+	// pane mode: the output is the conversation's last block and the pane follows it — in the
+	// window, never printed above the frame, never left at the transcript's top
+	sc.waitFrame(t, "sandbox: none")
+	sc.waitFrame(t, "budget subagent: off")
+	if s := sc.transcript(); strings.Index(s, "▌ /status") > strings.Index(s, "sandbox: none") {
+		t.Fatalf("the status output is not under its command:\n%s", s)
+	}
 }
 
 func TestTUIApprovalYes(t *testing.T) {
@@ -176,8 +270,8 @@ func TestTUIApprovalYes(t *testing.T) {
 	tm.Type("push it")
 	enter(tm)
 	sc.wait(t, "1 · Yes")
-	if s := sc.text(); !strings.Contains(s, "outward  bash  git push origin main") || !strings.Contains(s, "don't ask again for bash:git push*") {
-		t.Fatalf("approval block:\n%s", s)
+	if !sc.shows("outward  bash  git push origin main") || !sc.shows("don't ask again for bash:git push*") {
+		t.Fatalf("approval block:\n%s", sc.transcript())
 	}
 	enter(tm)
 	sc.wait(t, "✓ Yes")
@@ -204,7 +298,7 @@ func TestTUIApprovalDontAskAgain(t *testing.T) {
 	enter(tm)
 	sc.wait(t, "1 · Yes")
 	tm.Type("2")
-	sc.wait(t, "rule bash:git push* → allow written to .agent-one/config.local.yaml")
+	sc.wait(t, "rule bash:git push* → allow · in .agent-one/config.local.yaml")
 	sc.wait(t, "pushed twice")
 	local, _ := readFile(w, ".agent-one/config.local.yaml")
 	if !strings.Contains(local, `bash:git push*`) || !strings.Contains(local, `bash:make *`) {
@@ -310,8 +404,8 @@ func TestTUIInterruptAndQueue(t *testing.T) {
 	// output follows it. A regression that injects mid-turn would show the note reaching
 	// the model while "slow" was still running — the mock script has no step answering a
 	// mid-turn "a note", so any injection yields no turn and this wait fails:
-	if !strings.Contains(sc.text(), "⏎ queued: a note") {
-		t.Fatalf("the queued echo vanished:\n%s", sc.text())
+	if s := sc.transcript(); strings.Index(s, "■ interrupted") > strings.Index(s, "the note ran as its own turn") {
+		t.Fatalf("the note's turn ran before the interrupt:\n%s", s)
 	}
 }
 
@@ -335,7 +429,7 @@ func TestTUIGateCardFreedByInterrupt(t *testing.T) {
 	if why := h.Queue("hello"); !strings.Contains(why, "queued") {
 		t.Fatalf("the queue word did not read as queued: %q", why)
 	}
-	if strings.Contains(sc.text(), "hello back") {
+	if sc.shows("hello back") {
 		t.Fatal("the workspace answered while its card was open — the queue must wait")
 	}
 	// the dashboard's interrupt endpoint (what a human hits while the modal holds the

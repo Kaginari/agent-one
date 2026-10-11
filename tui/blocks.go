@@ -10,6 +10,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/tree"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Kaginari/agent-one/value"
 )
 
 // The view model: every block the session draws, as a pure function of a view and a width.
@@ -85,7 +87,7 @@ func (t Theme) Welcome(w Welcome, width int) string {
 	vw := inner - 9 // the value column: the widest label and its gap ride left of it
 	facts := []kv{{w.WorkspaceWord, t.text.Render(tailPath(w.Workspace, vw))}, {"model", t.text.Render(w.Model)}}
 	if s := roleSummary(w.Roles); s != "" {
-		facts = append(facts, kv{"roles", s})
+		facts = append(facts, kv{"roles", t.text.Render(s)})
 	}
 	facts = append(facts, kv{"session", t.dim.Render(w.Session)})
 	if w.Dash != "" {
@@ -828,7 +830,8 @@ type RailPlan struct {
 	Archived bool
 }
 
-// RailSubagent is one roster row: the rank dot, the name, the state, the age.
+// RailSubagent is one roster row: the rank dot, the name, the state, the age, and the agent's value
+// meter (nil when the value policy has no record of it).
 type RailSubagent struct {
 	Name   string
 	State  string
@@ -836,6 +839,26 @@ type RailSubagent struct {
 	Lane   color.Color
 	Done   bool
 	Failed bool
+	Value  *RailValue
+}
+
+// RailValue is one agent's value reading (policy.value) as the terminal shows it: its meter, banded
+// by its rank's policy; Low when its record is under the rank's minRecord (shown dimmed, never
+// ranked).
+type RailValue struct {
+	Meter value.Meter
+	Low   bool
+}
+
+// RailRank is one rank's standing (policy.value): its rank (canonical), its family (the hue a
+// custom rank holds), the meter its confident agents read, how many agents it has and how many
+// of them hold a confident record, and their mean score.
+type RailRank struct {
+	Rank, Family string
+	Meter        value.Meter
+	Agents       int
+	Confident    int
+	Mean         float64
 }
 
 // RailView is the right rail's data: the workspace's mascot and name, the run's vitals (ctx gauge,
@@ -867,6 +890,12 @@ type RailView struct {
 	Verb  string
 	// Evolved is the session's last evolution, one line ("zone-x mutated its configuration")
 	Evolved string
+	// the value policy's readings (FooterView's): the meters' bands, the ranks, the orchestrator's own
+	// score and the nearest promotion
+	Meters    map[string]value.MeterDef
+	RankNames []RailRank
+	Score     *RailValue
+	Promote   string
 }
 
 const railFilesMax = 10
@@ -1239,6 +1268,16 @@ type FooterView struct {
 	// render exactly as before.
 	CtxTokens int
 	CtxLimit  int
+	// Meters are the session's meters (ctx, plan, score) as config resolves them
+	// (cfg.Meters()): every gauge bands by them; nil reads the binary's defaults.
+	Meters map[string]value.MeterDef
+	// Ranks are the ranks' value standing (policy.value), Values the agents' meters by agent name
+	// (a subagent row's chip), Score the orchestrator's own meter, Promote the nearest promotion
+	// ("domain-engine · 3 to promote"); empty when the value policy is off or has no record.
+	RankNames []RailRank
+	Values    map[string]RailValue
+	Score     *RailValue
+	Promote   string
 }
 
 // Footer renders the line under the input.
@@ -1247,7 +1286,7 @@ func (t Theme) Footer(f FooterView, width int) string {
 	parts = parts[:0:0]
 	ctx := f.Ctx
 	if f.CtxKnown && width >= 72 {
-		ctx = "ctx " + t.Meter(f.CtxPct, 8) + fmt.Sprintf(" %d%%", f.CtxPct)
+		ctx = "ctx " + t.MeterFor(f.CtxPct, 8, meterDef(f.Meters, "ctx")) + fmt.Sprintf(" %d%%", f.CtxPct)
 		// raw counts ride only on wide screens — a narrow terminal keeps the meter
 		if f.CtxTokens > 0 && f.CtxLimit > 0 && width >= 88 {
 			ctx += fmt.Sprintf(" · %s/%s", humanTokens(f.CtxTokens), humanTokens(f.CtxLimit))

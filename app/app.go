@@ -63,9 +63,12 @@ type Options struct {
 // App is one opened engine.
 type App struct {
 	// the value view the board reads, folded at most once a second (board.go valueView)
-	valueMu   sync.Mutex
-	valueAt   time.Time
-	valueMemo *board.ValueView
+	valueMu sync.Mutex
+	themeMu sync.Mutex // one look switch at a time (setTheme)
+	// lookOverride is the session's switch while a layer above config.local.yaml pins ui.theme
+	lookOverride [2]string
+	valueAt      time.Time
+	valueMemo    *board.ValueView
 
 	Opt       Options
 	Cfg       *config.Config

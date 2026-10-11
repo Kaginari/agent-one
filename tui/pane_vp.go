@@ -39,9 +39,11 @@ func (m *Model) ensureVP(cw, paneH int) bool {
 
 // feedVP serves the transcript + live rows into the viewport — only when either changed (or
 // the pane did): an idle frame re-reads nothing. Follow mode: the pane hugs the bottom while
-// the human hasn't scrolled away (AtBottom before the feed), and leaves them where they climbed
-// when they have. Internal discipline: soft-wrap off, gutter off.
+// the human hasn't scrolled away (AtBottom before the feed, read at the geometry the human last
+// saw — a pane that shrank under a taller draft or a smaller window is no climb), and leaves them
+// where they climbed when they have. Internal discipline: soft-wrap off, gutter off.
 func (m *Model) feedVP(live []string, cw, paneH int) []string {
+	follow := !m.vpOK || m.vp.AtBottom()
 	resized := m.ensureVP(cw, paneH)
 	lines := m.paneChat(cw)
 	if resized || m.vpVer != m.paneVer || m.vpTrim != m.liveTrim || !slices.Equal(m.vpLive, live) {
@@ -55,10 +57,9 @@ func (m *Model) feedVP(live []string, cw, paneH int) []string {
 			}
 		}
 		m.vpTrim = m.liveTrim
-		atBottom := m.vp.AtBottom()
 		m.vpLines = lines
 		m.vp.SetContentLines(lines)
-		if atBottom {
+		if follow {
 			m.vp.GotoBottom()
 		}
 		m.vpVer, m.vpLive = m.paneVer, append(m.vpLive[:0], live...)
