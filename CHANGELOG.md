@@ -6,6 +6,18 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-11
+
+The first stable release. From here the configuration keys, the `agent-one` commands and flags, and
+the memory server's MCP tools (`recall`, `remember`, `memory_status`) change only with a major
+version; a key or flag that goes away is deprecated for a minor release first.
+
+### Changed
+
+- **The 3D net's neurons are points of light** — scaled down to about a third of their old size,
+  growing with the mass under them, so a large world's net reads as a constellation rather than a
+  cluster of spheres.
+
 ## [0.3.1] - 2026-10-11
 
 ### Added

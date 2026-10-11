@@ -528,7 +528,7 @@
       const mk = id => (m.sized && m.massK && m.massK.has(id)) ? m.massK.get(id) : 0.5;
       // NEURON scales every neuron at once — its solid, glow, ring, dendrites and face: small
       // points of light, the mass deciding which grow
-      const NEURON = 0.1;
+      const NEURON = 0.3;
       const radius = n => NEURON * (n.orchestrator ? 0.3 : kidsOf(n.id).length ? 0.15 * (1 + 0.8 * mk(n.id)) : 0.1 * (1 + 1.5 * mk(n.id)));
       // regions: the orchestrator's children with a subtree; the rest sit near the centre
       const regionOf = new Map(), heads = [], small = [];
