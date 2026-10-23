@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// The ledger shelf (`<workspaceDir>/instruments/ledgers.jsonl`): the council's strain, its
+// The ledger shelf (`<workspaceDir>/shared/ledgers.jsonl`): the council's strain, its
 // consult counts, its stress-death memos and the subagent-write attribution notebook used to
 // live process-local and die with it — a workspace that forgot its scars on every restart
 // relearned nothing (freeze review 2026-10-07). Every mutation appends one JSON row;
 // Open replays the shelf (last row wins per key) so rests survive restarts. An unreadable
 // shelf never blocks a boot: the workspace simply opens ledgerless, exactly like before.
 
-const ledgerShelf = "instruments/ledgers.jsonl"
+const ledgerShelf = sharedShelf + "/ledgers.jsonl"
 
 type ledgerRow struct {
 	Kind   string    `json:"kind"` // stress | consults | stressClear | death | subagentWrite | relief (a council relief: the zone split or retired — Lane names the act, Path the young)
@@ -53,7 +53,13 @@ func (w *Workspace) ledgerNote(r ledgerRow) {
 // the same per-member bound as runtime writes; the clear row empties both strain ledgers,
 // exactly like the run-time clean-landing policy.
 func (w *Workspace) loadLedgers() {
-	f, err := os.Open(filepath.Join(w.Dir(), filepath.FromSlash(ledgerShelf)))
+	for _, p := range w.shelfReadPaths(ledgerShelf) {
+		w.replayLedger(p)
+	}
+}
+
+func (w *Workspace) replayLedger(path string) {
+	f, err := os.Open(path)
 	if err != nil {
 		return
 	}

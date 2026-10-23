@@ -23,7 +23,7 @@ import (
 // soil and ownerships stay disjoint. The retired seat keeps its graph memory; members that
 // reported to it now report to its promoted (the roster resolves the succession).
 //
-// Each report folds into the value ledger (`<workspaceDir>/instruments/value.jsonl`, workspace/value.go)
+// Each report folds into the value ledger (`<workspaceDir>/shared/value.jsonl`, workspace/value.go)
 // replayed at Open, so a record earned over many sessions counts. Each promotion is appended
 // to log.md with the reading that earned it; each failure is a hole, logged and surfaced to
 // the dispatcher as `@?`.

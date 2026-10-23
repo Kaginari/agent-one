@@ -12,7 +12,7 @@ import (
 )
 
 // The value policy, coded (ranks.md §Value). Every Subagent's report and every orchestrator turn folds one
-// row into the value ledger (`<workspaceDir>/instruments/value.jsonl`), always — a workspace with no
+// row into the value ledger (`<workspaceDir>/shared/value.jsonl`), always — a workspace with no
 // promotion still measures its agents. A gate verdict credits the agent that held the gate; a
 // pass a later fail on the same paths undoes is an overturn. The ledger is replayed at Open; the
 // promotion condition, the council's reading, the board's leaderboard and the meters all read
@@ -60,14 +60,22 @@ func (w *Workspace) openValue() {
 	if w.valOpt.Off {
 		return
 	}
-	if n, err := value.Seed(w.Dir()); err != nil {
-		w.Notes = append(w.Notes, "value ledger: "+err.Error())
-	} else if n > 0 {
-		w.Notes = append(w.Notes, "value ledger seeded from "+value.LegacyShelf)
+	// a workspace that never kept a ledger is seeded once; one whose ledger is still on the old
+	// shelf (its move failed) already carries its seed
+	if len(w.shelfReadPaths(value.Shelf)) == 0 {
+		if n, err := value.Seed(w.Dir()); err != nil {
+			w.Notes = append(w.Notes, "value ledger: "+err.Error())
+		} else if n > 0 {
+			w.Notes = append(w.Notes, "value ledger seeded from "+value.LegacyShelf)
+		}
 	}
-	rows, err := value.Read(w.valuePath())
-	if err != nil {
-		w.Notes = append(w.Notes, "value ledger: "+err.Error())
+	var rows []value.Row
+	for _, p := range w.shelfReadPaths(value.Shelf) {
+		rs, err := value.Read(p)
+		if err != nil {
+			w.Notes = append(w.Notes, "value ledger: "+err.Error())
+		}
+		rows = append(rows, rs...)
 	}
 	w.val.rows = rows
 	for _, r := range rows {

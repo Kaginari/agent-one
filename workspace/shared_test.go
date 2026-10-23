@@ -65,3 +65,57 @@ func TestOwnershipSharedShelfIsHarnessSoil(t *testing.T) {
 		t.Fatal("the write landed on the shelf")
 	}
 }
+
+// TestSharedShelfMigrates: an old workspace's ledgers and value ledger move onto the shared shelf
+// at Open — renamed whole, every line kept — and read back as before; new rows land there.
+func TestSharedShelfMigrates(t *testing.T) {
+	dir := fixture(t)
+	inst := filepath.Join(dir, ".agent-one", "instruments")
+	os.MkdirAll(inst, 0o755)
+	ledger := `{"kind":"stress","agent":"zone-auth","value":2,"at":"2026-10-09T09:00:00Z"}` + "\n"
+	val := `{"kind":"seed","at":"2026-10-01T00:00:00Z","from":"instruments/promotion.jsonl"}` + "\n" +
+		`{"kind":"run","at":"2026-10-09T09:00:00Z","agent":"zone-auth","loop":"DONE","word":"DONE","status":"DONE"}` + "\n"
+	os.WriteFile(filepath.Join(inst, "ledgers.jsonl"), []byte(ledger), 0o644)
+	os.WriteFile(filepath.Join(inst, "value.jsonl"), []byte(val), 0o644)
+	// a promotion tally too: a moved ledger already carries its seed, it is never seeded twice
+	os.WriteFile(filepath.Join(inst, "promotion.jsonl"), []byte(`{"kind":"report","agent":"zone-api","status":"DONE","at":"2026-09-01T00:00:00Z"}`+"\n"), 0o644)
+	w := open(t, dir)
+	for name, want := range map[string]string{"ledgers.jsonl": ledger, "value.jsonl": val} {
+		b, err := os.ReadFile(filepath.Join(w.SharedDir(), name))
+		if err != nil || string(b) != want {
+			t.Fatalf("%s moved whole: %v %q", name, err, b)
+		}
+		if _, err := os.Stat(filepath.Join(inst, name)); err == nil {
+			t.Fatalf("%s left behind", name)
+		}
+	}
+	if w.stress["zone-auth"] != 2 || len(w.val.rows) != 2 {
+		t.Fatalf("the moved shelf read back: stress %v, %d value rows", w.stress, len(w.val.rows))
+	}
+	w.ledgerNote(ledgerRow{Kind: "consults", Agent: "zone-auth", Value: 1})
+	if b, _ := os.ReadFile(filepath.Join(w.SharedDir(), "ledgers.jsonl")); strings.Count(string(b), "\n") != 2 {
+		t.Fatalf("a new row lands on the shared shelf: %q", b)
+	}
+}
+
+// TestSharedShelfReadsBothHomes: when an older binary wrote the old file again after the move,
+// Open reads the old file's lines first, then the shared shelf's — nothing is lost, nothing
+// moved over a file that exists.
+func TestSharedShelfReadsBothHomes(t *testing.T) {
+	dir := fixture(t)
+	for rel, row := range map[string]string{
+		"instruments/ledgers.jsonl": `{"kind":"stress","agent":"zone-auth","value":1,"at":"2026-10-09T09:00:00Z"}`,
+		"shared/ledgers.jsonl":      `{"kind":"stress","agent":"zone-auth","value":3,"at":"2026-10-10T09:00:00Z"}` + "\n" + `{"kind":"stress","agent":"zone-api","value":2,"at":"2026-10-10T09:00:00Z"}`,
+	} {
+		p := filepath.Join(dir, ".agent-one", filepath.FromSlash(rel))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(row+"\n"), 0o644)
+	}
+	w := open(t, dir)
+	if w.stress["zone-auth"] != 3 || w.stress["zone-api"] != 2 {
+		t.Fatalf("both homes, old first: %v", w.stress)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".agent-one", "instruments", "ledgers.jsonl")); err != nil {
+		t.Fatal("a move over an existing shared file")
+	}
+}

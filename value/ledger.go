@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// Shelf is the value ledger's path under the workspace dir: one append-only JSON line per row,
-// always kept — a workspace with no promotion still measures its agents.
-const Shelf = "instruments/value.jsonl"
+// Shelf is the value ledger's path under the workspace dir, on the shared shelf: one append-only
+// JSON line per row, always kept — a workspace with no promotion still measures its agents.
+const Shelf = "shared/value.jsonl"
 
 // LegacyShelf is the promotion tally the ledger replaced; Seed reads it once.
 const LegacyShelf = "instruments/promotion.jsonl"

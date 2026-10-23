@@ -209,7 +209,7 @@ everything the workspace enforces without asking an agent to believe anything.
 
 ## Value and meters
 
-Each rank is measured by its own job, from one ledger (`.agent-one/instruments/value.jsonl`, one row
+Each rank is measured by its own job, from one ledger (`.agent-one/shared/value.jsonl`, one row
 per run per agent, always kept) under one definition of success (`policy.value`: `DONE`/`PASS`
 pass, `FAIL`/`ESCALATE`/`CHECKPOINT` fail, the human's `DENIED`, `INTERRUPTED`, `DRY` and
 `SUSPENDED` neutral). A rank's flags give it a family and the family a score: a zone worker is scored
