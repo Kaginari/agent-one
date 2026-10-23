@@ -249,7 +249,9 @@ stale.
 - **The guts** (`policy.guts`, default on) score every act as it lands and journal the reading;
   past a slide they speak once inside the failing act's own result. `lessons` ranks what the
   journals learned — the instrument aggregates; crystallizing a class into a skill or a policy is
-  a writer's act.
+  a writer's act. Two hard stops ride with them (`policy.guts.repin`, `policy.guts.actBudget`): the
+  same read answered the same with nothing landed between, or a run of turns that lands nothing,
+  checkpoints the turn — resumable, never a failure.
 - **The orchestrator's own stress is an instrument reading too, not a feeling.** The context
   reading measures the running session's occupancy against a conservative, model-independent
   budget (default 200,000 tokens — below any model's real window, since the orchestrator runs
