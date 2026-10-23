@@ -3,9 +3,11 @@ package loop
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/Kaginari/agent-one/provider"
+	"github.com/Kaginari/agent-one/tool"
 )
 
 // The token diet. A subagent's fan-out calls are priced by replaying the conversation as input
@@ -48,7 +50,11 @@ func compactReplay(msgs []provider.Message, opts ...CompactOpt) []provider.Messa
 			for j, tr := range m2.ToolResults {
 				tr2 := tr
 				if len(tr2.Content) > cfg.foldLen || strings.Count(tr2.Content, "\n") > 4 {
-					tr2.Content = foldCaption(calls[tr2.ID], tr2.Content)
+					restore := ""
+					if cfg.shelf != nil {
+						restore = cfg.shelf(calls[tr2.ID], tr2.Content)
+					}
+					tr2.Content = foldCaption(calls[tr2.ID], tr2.Content, restore)
 				}
 				folded[j] = tr2
 			}
@@ -79,9 +85,10 @@ func indexCalls(msgs []provider.Message) map[string]provider.ToolCall {
 }
 
 // foldCaption is the one line a folded result leaves on the wire: the tool, what it ran on
-// (the call's own gist), and how much was there. The same call and payload always caption the
-// same, so a folded message stays byte-stable turn after turn.
-func foldCaption(tc provider.ToolCall, content string) string {
+// (the call's own gist), how much was there, and where the bytes are kept (restore, from the
+// shelf) — or, with no shelf, the old ask to run it again. The same call and payload always
+// caption the same, so a folded message stays byte-stable turn after turn.
+func foldCaption(tc provider.ToolCall, content, restore string) string {
 	name := tc.Name
 	if name == "" {
 		name = "tool"
@@ -89,8 +96,11 @@ func foldCaption(tc provider.ToolCall, content string) string {
 	if g := callGist(tc.Input); g != "" {
 		name += " " + g
 	}
-	return fmt.Sprintf("[replay-folded %s: %d lines, %s were here — ask again if you need the raw text]",
-		name, strings.Count(content, "\n")+1, byteSize(len(content)))
+	if restore == "" {
+		restore = "ask again if you need the raw text"
+	}
+	return fmt.Sprintf("[replay-folded %s: %d lines, %s were here — %s]",
+		name, strings.Count(content, "\n")+1, byteSize(len(content)), restore)
 }
 
 // callGist is the argument a caption names: the first of the inputs that say what a call ran
@@ -132,10 +142,35 @@ func byteSize(n int) string {
 	return fmt.Sprintf("%.1fkB", float64(n)/(1<<10))
 }
 
+// keepFold shelves a folded result's payload once per call and answers where it is kept (the
+// caption's restore pointer). A rootless engine keeps nothing; a payload that could not be
+// kept is tried again on the next replay.
+func (s *Session) keepFold(tc provider.ToolCall, content string) string {
+	if p, ok := s.folds[tc.ID]; ok {
+		return p
+	}
+	e := s.Engine
+	if e.Root == "" {
+		return ""
+	}
+	_, path, err := tool.FoldKeep(tool.FoldDir(e.Root, e.Lexicon.workspaceDir()), content)
+	if err != nil {
+		return ""
+	}
+	rel, _ := filepath.Rel(e.Root, path)
+	if s.folds == nil {
+		s.folds = map[string]string{}
+	}
+	s.folds[tc.ID] = "kept at " + filepath.ToSlash(rel)
+	return s.folds[tc.ID]
+}
+
 type compactConfig struct {
 	keepTools     int // the newest tool-result groups left raw
 	keepThinkLast int // assistant messages (from the tail) whose Opaque blocks ride the wire
 	foldLen       int // bytes of content beyond which a tool result folds
+	// shelf keeps a folded payload and answers the caption's restore pointer ("" = not kept)
+	shelf func(tc provider.ToolCall, content string) string
 }
 
 type CompactOpt func(*compactConfig)
@@ -145,3 +180,9 @@ func CompactKeepTools(n int) CompactOpt { return func(c *compactConfig) { c.keep
 
 // CompactFold overrides the byte length at which an old tool result folds.
 func CompactFold(n int) CompactOpt { return func(c *compactConfig) { c.foldLen = n } }
+
+// CompactShelf keeps every folded payload through keep, whose answer is the caption's restore
+// pointer; an empty answer (the payload could not be kept) captions the ask to run it again.
+func CompactShelf(keep func(tc provider.ToolCall, content string) string) CompactOpt {
+	return func(c *compactConfig) { c.shelf = keep }
+}

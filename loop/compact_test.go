@@ -3,10 +3,13 @@ package loop
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Kaginari/agent-one/provider"
+	"github.com/Kaginari/agent-one/tool"
 )
 
 func TestCompactReplayFoldsOldToolOutputs(t *testing.T) {
@@ -177,5 +180,40 @@ func TestCompactReplayLongSessionBytes(t *testing.T) {
 	t.Logf("40-read session: raw=%d wire=%d cut=%d%%", raw, wire, 100-wire*100/raw)
 	if wire*5 > raw {
 		t.Fatalf("a 40-read session must replay under a fifth of its tool bytes: raw=%d wire=%d", raw, wire)
+	}
+}
+
+// A folded payload keeps on the shelf under its digest, byte for byte, and the caption quotes
+// where; a second session folding the same bytes keeps them once.
+func TestCompactFoldKeepsThePayload(t *testing.T) {
+	root := t.TempDir()
+	payload := strings.Repeat("the exact bytes\n", 50) + "no trailing newline"
+	msgs := []provider.Message{
+		{Role: provider.User, Text: "q"},
+		{Role: provider.Assistant, ToolCalls: []provider.ToolCall{{ID: "a", Name: "read", Input: json.RawMessage(`{"path":"x.go"}`)}}},
+		{Role: provider.User, ToolResults: []provider.ToolResult{{ID: "a", Content: payload}}},
+	}
+	kept := ".agent-one/tmp/fold/" + tool.FoldDigest(payload) + ".txt"
+	for i := 0; i < 2; i++ {
+		s := &Session{Engine: &Engine{Root: root}}
+		out := compactReplay(msgs, CompactKeepTools(0), CompactShelf(s.keepFold))
+		if got := out[2].ToolResults[0].Content; !strings.HasSuffix(got, "— kept at "+kept+"]") {
+			t.Fatalf("caption %q does not quote the kept path %s", got, kept)
+		}
+		if again := compactReplay(msgs, CompactKeepTools(0), CompactShelf(s.keepFold)); again[2].ToolResults[0].Content != out[2].ToolResults[0].Content {
+			t.Fatal("a kept fold must caption the same on every replay")
+		}
+	}
+	got, err := os.ReadFile(filepath.Join(root, kept))
+	if err != nil || string(got) != payload {
+		t.Fatalf("the shelf must hold the payload byte for byte: %v", err)
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(filepath.Join(root, kept))); len(ents) != 1 {
+		t.Fatalf("one payload, one kept file: %d entries", len(ents))
+	}
+	// a rootless engine keeps nothing and asks for the re-run
+	s := &Session{Engine: &Engine{}}
+	if got := compactReplay(msgs, CompactKeepTools(0), CompactShelf(s.keepFold))[2].ToolResults[0].Content; !strings.Contains(got, "ask again") {
+		t.Fatalf("no shelf, no pointer: %q", got)
 	}
 }

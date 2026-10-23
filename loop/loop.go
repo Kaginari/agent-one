@@ -324,6 +324,8 @@ type Session struct {
 	forgeAsked    bool      // the forge question has been asked this turn
 	turnStepBase  int       // s.Steps as this turn opened: the forge question counts the turn's own steps
 	stall         stall     // the turn's spin ledger: re-pins and turns since the last landing (stall.go)
+	// folds: each folded tool_use id's restore pointer, its payload kept once (compact.go)
+	folds map[string]string
 	// the guts' readings (nil Engine.Guts: never appended, never read)
 	gutsVals      []int
 	gutsLastSpoke int
@@ -795,7 +797,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 		// the wire's copy is the compacted one; the session keeps the whole conversation.
 		// a subagent's fan-out grows input-token cost against context replay — this fold +
 		// thinking-drop keeps the growth sub-linear in turn count (see compact.go)
-		wire := compactReplay(s.Messages)
+		wire := compactReplay(s.Messages, CompactShelf(s.keepFold))
 		req := provider.Request{System: s.system(), Messages: wire, Tools: s.defs(), MaxTokens: e.Budget.MaxTokens, Wire: e.Wire, OnDelta: onDelta, OnThinking: onThink}
 		if len(rc.Anchors)+len(rc.Tools) > 0 {
 			req.SystemTail = recallBlock(rc)
