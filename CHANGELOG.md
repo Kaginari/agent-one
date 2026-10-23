@@ -45,6 +45,10 @@ All notable changes to Agent-One are recorded here. The format follows
   `f.go:-20` (the last 20 lines) now work for a single file as they did in a batch, and `:-20`
   in a batch is the tail instead of the whole file. A file whose real name has a colon in it is
   still read as named. A mistyped folder now gets a "did you mean" too.
+- **Shell reads are pointed at `read`.** When an agent prints a file with `cat`, `head`, `tail` or
+  `sed -n '10,40p'`, the command still runs, and its output ends with one line naming the `read`
+  call that gives the same lines numbered and is not re-sent when unchanged
+  (`tools.preferFileTools`: `hint`, the default, or `off`). Nothing is ever refused for it.
 - **Orders wait in the open.** Work a background subagent orders down the ranks (`@$`) is held on the
   shared queue until the session's next wake claims it in the ordered agent's name and opens the
   next turn with it; the terminal's status bar shows how many are held. Two sessions on one workspace

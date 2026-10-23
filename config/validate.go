@@ -62,6 +62,11 @@ func (c *Config) checkScalars() error {
 	default:
 		return fmt.Errorf("tools.tmpRedirect.mode: %q is not rewrite | refuse", m)
 	}
+	switch m := c.Tools.PreferFileTools; m {
+	case "", "hint", "off":
+	default:
+		return fmt.Errorf("tools.preferFileTools: %q is not hint | off", m)
+	}
 	return nil
 }
 

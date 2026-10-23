@@ -143,6 +143,9 @@ func (s *Shelf) Build(agent string) (*tool.Registry, func()) {
 			if !b.Background {
 				t = withoutBackground(t)
 			}
+			if s.Cfg.Tools.PreferFileTools == "hint" && s.on("read") {
+				t = withReadHint(t)
+			}
 			closers = append(closers, closer)
 			add(t)
 		case "read":
@@ -286,6 +289,27 @@ func (s *Shelf) readTool() *tool.Tool {
 		return run(ctx, env, in)
 	}
 	return &t
+}
+
+// withReadHint (tools.preferFileTools: hint) adds one line to a shell command that only printed
+// a file or a window of it, naming the read call that serves the same lines numbered and cached.
+// The command runs as asked; its class is the classifier's.
+func withReadHint(t *tool.Tool) *tool.Tool {
+	run := t.Run
+	cp := *t
+	cp.Run = func(ctx context.Context, env tool.Env, in json.RawMessage) tool.Result {
+		res := run(ctx, env, in)
+		var a struct {
+			Command    string
+			Background json.RawMessage
+		}
+		_ = json.Unmarshal(in, &a)
+		if p := tool.FileReadHint(a.Command); p != "" && !res.Err && string(a.Background) != "true" {
+			res.Output = strings.TrimRight(res.Output, "\n") + fmt.Sprintf("\n[hint: read {\"path\":%q} serves these lines numbered, and withholds them unchanged next time]", p)
+		}
+		return res
+	}
+	return &cp
 }
 
 // withoutBackground refuses `background` when tools.bash.background is off.

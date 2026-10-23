@@ -405,3 +405,24 @@ func TestDiscoverAndHooks(t *testing.T) {
 	}
 	_ = time.Second
 }
+
+// tools.preferFileTools: hint — a shell print of a file runs as asked and names the read call
+// that serves it; anything else, or off, adds nothing.
+func TestPreferFileToolsHint(t *testing.T) {
+	for _, mode := range []string{"hint", "off"} {
+		cfg, root := loadCfg(t, "models: {default: mock/m}\nproviders: {mock: {enabled: true}}\ntools: {preferFileTools: "+mode+", bash: {sandbox: none}}\n", nil)
+		_ = os.WriteFile(filepath.Join(root, "notes.txt"), []byte("one\ntwo\nthree\n"), 0o644)
+		reg, closer := NewShelf(cfg, root, nil, nil, os.Getenv).Build("orchestrator")
+		b, _ := reg.Get("bash")
+		env := tool.Env{Root: root}
+		res := b.Run(context.Background(), env, json.RawMessage(`{"command":"head -n 2 notes.txt"}`))
+		hinted := strings.Contains(res.Output, `[hint: read {"path":"notes.txt:1:2"}`)
+		if !strings.HasPrefix(res.Output, "one\ntwo") || hinted != (mode == "hint") {
+			t.Errorf("%s: %q", mode, res.Output)
+		}
+		if res := b.Run(context.Background(), env, json.RawMessage(`{"command":"head -n 2 notes.txt | wc -l"}`)); strings.Contains(res.Output, "hint") {
+			t.Errorf("%s: a pipeline is no plain read: %q", mode, res.Output)
+		}
+		closer()
+	}
+}

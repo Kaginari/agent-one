@@ -208,6 +208,10 @@ type Tools struct {
 	Output       ToolOutput             `json:"output"`
 	Missing      Missing                `json:"missing"`
 	TmpRedirect  TmpRedirect            `json:"tmpRedirect"`
+	// PreferFileTools (tools.preferFileTools): "hint" — a bash command that only prints a file
+	// or a window of it (cat, head, tail, sed -n 'A,Bp') gets one line naming the read call that
+	// serves it; "off" says nothing. Never a refusal.
+	PreferFileTools string `json:"preferFileTools"`
 }
 
 // TmpRedirect is tools.tmpRedirect: absolute off-workspace targets are herded into

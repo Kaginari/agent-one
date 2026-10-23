@@ -112,6 +112,7 @@ var keyDocs = map[string]string{
 	"tools.missing.doomLoopRepeats":       "how many repeats of a missing tool count as a loop",
 	"tools.missing.proposeOnSecondNaming": "on/off — the second time a missing tool is named, propose making it",
 	"tools.missing.liveReload":            "on/off — a newly added tool is offered without a restart",
+	"tools.preferFileTools":               "hint (a shell print of a file names the read call that serves it) or off — never a refusal",
 	"tools.tmpRedirect":                   "scratch lives in the workspace, never at /tmp or the filesystem root",
 	"tools.tmpRedirect.enabled":           "on/off — off-workspace scratch paths are redirected or refused",
 	"tools.tmpRedirect.mode":              "rewrite (the path is moved into the workspace's tmp) or refuse",
