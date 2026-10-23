@@ -1171,7 +1171,9 @@ func (s *Session) finish(ctx context.Context, r *Result, resp provider.Response,
 		verdict, holes, err := e.Hooks.EndGate(ctx, s, r)
 		r.Verdict = verdict
 		r.Wrote = append([]string(nil), s.Wrote...) // what the gate saw (the hook may have narrowed it)
-		s.gated = true
+		// a gate cut short by the run's end judged nothing: its writes carry into the next
+		// turn's gate instead of being dropped unjudged
+		s.gated = err == nil || ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 		for _, h := range holes {
 			r.hole(h)
 		}

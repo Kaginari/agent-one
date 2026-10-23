@@ -74,7 +74,8 @@ All notable changes to Agent-One are recorded here. The format follows
 - **A cancelled gate is not a failed one.** When a run is stopped while its end-of-turn gate is
   still reading, the gate stops spawning checks and says "cancelled" instead of recording every
   check it skipped as a red failure against the agent, and the turn is no longer sent back to the
-  model to fix a failure that never happened.
+  model to fix a failure that never happened. The writes it never judged are not forgotten: the
+  next turn's gate judges them along with its own.
 - **Each subagent keeps its own working notes.** Every agent's `working notes` wrote the orchestrator's file; a subagent now
   writes its run's, the one compaction and `agent-one resume` read.
 - **One agent, one live subagent.** A second dispatch to an agent whose subagent is still running is

@@ -995,3 +995,34 @@ func TestUnsaidBounceBounded(t *testing.T) {
 		t.Fatalf("exactly one @U bounce: %d", len(m.Requests))
 	}
 }
+
+// A gate cut short by its context judged nothing: the writes it was handed are not marked gated,
+// so they carry into the next turn's gate instead of being dropped unjudged.
+func TestCancelledGateCarriesTheWrites(t *testing.T) {
+	m := mock.New(
+		mock.Call("1", "write", map[string]string{"path": "a.txt", "content": "x"}),
+		mock.Text("@S DONE\n@U team c\n@E 0"),
+		mock.Text("@S DONE\n@U team c\n@E 0"),
+	)
+	e := engine(t, m)
+	ctx, cancel := context.WithCancel(context.Background())
+	var gated [][]string
+	e.Hooks.EndGate = func(gctx context.Context, s *Session, r *Result) (string, []string, error) {
+		gated = append(gated, append([]string(nil), s.Wrote...))
+		if len(gated) == 1 {
+			cancel() // the run is stopped while its gate reads
+			return "cancelled", nil, fmt.Errorf("gate cancelled — %w", gctx.Err())
+		}
+		return "pass", nil, nil
+	}
+	s := e.NewSession()
+	if r, _ := s.Turn(ctx, "write a"); r == nil || r.Status == Done {
+		t.Fatalf("a cancelled gate does not close the turn done: %+v", r)
+	}
+	if r, err := s.Turn(context.Background(), "carry on"); err != nil || r.Status != Done {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if len(gated) != 2 || strings.Join(gated[1], ",") != "a.txt" {
+		t.Fatalf("the unjudged write must reach the next turn's gate: %v", gated)
+	}
+}
