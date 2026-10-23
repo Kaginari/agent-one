@@ -104,6 +104,9 @@ type Workspace struct {
 	// same gate failing on the same files for the same agent hardens into a spec directive).
 	pairMarks   map[string]time.Time
 	gateStreaks map[string]*gateStreak
+	// receipts is the write book every engine of this workspace shares: a change the tree watch sees
+	// that another run's tool reported writing is that run's (loop.Receipts)
+	receipts *loop.Receipts
 	// evo is policy.evolution: the armed options, this session's evolutions (workspace/evolve.go)
 	evo evoState
 }
@@ -129,7 +132,7 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 	if st, err := os.Stat(filepath.Join(abs, lex.WorkspaceDir)); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("no %s/ under %s", lex.WorkspaceDir, abs)
 	}
-	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, valOpt: opt.Value, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]subagentWrite{}, subagentWrites: map[string]map[string]subagentWrite{}, stress: map[string]int{}, consults: map[string]int{}, stressDeaths: map[string]stressEnd{}, pairMarks: map[string]time.Time{}, gateStreaks: map[string]*gateStreak{}}
+	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, valOpt: opt.Value, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]subagentWrite{}, subagentWrites: map[string]map[string]subagentWrite{}, stress: map[string]int{}, consults: map[string]int{}, stressDeaths: map[string]stressEnd{}, pairMarks: map[string]time.Time{}, gateStreaks: map[string]*gateStreak{}, receipts: loop.NewReceipts()}
 	if w.Ranks == nil {
 		w.Ranks = DefaultRanks(lex)
 	}

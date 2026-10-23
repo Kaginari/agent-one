@@ -18,6 +18,7 @@
 - log.go: Entry renders `### [RFC3339] author — title` then Task, Files, Gate, Result, Learned; Log.Append refuses when the bytes it last saw shrank or changed (Policy 4).
 - One agent, one live subagent: Dispatcher seats the subagent (Workspace.seat, agent → engine) and Close gives the seat up; a second dispatch onto a live seat is refused naming the run there. A report is filed as <run>.report.md beside <run>.jsonl. A subagent that dies by its clock is named by subagentDeathShape from its own Result: no act = provider hang, acts but no write = recon loop, else burn (turns · acts · writes).
 - A cancelled gate judges nothing (gate.go): run spawns no reading once the context has ended, and Gate then answers `cancelled` (never `fail`) with the hole "the turn's writes stand unjudged"; EndGate logs `gate cancelled` with result "interrupted — the gate did not judge", the breaker streak and the value ledger's gate note do not move, and the hook returns an error so the turn does not close done.
+- One write book per workspace: Open makes a loop.Receipts and Engine hands the same one to every engine it builds, so the tree watch of a dispatcher leaves a background subagent's tool-reported writes to that subagent's gate (loop/snapshot.go).
 
 ## Verify
 - `go test ./workspace/`

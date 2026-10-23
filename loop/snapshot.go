@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // The gate must see every write, whatever tool made it. A tool that knows its paths reports
@@ -20,6 +22,11 @@ import (
 // instruments/, tmp/, memory/ (the tiers the binary maintains), toolbox/registry.json (derived),
 // ontology/graph/unsaid.ttl (where a report's @U lines land) and log.md (the gate's own
 // record). `.git` and the dependency/build dirs of heavyDirs are never walked.
+//
+// The tree is shared: a subagent working in the background beside its dispatcher changes it too,
+// and a stamp cannot say whose hand moved a file. The receipt can — a tool that names its paths
+// notes them in the engines' shared Receipts book, and a change another run noted since this
+// session last stamped is that run's write, gated on its account, not this one's.
 
 type stamp struct {
 	size  int64
@@ -128,11 +135,48 @@ func (a snapshot) diff(b snapshot) []string {
 	return out
 }
 
+// Receipts is the write book of the engines sharing a root: which run's tool last reported
+// writing each root-relative path, and when.
+type Receipts struct {
+	mu sync.Mutex
+	by map[string]receipt
+}
+
+type receipt struct {
+	run string
+	at  time.Time
+}
+
+// NewReceipts is an empty book.
+func NewReceipts() *Receipts { return &Receipts{by: map[string]receipt{}} }
+
+func (b *Receipts) note(run, rel string) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.by[filepath.ToSlash(rel)] = receipt{run: run, at: time.Now()}
+	b.mu.Unlock()
+}
+
+// foreign is true when another run noted writing rel after since: the change is its receipt's.
+// A receipt older than since was already in the watcher's baseline and explains nothing new.
+func (b *Receipts) foreign(run, rel string, since time.Time) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, ok := b.by[rel]
+	return ok && r.run != run && r.at.After(since)
+}
+
 // watch takes the turn's baseline; a failed stamp names the hole once and stops watching.
 func (s *Session) watch(r *Result) {
 	if s.nowatch {
 		return
 	}
+	s.stampedAt = time.Now()
 	snap, why := s.Engine.stampTree()
 	if why != "" {
 		s.nowatch = true
@@ -145,20 +189,27 @@ func (s *Session) watch(r *Result) {
 	s.TestsBefore = s.Engine.readTests(snap)
 }
 
-// seen re-stamps the tree and returns what changed since the baseline, root-relative; the new
-// stamp becomes the baseline. Nothing when the session is not watching.
+// seen re-stamps the tree and returns what changed since the baseline, root-relative, less what
+// another run holds a fresh receipt for; the new stamp becomes the baseline. Nothing when the
+// session is not watching.
 func (s *Session) seen() []string {
 	if s.nowatch || s.base == nil {
 		return nil
 	}
+	now := time.Now()
 	snap, why := s.Engine.stampTree()
 	if why != "" {
 		s.nowatch = true
 		s.base = nil
 		return nil
 	}
-	changed := s.base.diff(snap)
-	s.base = snap
+	var changed []string
+	for _, p := range s.base.diff(snap) {
+		if !s.Engine.Receipts.foreign(s.RunID, p, s.stampedAt) {
+			changed = append(changed, p)
+		}
+	}
+	s.base, s.stampedAt = snap, now
 	return changed
 }
 

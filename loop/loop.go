@@ -277,8 +277,11 @@ type Engine struct {
 	// ZoneOwner names the member authoring a root-relative path's zone — the file kit quotes
 	// it in write/edit/delete results so every landing names its soil's persistent agent (nil-safe).
 	ZoneOwner func(rel string) string
-	Wire      bool              // the answer is expected on the wire (a Subagent): providers with guided decoding constrain it
-	OnDelta   func(text string) // streamed text, as it arrives
+	// Receipts is the write book shared by every engine on this root (the workspace keeps one): the
+	// tree watch leaves a change another run's tool reported writing to that run. nil = no book.
+	Receipts *Receipts
+	Wire     bool              // the answer is expected on the wire (a Subagent): providers with guided decoding constrain it
+	OnDelta  func(text string) // streamed text, as it arrives
 	// OnThinking is the model's reasoning, as it arrives (shown, never replayed from here).
 	OnThinking func(text string)
 	// Doom: notes-stress auto-relief (policy.budget doomLoop). > 0: when the guts' spoke streak
@@ -306,16 +309,17 @@ type Session struct {
 	Wrote         []string           // the writes the gate has yet to see; cleared once a turn's gate ran
 	Ask           string             // the first ask of the session (the commission)
 	failures      int
-	base          snapshot // the workspace tree as last stamped (snapshot.go)
-	nowatch       bool     // the tree could not be stamped: shell writes go unseen, the hole named
-	gated         bool     // the last turn's writes passed the end gate
-	unsaidBounces int      // count of @U bounces this session — separate from wireTries (which resets per wire-correct turn)
-	gateTries     int      // failed gates sent back to the model this turn
-	wireTries     int      // off-the-wire answers sent back to the model this turn
-	closingAsked  bool     // the closing check has been asked this session (it asks once, never twice)
-	forgeAsked    bool     // the forge question has been asked this turn
-	turnStepBase  int      // s.Steps as this turn opened: the forge question counts the turn's own steps
-	stall         stall    // the turn's spin ledger: re-pins and turns since the last landing (stall.go)
+	base          snapshot  // the workspace tree as last stamped (snapshot.go)
+	stampedAt     time.Time // when base was taken: a receipt noted after it explains a change since
+	nowatch       bool      // the tree could not be stamped: shell writes go unseen, the hole named
+	gated         bool      // the last turn's writes passed the end gate
+	unsaidBounces int       // count of @U bounces this session — separate from wireTries (which resets per wire-correct turn)
+	gateTries     int       // failed gates sent back to the model this turn
+	wireTries     int       // off-the-wire answers sent back to the model this turn
+	closingAsked  bool      // the closing check has been asked this session (it asks once, never twice)
+	forgeAsked    bool      // the forge question has been asked this turn
+	turnStepBase  int       // s.Steps as this turn opened: the forge question counts the turn's own steps
+	stall         stall     // the turn's spin ledger: re-pins and turns since the last landing (stall.go)
 	// the guts' readings (nil Engine.Guts: never appended, never read)
 	gutsVals      []int
 	gutsLastSpoke int
@@ -1058,6 +1062,7 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 		st.Wrote = append(st.Wrote, env.Rel(w))
 		s.Wrote = appendUnique(s.Wrote, env.Rel(w))
 		s.wroteTot++
+		e.Receipts.note(s.RunID, env.Rel(w))
 	}
 	if cls.Class >= tool.Write {
 		// what the act changed on disk, whether or not the tool named it (the shell never does)

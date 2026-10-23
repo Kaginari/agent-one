@@ -827,6 +827,14 @@ func TestGateUI(t *testing.T) {
 	}
 }
 
+func TestEnginesShareReceipts(t *testing.T) {
+	w := open(t, fixture(t))
+	a, b := w.Engine("zone-auth", build(mock.New())), w.Engine("zone-api", build(mock.New()))
+	if a.Receipts == nil || a.Receipts != b.Receipts {
+		t.Fatal("every engine of a workspace must share its write book, or the watch attributes a subagent's writes to its dispatcher")
+	}
+}
+
 // A gate whose run is cancelled mid-reading judges nothing: the checks after the cut are not
 // spawned, the verdict is `cancelled` (not a fail read off a dead context), log.md says so, the
 // circuit-breaker's streak does not move, and the turn is not sent back to the model.
