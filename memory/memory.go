@@ -927,7 +927,8 @@ type RecallOpts struct {
 	K       int    // 0 = 5
 	NoCache bool
 	// Window shapes the results for a prompt's recall window: at most windowSeats per source,
-	// so one long file cannot take every seat. Off, the ranking is the JS instrument's own.
+	// so one long file cannot take every seat, and a shared note and the indexed memory it
+	// restates (twins) sit one seat. Off, the ranking is the JS instrument's own.
 	Window bool
 }
 
@@ -1095,10 +1096,13 @@ type seat struct {
 }
 
 // seatK fills the K seats in rank order. Shaped for a window, a source past windowSeats gives
-// its seat to the next one down — the third-best log entry yields to the best thing elsewhere.
+// its seat to the next one down — the third-best log entry yields to the best thing elsewhere —
+// and a twin of a seated memory across the lanes gives its seat up too.
 func seatK(cands []seat, K int, window bool) []Result {
 	var out []Result
+	var seated []*Mem
 	per := map[string]int{}
+next:
 	for _, c := range cands {
 		if len(out) == K {
 			break
@@ -1107,11 +1111,47 @@ func seatK(cands []seat, K int, window bool) []Result {
 			if per[c.r.Src] == windowSeats {
 				continue
 			}
+			for _, m := range seated {
+				if twins(c.m, m) {
+					continue next
+				}
+			}
 			per[c.r.Src]++
+			seated = append(seated, c.m)
 		}
 		out = append(out, c.r)
 	}
 	return out
+}
+
+// twins: the same lesson on two lanes — a shared note and an indexed memory (or the workspace's
+// and the machine's copy of one note) — read as nearly every content word of the shorter in
+// the longer. A note's words are its text's (its snippet), never its author or tag.
+func twins(a, b *Mem) bool {
+	if a.Src == b.Src || (a.Kind != "shared" && b.Kind != "shared") {
+		return false
+	}
+	ta, tb := twinTerms(a), twinTerms(b)
+	if len(ta) > len(tb) {
+		ta, tb = tb, ta
+	}
+	if len(ta) < 3 {
+		return false
+	}
+	in := 0
+	for t := range ta {
+		if tb[t] > 0 {
+			in++
+		}
+	}
+	return in*5 >= len(ta)*4
+}
+
+func twinTerms(m *Mem) map[string]int {
+	if m.Kind == "shared" {
+		return TermCounts(m.Snip).Map
+	}
+	return m.TF
 }
 
 type RememberOpts struct {

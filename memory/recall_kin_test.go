@@ -83,3 +83,36 @@ func TestRecallWindowDiversity(t *testing.T) {
 		t.Fatalf("shaped: two seats for the chronicle, the policy seated, got %v", got)
 	}
 }
+
+// A shared note and the log entry it restates are twins across the lanes: the shaped window
+// seats one of them, the plain ranking both.
+func TestRecallWindowSeatsTwinsOnce(t *testing.T) {
+	root := t.TempDir()
+	w := &Workspace{Root: root, Home: root, Now: time.Now}
+	writeFile(root+"/.agent-one/log.md", "# Chronicle\n\n### [2026-10-05] zone-auth — tokens\n- login tokens expire hourly; refresh them before the hour\n")
+	writeFile(root+"/.agent-one/AGENT-ONE.md", "# policy\n\n## Tokens\n\nA login is a session; tokens are its proof.\n")
+	if _, err := w.Remember("login tokens expire hourly — refresh them before the hour", RememberOpts{As: "zone-auth", Tag: "auth"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Index(); err != nil {
+		t.Fatal(err)
+	}
+	kinds := func(window bool) string {
+		res, err := w.Recall("login tokens expire hourly", RecallOpts{K: 5, NoCache: true, Window: window})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var k []string
+		for _, r := range res.Results {
+			k = append(k, r.Kind)
+		}
+		return strings.Join(k, ",")
+	}
+	if got := kinds(false); strings.Count(got, "shared") != 1 || strings.Count(got, "episodic") != 1 {
+		t.Fatalf("plain ranking seats both twins: %s", got)
+	}
+	got := kinds(true)
+	if strings.Count(got, "shared")+strings.Count(got, "episodic") != 1 || !strings.Contains(got, "semantic") {
+		t.Fatalf("the window seats one twin and keeps the policy: %s", got)
+	}
+}

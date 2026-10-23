@@ -81,6 +81,9 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **A lesson written twice is recalled once.** A note saved with `remember` and the log entry it
+  repeats (or the same note kept for this folder and for the whole machine) used to take two of
+  the five places a turn's recall offers; they now take one.
 - **A file read again after its output was folded away is shown again.** Reading a file a second
   time used to answer "unchanged since the first read" even when that first read had already been
   folded out of what the model sees — leaving it with neither the text nor a way to get it short of
