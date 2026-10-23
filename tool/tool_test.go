@@ -516,3 +516,19 @@ func TestReadReservesAFoldedWindow(t *testing.T) {
 		t.Fatalf("re-served after the fold: withheld again, got %q", r.Output)
 	}
 }
+
+// read on a directory lists it — one level, sorted, directories slashed, skim named for Go —
+// instead of failing "is a directory" and costing a second call.
+func TestReadListsADirectory(t *testing.T) {
+	env, root := workspace(t)
+	os.MkdirAll(filepath.Join(root, "pkg", "sub"), 0o755)
+	os.WriteFile(filepath.Join(root, "pkg", "b.go"), []byte("package pkg\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "pkg", "a.txt"), []byte("a\n"), 0o644)
+	r := run(t, ReadTool(), env, `{"path":"pkg"}`)
+	if r.Err || r.Output != "a.txt\nb.go\nsub/\n(pkg is a directory: 3 entries; skim pkg outlines its Go)" {
+		t.Fatalf("%+v", r)
+	}
+	if r := run(t, ReadTool(), env, `{"paths":["pkg/sub","pkg/a.txt"]}`); r.Err || !strings.Contains(r.Output, "== pkg/sub ==\n(pkg/sub is a directory: 0 entries)") {
+		t.Fatalf("a directory in a batch: %+v", r)
+	}
+}

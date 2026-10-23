@@ -67,6 +67,10 @@ func ReadTool() *Tool {
 	// readOne serves one window; the bool says it was withheld as already served
 	readOne := func(env Env, rel string, offset, limit int, full bool) (string, bool, error) {
 		abs := env.Resolve(rel)
+		if st, err := os.Stat(abs); err == nil && st.IsDir() {
+			out, err := listDir(env, abs)
+			return out, false, err
+		}
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			// a missing file answers with the closest siblings — the second guess costs a turn
@@ -145,7 +149,7 @@ func ReadTool() *Tool {
 	return &Tool{
 		Name: "read",
 		Description: "Read files. Lines are numbered, per-file headers on a batch. `path` is one file; `paths` is a batch of windows (same offset/limit each). " +
-			"Unwindowed reads over 240 lines ship the first 240 with the widen hint; say full: true when every byte is honestly needed. skim gives a Go file's outline.",
+			"Unwindowed reads over 240 lines ship the first 240 with the widen hint; say full: true when every byte is honestly needed. A directory answers with its listing. skim gives a Go file's outline.",
 		Schema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"full":{"type":"boolean"}},"anyOf":[{"required":["path"]},{"required":["paths"]}]}`),
 		Class:  Read,
 		Classify: func(env Env, in json.RawMessage) Classification {
@@ -444,6 +448,36 @@ func ReadPaths(env Env, in json.RawMessage) []string {
 		abs = append(abs, env.Resolve(name))
 	}
 	return abs
+}
+
+// listDir is read's answer for a directory: its entries, one level, sorted, directories marked
+// with a trailing slash — the listing an agent would otherwise fetch with a second tool after the
+// read failed. A directory holding Go points at skim for the outline.
+func listDir(env Env, abs string) (string, error) {
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	goFiles := false
+	for i, e := range entries {
+		if i == globCap {
+			fmt.Fprintf(&b, "… %d more\n", len(entries)-globCap)
+			break
+		}
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		goFiles = goFiles || strings.HasSuffix(name, ".go")
+		b.WriteString(name + "\n")
+	}
+	fmt.Fprintf(&b, "(%s is a directory: %d entries", env.Rel(abs), len(entries))
+	if goFiles {
+		fmt.Fprintf(&b, "; skim %s outlines its Go", env.Rel(abs))
+	}
+	b.WriteString(")")
+	return b.String(), nil
 }
 
 // splitReadWindow peels an optional per-path window off a batch entry: "f.go:40" wins the

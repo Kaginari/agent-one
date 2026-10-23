@@ -38,6 +38,9 @@ All notable changes to Agent-One are recorded here. The format follows
   the original tool output exactly as it was, checked against its name so altered bytes are never
   passed off as the original. It only reads the fold folder. Every rank has it
   (`tools.fold.enabled`, on by default).
+- **Reading a folder lists it.** `read` on a directory now answers with what is in it (folders
+  marked with a slash, and a pointer to `skim` when it holds Go code) instead of failing with
+  "is a directory" and costing a second call.
 - **Orders wait in the open.** Work a background subagent orders down the ranks (`@$`) is held on the
   shared queue until the session's next wake claims it in the ordered agent's name and opens the
   next turn with it; the terminal's status bar shows how many are held. Two sessions on one workspace
