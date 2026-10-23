@@ -926,7 +926,13 @@ type RecallOpts struct {
 	Kind    string // episodic | procedural | semantic | policy | team | domain
 	K       int    // 0 = 5
 	NoCache bool
+	// Window shapes the results for a prompt's recall window: at most windowSeats per source,
+	// so one long file cannot take every seat. Off, the ranking is the JS instrument's own.
+	Window bool
 }
+
+// windowSeats is how many seats one source may take in a shaped recall window.
+const windowSeats = 2
 
 type RecallResult struct {
 	S        string   `json:"@S"`
@@ -1002,6 +1008,9 @@ func (w *Workspace) Recall(q string, o RecallOpts) (*RecallResult, error) {
 		kindF = "*"
 	}
 	f := fmt.Sprintf("%s/%s/%d", tier, kindF, K)
+	if o.Window {
+		f += "/window"
+	}
 	sig := w.cacheSig(idx)
 	qv := QVec(qtf, S.IDFQ)
 	var hit *cacheHit
@@ -1014,6 +1023,7 @@ func (w *Workspace) Recall(q string, o RecallOpts) (*RecallResult, error) {
 	case hit != nil:
 		ranked = hit.e.Results
 	case len(qtf.Order) > 0:
+		var cands []seat
 		for _, m := range pool {
 			if kind != "" {
 				if unsaidKind != "" {
@@ -1034,13 +1044,11 @@ func (w *Workspace) Recall(q string, o RecallOpts) (*RecallResult, error) {
 			r := Result{Score: ToFixed(sim+relb+rec, 4), Sim: ToFixed(sim, 4), Rel: ToFixed(relb, 2), Rec: ToFixed(rec, 3),
 				Kind: m.Kind, Title: m.Title, Src: m.Src, Sec: m.Sec, When: m.When, Snippet: m.Snip}
 			if r.Sim > 0 {
-				ranked = append(ranked, r)
+				cands = append(cands, seat{r, m})
 			}
 		}
-		sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
-		if len(ranked) > K {
-			ranked = ranked[:K]
-		}
+		sort.SliceStable(cands, func(i, j int) bool { return cands[i].r.Score > cands[j].r.Score })
+		ranked = seatK(cands, K, o.Window)
 	}
 	if ranked == nil {
 		ranked = []Result{}
@@ -1078,6 +1086,32 @@ func (w *Workspace) Recall(q string, o RecallOpts) (*RecallResult, error) {
 		res.S, res.CacheSim, res.hitSim = "HIT", &cs, hit.s
 	}
 	return res, nil
+}
+
+// seat is one ranked candidate and the memory it came from.
+type seat struct {
+	r Result
+	m *Mem
+}
+
+// seatK fills the K seats in rank order. Shaped for a window, a source past windowSeats gives
+// its seat to the next one down — the third-best log entry yields to the best thing elsewhere.
+func seatK(cands []seat, K int, window bool) []Result {
+	var out []Result
+	per := map[string]int{}
+	for _, c := range cands {
+		if len(out) == K {
+			break
+		}
+		if window {
+			if per[c.r.Src] == windowSeats {
+				continue
+			}
+			per[c.r.Src]++
+		}
+		out = append(out, c.r)
+	}
+	return out
 }
 
 type RememberOpts struct {

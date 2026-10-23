@@ -419,7 +419,7 @@ func (a *App) recallTool(agent string) *tool.Tool {
 			if k <= 0 {
 				k = a.Cfg.Memory.Recall.K
 			}
-			res, err := m.Recall(q.Question, memory.RecallOpts{As: agent, Tier: q.Tier, Kind: kind, K: k, NoCache: !a.Cfg.Memory.Short.Enabled})
+			res, err := m.Recall(q.Question, memory.RecallOpts{As: agent, Tier: q.Tier, Kind: kind, K: k, NoCache: !a.Cfg.Memory.Short.Enabled, Window: true})
 			if err != nil {
 				return failResult("recall: %v", err)
 			}

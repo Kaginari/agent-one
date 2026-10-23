@@ -56,6 +56,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **Recall spreads its seats.** The memories handed to a model at each turn (and by the `recall`
+  tool) now take at most two from any one file, so a long chronicle whose every entry matches no
+  longer fills all five places and hides the one doc that answers. The `memory recall` command
+  keeps its plain ranking, identical to `memory.js`.
 - **Folded tool output is kept, not lost.** The bytes behind a folded line are saved once under
   `.agent-one/tmp/fold/`, named by their content, and the line says where — so the exact output can
   be read back instead of running the tool again (which may cost a slow command, or give a

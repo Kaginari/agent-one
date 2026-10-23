@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -46,5 +47,39 @@ func TestRecallKinFirst(t *testing.T) {
 	}
 	if logRank == 0 {
 		t.Errorf("the chronicle must never be the highest-ranked anchor while kin memory exists, got %+v", res2.Results)
+	}
+}
+
+// The recall window seats at most two memories per source: a chronicle whose every entry
+// matches cannot take all five seats from a doc that also answers.
+func TestRecallWindowDiversity(t *testing.T) {
+	root := t.TempDir()
+	w := &Workspace{Root: root, Home: root, Now: time.Now}
+	var log strings.Builder
+	log.WriteString("# Chronicle\n")
+	for i := 1; i <= 6; i++ {
+		fmt.Fprintf(&log, "\n### [2026-10-0%d] orchestrator — gate retries\n- the gate retries the verify gate retries again\n", i)
+	}
+	writeFile(root+"/.agent-one/log.md", log.String())
+	writeFile(root+"/.agent-one/AGENT-ONE.md", "# policy\n\n## The gate\n\nThe gate holds"+strings.Repeat(" landing review verdict witness", 60)+".\n")
+	if _, err := w.Index(); err != nil {
+		t.Fatal(err)
+	}
+	srcs := func(window bool) map[string]int {
+		res, err := w.Recall("gate retries", RecallOpts{K: 5, NoCache: true, Window: window})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := map[string]int{}
+		for _, r := range res.Results {
+			n[r.Src]++
+		}
+		return n
+	}
+	if raw := srcs(false); raw[".agent-one/log.md"] != 5 {
+		t.Fatalf("unshaped (the JS ranking): the chronicle takes every seat, got %v", raw)
+	}
+	if got := srcs(true); got[".agent-one/log.md"] != 2 || got[".agent-one/AGENT-ONE.md"] != 1 {
+		t.Fatalf("shaped: two seats for the chronicle, the policy seated, got %v", got)
 	}
 }
