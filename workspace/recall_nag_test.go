@@ -40,6 +40,9 @@ func TestRecallNoRebuildBargainNagsOnce(t *testing.T) {
 	for _, h := range rc.Holes {
 		if strings.HasPrefix(h, "degraded: memory recall rides") {
 			degraded++
+			if !strings.Contains(h, "`agent-one memory index` rebuilds it") {
+				t.Fatalf("the nag names its own hand-run door: %q", h)
+			}
 		}
 	}
 	if degraded != 1 {

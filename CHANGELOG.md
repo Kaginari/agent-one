@@ -81,6 +81,9 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The "memory is out of date" notice says how to fix it.** A workspace that turned off automatic
+  memory rebuilds is told once per turn that recall is running on an old index; the notice now
+  names the command that rebuilds it (`agent-one memory index`) instead of "rebuild by hand".
 - **A lesson written twice is recalled once.** A note saved with `remember` and the log entry it
   repeats (or the same note kept for this folder and for the whole machine) used to take two of
   the five places a turn's recall offers; they now take one.

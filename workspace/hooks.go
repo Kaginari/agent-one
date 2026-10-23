@@ -306,7 +306,7 @@ func (w *Workspace) Recall(as, ask string, opt RecallOptions) loop.Recall {
 						// One degraded marker, once per recall, stays honest without the echo.
 						if !sawDegraded {
 							sawDegraded = true
-							rc.Holes = append(rc.Holes, "degraded: memory recall rides the last good index (drift bargained by memory.long.rebuildOnStale: false — rebuild hand-run when it matters)")
+							rc.Holes = append(rc.Holes, "degraded: memory recall rides the last good index (drift bargained by memory.long.rebuildOnStale: false — `"+m.IndexCommand()+"` rebuilds it when it matters)")
 						}
 						continue
 					}
