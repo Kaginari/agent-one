@@ -140,9 +140,10 @@ func TestBookkeepingIsNoLanding(t *testing.T) {
 	s.stall.idle = 7
 	s.landed("workingNotes", tool.Write)
 	s.landed("plan", tool.Write)
+	s.landed("queue", tool.Write)
 	s.landed("grep", tool.Read)
 	if s.stall.idle != 7 {
-		t.Fatal("working memory and reads reset the act budget")
+		t.Fatal("working memory, queue notes and reads reset the act budget")
 	}
 	s.landed("dispatch", tool.Write)
 	if s.stall.idle != 0 {

@@ -1,7 +1,7 @@
 # zone-cli
 
 - **Rank:** Zone worker
-- **Owns:** `cmd/`, `app/cli.go`, `app/queue.go`, `app/app.go`, `app/app_helpers.go`, `app/embed.go`, `app/found.go`, `app/found.md`, `app/found_test.go`, `app/setup.go`, `app/selftest.go`, `app/logger.go`, `app/container.go`, `app/container.Dockerfile`, `app/container_test.go`, `app/ui.go`, `app/guard.go`, `app/bench.go`, `app/mockscript.go`, `app/cli_test.go`, `app/e2e_test.go`
+- **Owns:** `cmd/`, `app/cli.go`, `app/queue.go`, `app/queue_test.go`, `app/app.go`, `app/app_helpers.go`, `app/embed.go`, `app/found.go`, `app/found.md`, `app/found_test.go`, `app/setup.go`, `app/selftest.go`, `app/logger.go`, `app/container.go`, `app/container.Dockerfile`, `app/container_test.go`, `app/ui.go`, `app/guard.go`, `app/bench.go`, `app/mockscript.go`, `app/cli_test.go`, `app/e2e_test.go`
 - **Reports to:** domain-app
 - **Skills:** zone-go-package, zone-workspace-docs
 - **Purpose:** the ground truth of the binary's entry: the command table, `init` and its three levels, the setup, the container re-exec, the selftest and the in-binary bench.

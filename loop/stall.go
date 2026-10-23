@@ -26,9 +26,10 @@ import (
 // of `go test` or a poll of a log is the gut's echo and thrash to price, not a pin.
 var repinTools = map[string]bool{"read": true, "glob": true, "grep": true, "recall": true, "onto": true}
 
-// bookkeeping tools write the agent's own working memory: a landing for the tree, not for the
-// work — a recon loop that keeps its working notes tidy is still a recon loop.
-var bookkeeping = map[string]bool{"workingNotes": true, "plan": true}
+// bookkeeping tools write the agent's own working memory (or, for the queue, its note on the
+// shared work list): a landing for the tree, not for the work — a recon loop that keeps its
+// working notes tidy, or touches its queue item every step, is still a recon loop.
+var bookkeeping = map[string]bool{"workingNotes": true, "plan": true, "queue": true}
 
 // stall is one turn's spin ledger.
 type stall struct {

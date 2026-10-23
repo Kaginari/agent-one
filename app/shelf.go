@@ -23,7 +23,7 @@ var shelfOrder = []string{"bash", "read", "ls", "glob", "grep", "write", "edit",
 
 // workspaceToolNames are the tools the workspace package supplies (rung 3); the shelf leaves a seat
 // for each and reports it disabled with its origin when config switches it off.
-var workspaceToolNames = []string{"dispatch", "recall", "remember", "toolbox", "onto", "skill", "workingNotes", "plan", "pulse"}
+var workspaceToolNames = []string{"dispatch", "recall", "remember", "toolbox", "onto", "skill", "workingNotes", "plan", "pulse", "queue"}
 
 // Shelf builds the tool registry for an agent from config: every builtin honours its enabled
 // switch, the profile and its overrides; custom tools join on the same terms; MCP tools and

@@ -29,7 +29,9 @@ All notable changes to Agent-One are recorded here. The format follows
   dropped. Two hands moving the same item at once cannot both win: the second is told it lost
   and to read again. `agent-one q` reads and moves it — `list`, `show`, `add`, `claim`, `touch`,
   `requeue`, `close` — with `--json` for scripts; it lives on the workspace's shared shelf
-  (`.agent-one/shared/queue.jsonl`), which no agent may write by hand.
+  (`.agent-one/shared/queue.jsonl`), which no agent may write by hand. Agents get a `queue` tool to read it and to note progress on,
+  hand back or close the work they hold; reading is free, and only the holder (or a rank above
+  it) may move an item (`tools.queue.enabled`, on by default).
 
 ### Changed
 

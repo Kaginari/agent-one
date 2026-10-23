@@ -50,6 +50,7 @@ const defaultsJSON = `{
     "workingNotes":       { "enabled": true, "limit": 5 },
     "plan":       { "enabled": true },
     "pulse":      { "enabled": true },
+    "queue":      { "enabled": true },
     "custom":    {},
     "output":    { "maxLines": 2000, "maxBytes": 51200, "dumpDir": "[dist-dir]/tmp/tool-out", "keepDays": 7 },
     "missing":   { "doomLoopRepeats": 2, "proposeOnSecondNaming": true, "liveReload": true },

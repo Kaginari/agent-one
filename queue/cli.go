@@ -71,7 +71,7 @@ func CLI(s *Store, by string, args []string, asJSON bool, out, errw io.Writer) i
 		if asJSON {
 			return printJSON(out, it)
 		}
-		fmt.Fprintf(out, "@S OK %s %s — %s\n", verb, it.ID, line(it))
+		fmt.Fprintf(out, "@S OK %s %s — %s\n", verb, it.ID, Line(it))
 		return 0
 	}
 	switch sub {
@@ -106,7 +106,7 @@ func CLI(s *Store, by string, args []string, asJSON bool, out, errw io.Writer) i
 		}
 		fmt.Fprintf(out, "queue · %d held · %d claimed (%s)\n", held, claimed, s.Path())
 		for _, it := range items {
-			fmt.Fprintln(out, "  "+line(it))
+			fmt.Fprintln(out, "  "+Line(it))
 		}
 		return 0
 	case "show":
@@ -124,7 +124,7 @@ func CLI(s *Store, by string, args []string, asJSON bool, out, errw io.Writer) i
 				History []Item `json:"history"`
 			}{it, hist})
 		}
-		fmt.Fprintf(out, "%s\nask: %s\n", line(it), it.Ask)
+		fmt.Fprintf(out, "%s\nask: %s\n", Line(it), it.Ask)
 		for _, h := range hist {
 			note := ""
 			if h.Note != "" {
@@ -175,8 +175,8 @@ func CLI(s *Store, by string, args []string, asJSON bool, out, errw io.Writer) i
 	return fail(2, fmt.Errorf("unknown q command %q — %s", sub, Usage))
 }
 
-// line is one item for people: id, state, rank, who it is for and who holds it, the ask's head.
-func line(it Item) string {
+// Line is one item for people: id, state, rank, who it is for and who holds it, the ask's head.
+func Line(it Item) string {
 	who := or(it.For, "anyone")
 	if it.Owner != "" {
 		who += " · held by " + it.Owner

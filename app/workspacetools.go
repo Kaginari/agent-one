@@ -48,6 +48,9 @@ func (a *App) workspaceTools(agent string) []*tool.Tool {
 	if on("plan") {
 		out = append(out, a.planTool(agent))
 	}
+	if on("queue") && a.Workspace != nil {
+		out = append(out, tool.QueueTool(a.Workspace.Queue(), agent))
+	}
 	if a.Drainer != nil && a.Cfg.Compaction.Enabled {
 		out = append(out, a.Drainer.RecallTool())
 	}
