@@ -34,6 +34,10 @@ All notable changes to Agent-One are recorded here. The format follows
   (`.agent-one/shared/queue.jsonl`), which no agent may write by hand. Agents get a `queue` tool to
   read it and to note progress on, hand back or close the work they hold; reading is free, and
   only the holder (or a rank above it) may move an item (`tools.queue.enabled`, on by default).
+- **A `fold` tool brings folded output back.** Given the name a folded line quotes, it returns
+  the original tool output exactly as it was, checked against its name so altered bytes are never
+  passed off as the original. It only reads the fold folder. Every rank has it
+  (`tools.fold.enabled`, on by default).
 - **Orders wait in the open.** Work a background subagent orders down the ranks (`@$`) is held on the
   shared queue until the session's next wake claims it in the ordered agent's name and opens the
   next turn with it; the terminal's status bar shows how many are held. Two sessions on one workspace

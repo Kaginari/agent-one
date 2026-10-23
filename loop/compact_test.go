@@ -250,3 +250,17 @@ func TestFoldedReadIsServedAgain(t *testing.T) {
 		t.Fatalf("a re-read while the serve is still on the wire stays withheld, got %q", got)
 	}
 }
+
+// With the fold tool on the shelf, the caption says it restores the kept payload.
+func TestFoldCaptionNamesTheFoldTool(t *testing.T) {
+	msgs := []provider.Message{
+		{Role: provider.User, Text: "q"},
+		{Role: provider.Assistant, ToolCalls: []provider.ToolCall{{ID: "a", Name: "grep", Input: json.RawMessage(`{"pattern":"x"}`)}}},
+		{Role: provider.User, ToolResults: []provider.ToolResult{{ID: "a", Content: strings.Repeat("hit\n", 20)}}},
+	}
+	s := &Session{Engine: &Engine{Root: t.TempDir(), Tools: tool.Builtins()}}
+	got := compactReplay(msgs, CompactKeepTools(0), CompactShelf(s.keepFold))[2].ToolResults[0].Content
+	if !strings.HasSuffix(got, ".txt (fold restores it)]") {
+		t.Fatalf("caption %q does not name the fold tool", got)
+	}
+}

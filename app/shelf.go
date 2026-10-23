@@ -19,7 +19,7 @@ import (
 )
 
 // shelfOrder is the policy's order for the builtin table (binary.md §The default toolset).
-var shelfOrder = []string{"bash", "read", "ls", "glob", "grep", "write", "edit", "multiedit", "patch", "git", "webfetch", "websearch", "ask"}
+var shelfOrder = []string{"bash", "read", "fold", "ls", "glob", "grep", "write", "edit", "multiedit", "patch", "git", "webfetch", "websearch", "ask"}
 
 // workspaceToolNames are the tools the workspace package supplies (rung 3); the shelf leaves a seat
 // for each and reports it disabled with its origin when config switches it off.
@@ -147,6 +147,8 @@ func (s *Shelf) Build(agent string) (*tool.Registry, func()) {
 			add(t)
 		case "read":
 			add(s.readTool())
+		case "fold":
+			add(tool.FoldTool())
 		case "ls":
 			add(tool.LsTool(tool.LsOptions{Enabled: true, Cap: b.Limit}))
 		case "glob":

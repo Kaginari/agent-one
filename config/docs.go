@@ -99,6 +99,8 @@ var keyDocs = map[string]string{
 	"tools.workingNotes.limit":            "how many notes the working notes hold",
 	"tools.queue":                         "the shared work queue's door: an agent reads it, and moves the work it holds",
 	"tools.queue.enabled":                 "on/off — the queue tool (list and show free; touch, requeue, close on held work)",
+	"tools.fold":                          "the fold shelf's door: a tool output folded off the wire, restored byte for byte",
+	"tools.fold.enabled":                  "on/off — the fold tool (by digest or kept-at path; a read)",
 	"tools.custom":                        "your own tools: a command with parameters and a class",
 	"tools.custom.*":                      "one custom tool",
 	"tools.output":                        "how big tool results are handled",

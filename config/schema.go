@@ -203,6 +203,7 @@ type Tools struct {
 	Plan         BuiltinTool            `json:"plan"`
 	Pulse        BuiltinTool            `json:"pulse"`
 	Queue        BuiltinTool            `json:"queue"`
+	Fold         BuiltinTool            `json:"fold"`
 	Custom       map[string]*CustomTool `json:"custom"`
 	Output       ToolOutput             `json:"output"`
 	Missing      Missing                `json:"missing"`
@@ -820,7 +821,7 @@ var Builtins = map[string]string{
 	"webfetch": "outward", "websearch": "outward",
 	"ask": "read", "dispatch": "write", "recall": "read", "remember": "write",
 	"toolbox": "read", "onto": "read", "skill": "read", "workingNotes": "write", "plan": "write",
-	"pulse": "read", "queue": "read",
+	"pulse": "read", "queue": "read", "fold": "read",
 }
 
 // Profiles lists the tools each profile offers; "max" is every builtin.

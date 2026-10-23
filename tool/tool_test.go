@@ -321,10 +321,10 @@ var _ = os.Getenv
 
 func TestRegistry(t *testing.T) {
 	r := Builtins()
-	if got := strings.Join(r.Names(), ","); got != "read,write,edit,delete,bash,glob,grep,skim" {
+	if got := strings.Join(r.Names(), ","); got != "read,write,edit,delete,bash,glob,grep,skim,fold" {
 		t.Fatalf("names %s", got)
 	}
-	if len(r.Defs()) != 8 || r.Defs()[0].Name != "read" || len(r.Defs()[0].Schema) == 0 {
+	if len(r.Defs()) != 9 || r.Defs()[0].Name != "read" || len(r.Defs()[0].Schema) == 0 {
 		t.Fatal("defs")
 	}
 	cut := r.Only("read", "grep", "nope")
@@ -332,7 +332,7 @@ func TestRegistry(t *testing.T) {
 		t.Fatal("only")
 	}
 	r.Add(&Tool{Name: "dispatch", Class: Write})
-	if _, ok := r.Get("dispatch"); !ok || len(r.Names()) != 9 {
+	if _, ok := r.Get("dispatch"); !ok || len(r.Names()) != 10 {
 		t.Fatal("add")
 	}
 	r.Remove("dispatch")

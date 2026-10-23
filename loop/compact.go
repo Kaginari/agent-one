@@ -165,6 +165,11 @@ func (s *Session) keepFold(tc provider.ToolCall, content string) string {
 		if _, path, err := tool.FoldKeep(tool.FoldDir(e.Root, e.Lexicon.workspaceDir()), content); err == nil {
 			rel, _ := filepath.Rel(e.Root, path)
 			p = "kept at " + filepath.ToSlash(rel)
+			if e.Tools != nil {
+				if _, ok := e.Tools.Get("fold"); ok {
+					p += " (fold restores it)"
+				}
+			}
 		}
 	}
 	s.folds[tc.ID] = p

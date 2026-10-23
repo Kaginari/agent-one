@@ -86,9 +86,9 @@ func (rs Ranks) relate(a, b string) Relation {
 const Orchestrator = "orchestrator"
 
 // AllTools is the shelf a rank with no Tools listed gets (orchestrator's).
-var AllTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy", "dispatch", "plan", "queue"}
+var AllTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy", "dispatch", "plan", "queue", "fold"}
 
-var baseTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy", "queue"}
+var baseTools = []string{"read", "write", "edit", "bash", "glob", "grep", "policy", "queue", "fold"}
 
 // DefaultRanks is the policy's table (AGENT-ONE.md §The workspace), dirs and prefixes from the lexicon. The
 // promoted ranks carry no promotesWhen here: config is the one source of the default conditions

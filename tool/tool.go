@@ -258,7 +258,7 @@ func (r *Registry) Only(names ...string) *Registry {
 // glob, grep, skim.
 func Builtins() *Registry {
 	bash, _ := NewBashTool(BashOptions{Enabled: true})
-	return NewRegistry(ReadTool(), WriteTool(), EditTool(), DeleteTool(), bash, GlobTool(), GrepTool(), SkimTool())
+	return NewRegistry(ReadTool(), WriteTool(), EditTool(), DeleteTool(), bash, GlobTool(), GrepTool(), SkimTool(), FoldTool())
 }
 
 // Resolve makes p absolute against the env's cwd (or root) and cleans it.

@@ -243,7 +243,7 @@ func TestOwnershipRefusal(t *testing.T) {
 	w := open(t, dir)
 	m := mock.New(writeCall("1", "src/api/x.go", "x"), mock.Text("@S DONE\n@? src/api/x.go needed\n@U team c\n@E 0"))
 	e := w.Engine("zone-auth", build(m))
-	if names := strings.Join(e.Tools.Names(), ","); names != "read,write,edit,bash,glob,grep,policy" {
+	if names := strings.Join(e.Tools.Names(), ","); names != "read,write,edit,bash,glob,grep,policy,fold" {
 		t.Fatalf("a zone worker's shelf: %s", names)
 	}
 	r, err := e.Run(context.Background(), "x")

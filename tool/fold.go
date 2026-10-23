@@ -1,10 +1,13 @@
 package tool
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The fold shelf: a tool result the replay folds off the wire keeps its bytes here, named by
@@ -53,4 +56,39 @@ func FoldKeep(dir, content string) (digest, path string, err error) {
 		return "", "", err
 	}
 	return digest, path, nil
+}
+
+// FoldTool restores a folded payload: by its digest, or by the kept-at path its caption quoted.
+// It reads only the shelf, and only a file whose bytes still hash to its name — what comes back
+// is exactly what was folded.
+func FoldTool() *Tool {
+	return &Tool{
+		Name:        "fold",
+		Description: "Restore a tool output the replay folded away, byte for byte: `digest` (or the `path` its caption says it is kept at).",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"digest":{"type":"string"},"path":{"type":"string"}},"anyOf":[{"required":["digest"]},{"required":["path"]}]}`),
+		Class:       Read,
+		Run: func(ctx context.Context, env Env, in json.RawMessage) Result {
+			var a struct{ Digest, Path string }
+			if err := decode(in, &a); err != nil || (a.Digest == "" && a.Path == "") {
+				return fail("fold: digest or path is required")
+			}
+			dir := FoldDir(env.Root, env.WorkspaceDir)
+			name := strings.TrimSuffix(strings.TrimSpace(a.Digest), ".txt")
+			if a.Path != "" {
+				p := env.Resolve(a.Path)
+				if filepath.Dir(p) != dir {
+					return fail("fold: %s is not on the fold shelf (%s)", a.Path, env.Rel(dir))
+				}
+				name = strings.TrimSuffix(filepath.Base(p), ".txt")
+			}
+			data, err := os.ReadFile(filepath.Join(dir, filepath.Base(name)+".txt"))
+			if err != nil {
+				return fail("fold: no payload %s is kept on the shelf (%s)", name, env.Rel(dir))
+			}
+			if FoldDigest(string(data)) != name {
+				return fail("fold: the payload kept as %s no longer hashes to its name — not restored", name)
+			}
+			return Result{Output: string(data)}
+		},
+	}
 }
