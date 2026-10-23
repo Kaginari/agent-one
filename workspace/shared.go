@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Kaginari/agent-one/queue"
 	"github.com/Kaginari/agent-one/value"
@@ -19,7 +20,7 @@ const sharedShelf = "shared"
 
 // movedShelves are the files that lived under instruments/ before the shared shelf, by their
 // path on it. Open moves each one over once; a workspace where the old file came back (an older
-// binary appended after the move) is read from both, the old file first.
+// binary appended after the move) is read from both, their rows merged by time (mergeHomes).
 var movedShelves = map[string]string{
 	ledgerShelf: "instruments/ledgers.jsonl",
 	value.Shelf: "instruments/value.jsonl",
@@ -47,8 +48,8 @@ func (w *Workspace) migrateShelf() {
 	}
 }
 
-// shelfReadPaths are the files a shelf is read from, oldest lines first: the old location
-// when it still holds a file, then the shared one. Writes go to the shared one only.
+// shelfReadPaths are the files a shelf is read from: the old location when it still holds a
+// file, then the shared one. Writes go to the shared one only.
 func (w *Workspace) shelfReadPaths(rel string) []string {
 	var out []string
 	for _, p := range []string{movedShelves[rel], rel} {
@@ -60,6 +61,54 @@ func (w *Workspace) shelfReadPaths(rel string) []string {
 		}
 	}
 	return out
+}
+
+// mergeHomes is one shelf's rows read from each of its homes (in shelfReadPaths order),
+// merged by their time: each file keeps its own order and the next row taken is the earliest
+// of the homes' next rows (the older home first on a tie; a row with no time takes the time of
+// the row before it in its file). A seed (seed true) carries its file's rows before it over from
+// the legacy tally, so it counts once: the earliest seed's block stands, and any later seed
+// with the rows it carried — an older binary that found its ledger missing after the move — is
+// dropped; the rows after it stay.
+func mergeHomes[T any](homes [][]T, at func(T) time.Time, seed func(T) bool) []T {
+	first, firstAt := -1, time.Time{}
+	from := make([]int, len(homes)) // per home, the first row read: past a dropped seed block
+	for h, rows := range homes {
+		for i, r := range rows {
+			if seed != nil && seed(r) {
+				if first < 0 || at(r).Before(firstAt) {
+					first, firstAt = h, at(r)
+				}
+				from[h] = i + 1
+				break
+			}
+		}
+	}
+	if first >= 0 {
+		from[first] = 0
+	}
+	last := make([]time.Time, len(homes))
+	when := func(h int) time.Time {
+		if t := at(homes[h][from[h]]); !t.IsZero() {
+			return t
+		}
+		return last[h]
+	}
+	var out []T
+	for {
+		next := -1
+		for h := range homes {
+			if from[h] < len(homes[h]) && (next < 0 || when(h).Before(when(next))) {
+				next = h
+			}
+		}
+		if next < 0 {
+			return out
+		}
+		last[next] = when(next)
+		out = append(out, homes[next][from[next]])
+		from[next]++
+	}
 }
 
 func fileExists(p string) bool {

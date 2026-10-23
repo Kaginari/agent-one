@@ -153,3 +153,37 @@ func TestSharedShelfRefusesTheShell(t *testing.T) {
 		}
 	}
 }
+
+// TestSharedShelfMergesHomesByTime: rows an older binary appended to the old file after the move
+// interleave with the shared file's by their time — a newer clear in the old file is not undone
+// by an older strain on the shared shelf — and a second seed an older binary wrote there (its
+// ledger looked missing) carries nothing over twice; the rows it appended after its seed stay.
+func TestSharedShelfMergesHomesByTime(t *testing.T) {
+	dir := fixture(t)
+	for rel, rows := range map[string]string{
+		"instruments/ledgers.jsonl":   `{"kind":"stressClear","agent":"zone-auth","at":"2026-10-11T09:00:00Z"}`,
+		"shared/ledgers.jsonl":        `{"kind":"stress","agent":"zone-auth","value":3,"at":"2026-10-10T09:00:00Z"}`,
+		"instruments/promotion.jsonl": `{"kind":"report","agent":"zone-api","status":"DONE","at":"2026-09-01T00:00:00Z"}`,
+		"shared/value.jsonl": `{"kind":"run","at":"2026-09-01T00:00:00Z","agent":"zone-api","loop":"DONE","word":"DONE","status":"DONE"}` + "\n" +
+			`{"kind":"seed","at":"2026-10-01T00:00:00Z","from":"instruments/promotion.jsonl"}` + "\n" +
+			`{"kind":"run","at":"2026-10-09T09:00:00Z","agent":"zone-auth","loop":"DONE","word":"DONE","status":"DONE"}`,
+		"instruments/value.jsonl": `{"kind":"run","at":"2026-09-01T00:00:00Z","agent":"zone-api","loop":"DONE","word":"DONE","status":"DONE"}` + "\n" +
+			`{"kind":"seed","at":"2026-10-12T00:00:00Z","from":"instruments/promotion.jsonl"}` + "\n" +
+			`{"kind":"run","at":"2026-10-12T09:00:00Z","agent":"zone-auth","loop":"FAIL","word":"FAIL","status":"FAIL"}`,
+	} {
+		p := filepath.Join(dir, ".agent-one", filepath.FromSlash(rel))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(rows+"\n"), 0o644)
+	}
+	w := open(t, dir)
+	if v, ok := w.stress["zone-auth"]; ok {
+		t.Fatalf("the newer clear in the old file stands: stress %d", v)
+	}
+	var kinds []string
+	for _, r := range w.val.rows {
+		kinds = append(kinds, r.Kind+":"+r.Agent+":"+r.Word)
+	}
+	if got := strings.Join(kinds, ","); got != "run:zone-api:DONE,seed::,run:zone-auth:DONE,run:zone-auth:FAIL" {
+		t.Fatalf("one seed, both homes' own rows by time: %s", got)
+	}
+}

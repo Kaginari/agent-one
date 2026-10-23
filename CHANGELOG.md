@@ -44,7 +44,8 @@ All notable changes to Agent-One are recorded here. The format follows
 - **One shared shelf for the workspace's bookkeeping.** The council's ledgers and the value ledger now
   live beside the work queue in `.agent-one/shared/` instead of `.agent-one/instruments/`. An older workspace's
   files are moved over, whole, the first time it opens, and if an older binary writes the old file
-  again, both are still read.
+  again, both are still read, their rows taken in the order they happened; the value ledger an
+  older binary seeds a second time from the promotion tally is not counted twice.
 - **A subagent's timeout names how it died:** a provider that never answered, an agent that only read
   (a recon loop), or one that worked and ran long, with its turns, acts and writes.
 - **The boards poll the ontology from a cache** keyed on the files it is read from: a poll with

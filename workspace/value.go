@@ -69,14 +69,15 @@ func (w *Workspace) openValue() {
 			w.Notes = append(w.Notes, "value ledger seeded from "+value.LegacyShelf)
 		}
 	}
-	var rows []value.Row
+	var homes [][]value.Row
 	for _, p := range w.shelfReadPaths(value.Shelf) {
 		rs, err := value.Read(p)
 		if err != nil {
 			w.Notes = append(w.Notes, "value ledger: "+err.Error())
 		}
-		rows = append(rows, rs...)
+		homes = append(homes, rs)
 	}
+	rows := mergeHomes(homes, func(r value.Row) time.Time { return r.At }, func(r value.Row) bool { return r.Kind == value.KindSeed })
 	w.val.rows = rows
 	for _, r := range rows {
 		switch r.Kind {

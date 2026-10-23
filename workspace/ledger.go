@@ -53,53 +53,63 @@ func (w *Workspace) ledgerNote(r ledgerRow) {
 // the same per-member bound as runtime writes; the clear row empties both strain ledgers,
 // exactly like the run-time clean-landing policy.
 func (w *Workspace) loadLedgers() {
+	var homes [][]ledgerRow
 	for _, p := range w.shelfReadPaths(ledgerShelf) {
-		w.replayLedger(p)
+		homes = append(homes, readLedger(p))
+	}
+	for _, r := range mergeHomes(homes, func(r ledgerRow) time.Time { return r.At }, nil) {
+		w.replayLedger(r)
 	}
 }
 
-func (w *Workspace) replayLedger(path string) {
+// readLedger is one ledger file's rows, in file order; an unreadable file has none.
+func readLedger(path string) []ledgerRow {
 	f, err := os.Open(path)
 	if err != nil {
-		return
+		return nil
 	}
 	defer f.Close()
+	var out []ledgerRow
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
 		var r ledgerRow
-		if json.Unmarshal(sc.Bytes(), &r) != nil || r.Agent == "" {
-			continue
+		if json.Unmarshal(sc.Bytes(), &r) == nil && r.Agent != "" {
+			out = append(out, r)
 		}
-		switch r.Kind {
-		case "stress":
-			w.stress[r.Agent] = r.Value
-		case "consults":
-			w.consults[r.Agent] = r.Value
-		case "stressClear":
-			delete(w.stress, r.Agent)
-			delete(w.consults, r.Agent)
-		case "death":
-			w.stressDeaths[r.Agent] = stressEnd{Lane: r.Lane, At: r.At}
-		case "subagentWrite":
-			if r.Path == "" {
-				continue
-			}
-			bm := w.subagentWrites[r.Agent]
-			if bm == nil {
-				bm = map[string]subagentWrite{}
-				w.subagentWrites[r.Agent] = bm
-			}
-			bm[normRel(r.Path)] = subagentWrite{Writer: or(r.Writer, r.Agent), At: r.At}
-			for len(bm) > subagentWritesBound {
-				oldest := ""
-				for k, cw := range bm {
-					if oldest == "" || cw.At.Before(bm[oldest].At) {
-						oldest = k
-					}
+	}
+	return out
+}
+
+func (w *Workspace) replayLedger(r ledgerRow) {
+	switch r.Kind {
+	case "stress":
+		w.stress[r.Agent] = r.Value
+	case "consults":
+		w.consults[r.Agent] = r.Value
+	case "stressClear":
+		delete(w.stress, r.Agent)
+		delete(w.consults, r.Agent)
+	case "death":
+		w.stressDeaths[r.Agent] = stressEnd{Lane: r.Lane, At: r.At}
+	case "subagentWrite":
+		if r.Path == "" {
+			return
+		}
+		bm := w.subagentWrites[r.Agent]
+		if bm == nil {
+			bm = map[string]subagentWrite{}
+			w.subagentWrites[r.Agent] = bm
+		}
+		bm[normRel(r.Path)] = subagentWrite{Writer: or(r.Writer, r.Agent), At: r.At}
+		for len(bm) > subagentWritesBound {
+			oldest := ""
+			for k, cw := range bm {
+				if oldest == "" || cw.At.Before(bm[oldest].At) {
+					oldest = k
 				}
-				delete(bm, oldest)
 			}
+			delete(bm, oldest)
 		}
 	}
 }
