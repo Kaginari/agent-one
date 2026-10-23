@@ -2,6 +2,7 @@ package loop
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -123,5 +124,58 @@ func TestCompactReplayBudgetCut(t *testing.T) {
 	}
 	if folds != 2 {
 		t.Fatalf("exactly the two oldest groups fold under keepTools=4: fold hits=%d", folds)
+	}
+}
+
+// A folded result names what ran and on what — a caption that says only "read" leaves the
+// agent guessing which of its forty reads left the wire.
+func TestCompactFoldCaptionNamesTheCall(t *testing.T) {
+	big := strings.Repeat("line\n", 200)
+	msgs := []provider.Message{{Role: provider.User, Text: "q"}}
+	calls := []provider.ToolCall{
+		{ID: "a", Name: "read", Input: json.RawMessage(`{"path":"pkg/x.go","offset":40}`)},
+		{ID: "b", Name: "read", Input: json.RawMessage(`{"paths":["a.go","b.go","c.go","d.go"]}`)},
+		{ID: "c", Name: "bash", Input: json.RawMessage(`{"command":"go test\n  ./..."}`)},
+		{ID: "d", Name: "glob", Input: json.RawMessage(`{"pattern":"**/*.go"}`)},
+		{ID: "e", Name: "pulse", Input: json.RawMessage(`{}`)},
+	}
+	for _, c := range calls {
+		msgs = append(msgs, provider.Message{Role: provider.Assistant, ToolCalls: []provider.ToolCall{c}},
+			provider.Message{Role: provider.User, ToolResults: []provider.ToolResult{{ID: c.ID, Content: big}}})
+	}
+	out := compactReplay(msgs, CompactKeepTools(0))
+	want := []string{"read pkg/x.go: 201 lines, 1000B", "read a.go b.go c.go +1:", "bash go test ./...:", "glob **/*.go:", "[replay-folded pulse: 201 lines"}
+	for i, w := range want {
+		if got := out[2+2*i].ToolResults[0].Content; !strings.Contains(got, w) {
+			t.Errorf("caption %d = %q, want it to name %q", i, got, w)
+		}
+	}
+	again := compactReplay(msgs, CompactKeepTools(0))
+	if again[2].ToolResults[0].Content != out[2].ToolResults[0].Content {
+		t.Fatal("the same fold must caption byte-identically turn after turn (the wire's cache prefix)")
+	}
+}
+
+// The long-session measure: forty read/bash round-trips of a few kB each, the wire's tool
+// bytes raw against compacted.
+func TestCompactReplayLongSessionBytes(t *testing.T) {
+	var msgs []provider.Message
+	msgs = append(msgs, provider.Message{Role: provider.User, Text: "tour the package"})
+	for i := 0; i < 40; i++ {
+		id := fmt.Sprintf("t%d", i)
+		in := json.RawMessage(fmt.Sprintf(`{"path":"pkg/file%02d.go"}`, i))
+		msgs = append(msgs, provider.Message{Role: provider.Assistant, ToolCalls: []provider.ToolCall{{ID: id, Name: "read", Input: in}}},
+			provider.Message{Role: provider.User, ToolResults: []provider.ToolResult{{ID: id, Content: strings.Repeat("     1\tfunc f() { return }\n", 120+i)}}})
+	}
+	raw, wire := 0, 0
+	for i, m := range compactReplay(msgs) {
+		for j, tr := range m.ToolResults {
+			raw += len(msgs[i].ToolResults[j].Content)
+			wire += len(tr.Content)
+		}
+	}
+	t.Logf("40-read session: raw=%d wire=%d cut=%d%%", raw, wire, 100-wire*100/raw)
+	if wire*5 > raw {
+		t.Fatalf("a 40-read session must replay under a fifth of its tool bytes: raw=%d wire=%d", raw, wire)
 	}
 }

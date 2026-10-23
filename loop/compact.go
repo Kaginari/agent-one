@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,7 @@ func compactReplay(msgs []provider.Message, opts ...CompactOpt) []provider.Messa
 		o(&cfg)
 	}
 	out := make([]provider.Message, len(msgs))
+	calls := indexCalls(msgs)
 
 	// which are the newest `keepTools` tool-result groups (walk from the tail)
 	keepTool := map[int]bool{}
@@ -46,9 +48,7 @@ func compactReplay(msgs []provider.Message, opts ...CompactOpt) []provider.Messa
 			for j, tr := range m2.ToolResults {
 				tr2 := tr
 				if len(tr2.Content) > cfg.foldLen || strings.Count(tr2.Content, "\n") > 4 {
-					name := toolName(msgs, tr2.ID)
-					lines := strings.Count(tr2.Content, "\n") + 1
-					tr2.Content = fmt.Sprintf("[replay-folded %s: %d lines were here — ask again if you need the raw text]", name, lines)
+					tr2.Content = foldCaption(calls[tr2.ID], tr2.Content)
 				}
 				folded[j] = tr2
 			}
@@ -66,17 +66,70 @@ func compactReplay(msgs []provider.Message, opts ...CompactOpt) []provider.Messa
 	return out
 }
 
-// toolName resolves a tool_use id from the preceding assistant message's call list (the
-// "what ran" the fold caption reads).
-func toolName(msgs []provider.Message, id string) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		for _, tc := range msgs[i].ToolCalls {
-			if tc.ID == id {
-				return tc.Name
-			}
+// indexCalls maps every tool_use id to its call, once per replay: a caption reads what ran and
+// on what without a backwards walk per folded result.
+func indexCalls(msgs []provider.Message) map[string]provider.ToolCall {
+	idx := map[string]provider.ToolCall{}
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			idx[tc.ID] = tc
 		}
 	}
-	return "tool"
+	return idx
+}
+
+// foldCaption is the one line a folded result leaves on the wire: the tool, what it ran on
+// (the call's own gist), and how much was there. The same call and payload always caption the
+// same, so a folded message stays byte-stable turn after turn.
+func foldCaption(tc provider.ToolCall, content string) string {
+	name := tc.Name
+	if name == "" {
+		name = "tool"
+	}
+	if g := callGist(tc.Input); g != "" {
+		name += " " + g
+	}
+	return fmt.Sprintf("[replay-folded %s: %d lines, %s were here — ask again if you need the raw text]",
+		name, strings.Count(content, "\n")+1, byteSize(len(content)))
+}
+
+// callGist is the argument a caption names: the first of the inputs that say what a call ran
+// on, on one line, clamped.
+func callGist(in json.RawMessage) string {
+	var a map[string]json.RawMessage
+	if json.Unmarshal(in, &a) != nil {
+		return ""
+	}
+	for _, k := range []string{"path", "paths", "pattern", "command", "query", "question", "url", "name"} {
+		raw, ok := a[k]
+		if !ok {
+			continue
+		}
+		var s string
+		var v []string
+		switch {
+		case json.Unmarshal(raw, &s) == nil:
+		case json.Unmarshal(raw, &v) == nil && len(v) > 0:
+			s = strings.Join(v[:min(len(v), 3)], " ")
+			if len(v) > 3 {
+				s += fmt.Sprintf(" +%d", len(v)-3)
+			}
+		}
+		if s = strings.Join(strings.Fields(s), " "); s != "" {
+			if r := []rune(s); len(r) > 80 {
+				s = string(r[:80]) + "…"
+			}
+			return s
+		}
+	}
+	return ""
+}
+
+func byteSize(n int) string {
+	if n < 1<<10 {
+		return fmt.Sprintf("%dB", n)
+	}
+	return fmt.Sprintf("%.1fkB", float64(n)/(1<<10))
 }
 
 type compactConfig struct {
