@@ -117,6 +117,10 @@ type DispatchOptions struct {
 	SessionBackground bool
 	// Wake receives a background Subagent's report when it lands; nil: background is refused.
 	Wake func(agent, report string, failed bool)
+	// Preflight refuses a commission before anything runs or spawns — an agent off the roster,
+	// an order the dispatch policy forbids — so a background dispatch is never acked as started
+	// for a Subagent that cannot be registered. nil: the runner alone decides.
+	Preflight func(c Commission) error
 }
 
 // DispatchTool is `dispatch`: register a named agent for one commission and return its report. A
@@ -176,6 +180,11 @@ func DispatchTool(opt DispatchOptions, run Dispatcher) *Tool {
 			if a.Unsaid != nil {
 				c.Unsaid = *a.Unsaid
 				c.UnsaidExplicit = true // the caller named +unsaid in words — not the ambient policy
+			}
+			if opt.Preflight != nil {
+				if err := opt.Preflight(c); err != nil {
+					return fail("dispatch %s: %v", c.Agent, err)
+				}
 			}
 			background := opt.Background && opt.SessionBackground && opt.Depth == 0
 			if a.Background != nil {

@@ -188,7 +188,8 @@ func (w *Workspace) Engine(as string, b Build) *loop.Engine {
 	// a rank that commands no one holds no dispatch, whatever its tools list (Ranks.Commands)
 	if b.Subagent.Enabled && contains(names, "dispatch") && b.Depth < max && w.Ranks.Commands(rank.Name) {
 		bg, wake := b.backgroundWake(as)
-		shelf.Add(tool.DispatchTool(tool.DispatchOptions{Enabled: true, Depth: b.Depth, MaxDepth: max, Cap: b.Subagent.Cap, Unsaid: b.Subagent.Unsaid, Agents: b.Subagent.Agents, Background: bg, BackgroundTimeout: b.Subagent.BackgroundTimeout, Wake: wake, SessionBackground: b.Subagent.SessionBackground}, w.Dispatcher(e, b)))
+		shelf.Add(tool.DispatchTool(tool.DispatchOptions{Enabled: true, Depth: b.Depth, MaxDepth: max, Cap: b.Subagent.Cap, Unsaid: b.Subagent.Unsaid, Agents: b.Subagent.Agents, Background: bg, BackgroundTimeout: b.Subagent.BackgroundTimeout, Wake: wake, SessionBackground: b.Subagent.SessionBackground,
+			Preflight: func(c tool.Commission) error { _, err := w.preflight(e, b, c.Agent); return err }}, w.Dispatcher(e, b)))
 	}
 	e.Tools = shelf.Only(names...)
 	e.Hooks = MergeHooks(w.Hooks(b.Hooks), b.Extra)
@@ -348,30 +349,83 @@ func (w *Workspace) verifyCodedNow(cr *Member) bool {
 	return cr.VerifyCoded()
 }
 
+// preflight is the dispatch policy read before anything is registered or spawned: the agent is on the
+// roster (a near miss is named), the rank policy, strict flow and the lineage allow the order
+// (mayDispatch), and an authoring target of a gate holder has its verdict coded. A refusal
+// names who may lawfully be ordered from here. The dispatch tool asks it before a background
+// Subagent is acked; the Dispatcher asks it again, so a direct call is held to the same policy.
+func (w *Workspace) preflight(parent *loop.Engine, b Build, name string) (*Member, error) {
+	agent := strings.ToLower(strings.TrimSpace(name))
+	cr := w.Member(agent)
+	if cr == nil {
+		guess := ""
+		if near := w.nearMiss(agent); near != "" {
+			guess = "; did you mean " + near + "?"
+		}
+		return nil, fmt.Errorf("no agent named %q on the roster (%s/{%s}/<name>/)%s — a Subagent is registered for a rank, never generic. Dispatchable from here: %s", agent, w.Lex.WorkspaceDir, strings.Join(rankDirs(w.Ranks), ","), guess, w.stratTargets(parent, b.Subagent))
+	}
+	if err := w.mayDispatch(parent.As, cr, b.Subagent); err != nil {
+		return nil, fmt.Errorf("%v. Dispatchable from you: %s", err, w.stratTargets(parent, b.Subagent))
+	}
+	// Domain owner TDD as code (Policy 3 + Operator decree 2026-09-30): a gate holder dispatching an
+	// authoring zone worker must first have coded that zone worker's verify lines on its README — the
+	// verdict the gate will run exists BEFORE the work is ordered, never written in the same
+	// breath. Fires when the dispatcher's rank HoldsGate and the target's rank Authors.
+	targetRank, _ := w.Ranks.Get(cr.Rank)
+	meRank, _ := w.Ranks.Get(w.RankOf(parent.As).Name)
+	if targetRank.Authors && meRank.HoldsGate && !w.verifyCodedNow(cr) {
+		return nil, fmt.Errorf("%s (%s) has no Verify line coded — the domain owner writes the zone worker's verdict BEFORE the order (TDD per Policy 3, the operator's decision of 2026-09-30). Add a non-trivial line in %s (front-matter verify:, or a `- `<cmd>`` bullet under ## Verify), then dispatch again", cr.Name, cr.Rank, cr.Doc)
+	}
+	return cr, nil
+}
+
+// nearMiss is the roster name a ghost most likely meant: the one name within two edits (a
+// typo, a rank prefix a letter off); "" when nothing is that close or two are equally close.
+// The zone alone (`auth` for zone-auth) is no ghost: Member already resolves it.
+func (w *Workspace) nearMiss(ghost string) string {
+	best, bestD, tie := "", 3, false
+	for _, c := range append(append([]Member{}, w.Members...), w.Foreign...) {
+		switch d := edits(ghost, c.Name); {
+		case d < bestD:
+			best, bestD, tie = c.Name, d, false
+		case d == bestD && c.Name != best:
+			tie = true
+		}
+	}
+	if tie {
+		return ""
+	}
+	return best
+}
+
+// edits is the Levenshtein distance between a and b.
+func edits(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
+}
+
 func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 	return func(ctx context.Context, env tool.Env, c tool.Commission) (tool.DispatchReport, error) {
+		cr, err := w.preflight(parent, b, c.Agent)
+		if err != nil {
+			return tool.DispatchReport{}, err
+		}
 		agent := strings.ToLower(strings.TrimSpace(c.Agent))
-		cr := w.Member(agent)
-		if cr == nil {
-			return tool.DispatchReport{}, fmt.Errorf("no agent named %q on the roster (%s/{%s}/<name>/) — a Subagent is registered for a rank, never generic. Dispatchable from here: %s", agent, w.Lex.WorkspaceDir, strings.Join(rankDirs(w.Ranks), ","), w.stratTargets(parent, b.Subagent))
-		}
-		me := w.RankOf(parent.As)
-		// the rank policy, strict flow and the lineage (mayDispatch); a refusal names who may
-		// lawfully be ordered from here
-		if err := w.mayDispatch(parent.As, cr, b.Subagent); err != nil {
-			return tool.DispatchReport{}, fmt.Errorf("%v. Dispatchable from you: %s", err, w.stratTargets(parent, b.Subagent))
-		}
-		// Domain owner TDD as code (Policy 3 + Operator decree 2026-09-30): a gate holder dispatching an
-		// authoring zone worker must first have coded that zone worker's verify lines on its README — the
-		// verdict the gate will run exists BEFORE the work is ordered, never written in the same
-		// breath. Fires when the dispatcher's rank HoldsGate and the target's rank Authors.
-		{
-			targetRank, _ := w.Ranks.Get(cr.Rank)
-			meRank, _ := w.Ranks.Get(me.Name)
-			if targetRank.Authors && meRank.HoldsGate && !w.verifyCodedNow(cr) {
-				return tool.DispatchReport{}, fmt.Errorf("%s (%s) has no Verify line coded — the domain owner writes the zone worker's verdict BEFORE the order (TDD per Policy 3, the operator's decision of 2026-09-30). Add a non-trivial line in %s (front-matter verify:, or a `- `<cmd>`` bullet under ## Verify), then dispatch again", cr.Name, cr.Rank, cr.Doc)
-			}
-		}
 		child := b
 		child.Depth = b.Depth + 1
 		child.Role = RoleOf(c.Ask)

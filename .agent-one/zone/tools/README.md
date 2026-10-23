@@ -17,6 +17,7 @@
 - argv.go: SplitArgv splits a command line with POSIX quoting and expands nothing, refusing a shell operator outside quotes; QuoteArgv is its inverse; InterpreterEval names an argv that hands a string to an interpreter (sh/bash/zsh/python/node/perl/ruby/php with their eval flag, or eval); ValidCustomName is tools.custom's name rule; ArgvParams/FillArgv are the {{param}} holes. The forge's tool register stands on these.
 - guard_corpus_test.go reads guard/corpus.txt — a `block` line there that this classifier rates below outward fails this package's tests.
 - pathWords: OutsideWorkspace splits words at spaces and = only — braces expand as the shell does (prefix + each alternative + suffix, nested), a colon splits only a VAR= list value, a leading < is a redirection, and only a quote-led token is skipped; `sed -n 1,/^x/p` and `git show HEAD:p` name no root path. gofmt/goimports read unless -w; go fmt is a formatter write. read sets Result.Unchanged when every window it served was withheld as already served.
+- dispatch.go: DispatchOptions.Preflight (the workspace's roster and dispatch policy) answers after the commission is built and before the background branch, so a refused agent fails the act itself (`dispatch <agent>: <why>`) — never a "started in the background" ack, a spawnWatch FAIL or a wake for a Subagent that cannot be registered; nil leaves the runner alone to decide.
 
 ## Verify
 - `go test ./tool/`

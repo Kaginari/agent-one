@@ -34,6 +34,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **A dispatch to an agent that does not exist fails at once.** In the background it used to be
+  acknowledged as started, the refusal arriving only later as a failed report (and a second
+  "spawn failed" after it). Now the dispatch itself is refused before anything starts, naming
+  the closest real agent when the name is a typo (`zone-auht` → zone-auth) and every agent
+  that may be dispatched from there; the same holds for an order the dispatch policy forbids.
 - **A subagent's writes are its own.** A subagent working in the background changes the same
   files its dispatcher's turn is watching; the dispatcher's gate used to see those changes on
   disk and judge them as the dispatcher's own (a false "belongs to …, written by orchestrator").

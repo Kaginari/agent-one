@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Kaginari/agent-one/gate"
@@ -632,6 +633,40 @@ func TestDispatch(t *testing.T) {
 
 // TestChainDepth reads the ladder's length off the rank table, not a constant: the default
 // table (orchestrator → coordinator → domain owner → zone worker) is 3, and a custom table walks its own hierarchy.
+// A ghost agent name is refused before anything spawns. In the background the dispatch tool used
+// to ack "started" for it, the refusal arriving later as a wake (and the spawn watch's FAIL after
+// it); now the act itself fails, naming the near miss and the lawful targets, and nothing wakes.
+func TestDispatchGhostPreflight(t *testing.T) {
+	w := open(t, fixture(t))
+	m := mock.New(
+		mock.Call("d1", "dispatch", map[string]interface{}{"agent": "zone-auht", "ask": "list the auth files", "background": true}),
+		mock.Call("d2", "dispatch", map[string]interface{}{"agent": "zon-auth", "ask": "list the auth files", "background": true}),
+		mock.Text("@S DONE\n@U team c\n@E 0"))
+	var mu sync.Mutex
+	woke := 0
+	b := build(m)
+	b.Subagent.Background = true
+	b.Subagent.Wake = func(agent, report string, failed bool) { mu.Lock(); woke++; mu.Unlock() }
+	r, err := w.Engine("domain-security", b).Run(context.Background(), "x")
+	if err != nil || len(r.Steps) != 2 {
+		t.Fatalf("%v %+v", err, r)
+	}
+	for i, ghost := range []string{"zone-auht", "zon-auth"} {
+		st := r.Steps[i]
+		if out := st.Result.Output; st.Status != "failed" || !strings.Contains(out, `no agent named "`+ghost+`"`) || !strings.Contains(out, "did you mean zone-auth?") || !strings.Contains(out, "Dispatchable from here: zone-api, zone-auth") {
+			t.Fatalf("%s: a ghost must be refused at once, naming the near miss and the lawful targets: %s %q", ghost, st.Status, out)
+		}
+	}
+	if near := w.nearMiss("zone-zzz"); near != "" {
+		t.Fatalf("nothing is near zone-zzz, yet %q was offered", near)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if woke != 0 {
+		t.Fatalf("a refused ghost woke the dispatcher %d times", woke)
+	}
+}
+
 func TestChainDepth(t *testing.T) {
 	if got := Ranks(DefaultRanks(Default())).ChainDepth(); got != 3 {
 		t.Fatalf("default table's chain: %d", got)

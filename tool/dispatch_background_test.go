@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -125,5 +126,37 @@ func TestSpawnWatchSilentWhenJournalLands(t *testing.T) {
 	case rep := <-silent:
 		t.Fatalf("watched a journal and still reported: %q", rep)
 	case <-time.After(spawnGrace + 1*time.Second):
+	}
+}
+
+// Preflight answers before anything spawns: a refused commission fails the act itself — never a
+// "started in the background" ack for a Subagent that cannot be registered — and the runner, the spawn
+// watch and the wake never hear of it.
+func TestDispatchPreflightBeforeSpawn(t *testing.T) {
+	var ran, woke atomic.Int32
+	opts := DispatchOptions{
+		Enabled:    true,
+		Background: true,
+		Wake:       func(string, string, bool) { woke.Add(1) },
+		Preflight: func(c Commission) error {
+			if c.Agent == "zone-ghost" {
+				return errors.New(`no agent named "zone-ghost" on the roster; did you mean zone-host?`)
+			}
+			return nil
+		},
+	}
+	tool := DispatchTool(opts, func(ctx context.Context, env Env, c Commission) (DispatchReport, error) {
+		ran.Add(1)
+		return DispatchReport{Text: "@S DONE\n@U team c\n@E 0", Unsaid: 1}, nil
+	})
+	res := tool.Run(context.Background(), Env{Root: t.TempDir()}, json.RawMessage(`{"agent":"zone-ghost","ask":"findings","background":true}`))
+	if !res.Err || !strings.Contains(res.Output, "dispatch zone-ghost: no agent named") || !strings.Contains(res.Output, "did you mean zone-host?") {
+		t.Fatalf("a refused preflight must fail the act at once: %v %q", res.Err, res.Output)
+	}
+	if res := tool.Run(context.Background(), Env{Root: t.TempDir()}, json.RawMessage(`{"agent":"zone-host","ask":"findings"}`)); res.Err {
+		t.Fatalf("a lawful commission passes the preflight: %q", res.Output)
+	}
+	if ran.Load() != 1 || woke.Load() != 0 {
+		t.Fatalf("runner ran %d times (want 1, the lawful one), wake fired %d times (want 0)", ran.Load(), woke.Load())
 	}
 }
