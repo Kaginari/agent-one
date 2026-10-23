@@ -333,6 +333,7 @@ func (a *App) Build() workspace.Build {
 				a.hole(h)
 			}
 		}
+		a.settleHeld(agent, report)
 		a.Subagent.Finish(agent, report)
 	}
 	b := workspace.Build{
@@ -405,6 +406,14 @@ func (a *App) Build() workspace.Build {
 					if orders := wire.EnqueuesOf(in.Ask); len(orders) > 0 {
 						a.Subagent.ExpectRelay(in.Agent, orders)
 					}
+				}
+			}
+			// a foreground report settles the queue item its agent holds (a background ack is
+			// no report: its Subagent settles through noted when it lands)
+			if phase == "end" && st.Tool == "dispatch" && st.Status == "done" {
+				var in struct{ Agent string }
+				if json.Unmarshal(st.Input, &in) == nil && in.Agent != "" {
+					a.settleHeld(in.Agent, st.Result.Output)
 				}
 			}
 			if a.OnStep != nil {

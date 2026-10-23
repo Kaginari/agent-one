@@ -103,6 +103,7 @@ type Model struct {
 	comp      *compState
 	shortcuts bool
 	queued    int
+	held      int // the shared queue's held rows (EvHeld), cleared when a wake claims them
 	lastCtrlC time.Time
 	message   string
 	msgUntil  time.Time
@@ -760,6 +761,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.print(func(w int) string { return m.theme.Error(msg.Text, w) })
 	case EvLines:
 		return m, m.print(fixed(strings.Join(msg.Lines, "\n")))
+	case EvHeld:
+		m.held = msg.N
+		return m, nil
 	case EvChoice:
 		m.choice = &msg
 		m.view = msg.View
@@ -1479,6 +1483,7 @@ func (m *Model) Render() string {
 	}
 	f := m.footer
 	f.Queued = m.queued
+	f.Held = m.held
 	f.Hint = "? keys · ctrl+k palette · ctrl+t agents"
 	if m.mouseTerm && l.pane {
 		f.Badge = "mouse: terminal"

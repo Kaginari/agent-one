@@ -171,11 +171,11 @@ func (a *App) REPL(ctx context.Context) int {
 			finish(r)
 			// what arrived after the turn's last tool step is not lost: it opens the next turn
 			pending := append(a.Subagent.DrainAll(workspace.Orchestrator), a.Subagent.TakeWake()...)
-			// @$ — work the model ordered one layer down in a wire report — becomes its own
-			// dispatch prompt first (it sits *under* any plain inbox/wake), so a drained order
-			// is never drowned out by the human's queued line.
-			orders := a.Subagent.OrderBook()
-			pending = append(a.dispatchOrders(orders), pending...)
+			// @$ — work the model ordered one layer down in a wire report, held on the shared
+			// queue — is claimed by this wake and becomes its own dispatch prompt first (it sits
+			// *under* any plain inbox/wake), so a held order is never drowned out by the human's
+			// queued line.
+			pending = append(a.heldWakeLines(), pending...)
 			if len(pending) > 0 {
 				start(strings.Join(pending, "\n\n"))
 				continue
@@ -193,7 +193,7 @@ func (a *App) REPL(ctx context.Context) int {
 				continue
 			}
 			if reports := a.Subagent.TakeWake(); len(reports) > 0 {
-				start(strings.Join(reports, "\n\n"))
+				start(strings.Join(append(a.heldWakeLines(), reports...), "\n\n"))
 			}
 		case <-sig:
 			interrupts++

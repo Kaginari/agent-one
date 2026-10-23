@@ -139,10 +139,13 @@ func (c *Subagent) observe(s *loop.Session, state string) {
 	c.mu.Unlock()
 }
 
-// Finish marks an agent done with its report. Before the report goes out the Subagent lifts its
-// @$ lines into the agent's order book — drained as dispatches at the turn boundary, where
-// the chain gate re-checks each one (fail-closed; a refused order surfaces as a hole).
+// Finish marks an agent done with its report. Before the report goes out the Subagent holds its
+// @$ lines on the workspace's shared queue (app/wake_held.go; the agent's order book when there is
+// no workspace) — claimed as dispatches by the wake at the turn boundary, where the chain gate
+// re-checks each one (fail-closed; a refused order surfaces as a hole).
 func (c *Subagent) Finish(name, report string) {
+	var held []wire.Enqueue
+	hold := c.app != nil && c.app.Workspace != nil
 	c.mu.Lock()
 	b := c.agents[name]
 	if b == nil {
@@ -151,7 +154,11 @@ func (c *Subagent) Finish(name, report string) {
 		c.order = append(c.order, name)
 	}
 	if rep, ok := wire.ParseReport(report); ok {
-		b.orders = append(b.orders, rep.Enqueues...)
+		if hold {
+			held = rep.Enqueues
+		} else {
+			b.orders = append(b.orders, rep.Enqueues...)
+		}
 		// subagent-card-exit-verdict policy (leg 2a): the exit word is the first @S token — the loop
 		// stamps a non-DONE exit as "FAIL — …", so token one is the journal's verdict.
 		if rep.Status != "" {
@@ -198,9 +205,22 @@ func (c *Subagent) Finish(name, report string) {
 	}
 	f := c.onFinish
 	c.mu.Unlock()
+	if len(held) > 0 {
+		c.app.holdOrders(name, held)
+	}
 	if f != nil && report != "" {
 		f(name, report)
 	}
+}
+
+// reportOf is a finished agent's last report, "" while it runs or before it ever reported.
+func (c *Subagent) reportOf(name string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if b := c.agents[name]; b != nil && b.State == "done" {
+		return b.report
+	}
+	return ""
 }
 
 // Orders drains an agent's @$ order book — the dispatches it asked for at the boundary.

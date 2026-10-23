@@ -567,7 +567,7 @@ func (e *Engine) DefaultSystem(s *Session) string {
 		if e.Tools != nil {
 			for _, n := range e.Tools.Names() {
 				if n == "dispatch" {
-					b.WriteString("Order work one layer down with `@$ <body>: <ask>` — one line per order; the Subagent drains them after your report, re-checked against the hierarchy.\n")
+					b.WriteString("Order work one layer down with `@$ <body>: <ask>` — one line per order; it is held on the workspace's shared queue until the wake after your report claims it, re-checked against the hierarchy.\n")
 					break
 				}
 			}

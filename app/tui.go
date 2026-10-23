@@ -634,6 +634,8 @@ func (h *tuiHost) finish(r *loop.Result, interrupted bool) {
 	// the queue, first: both lanes (mid-turn leftovers, next-turn FIFO) plus wake reports
 	// fold into whatever turn opens next — a denial with a reason no longer strands voice
 	pending := append(a.Subagent.DrainAll(workspace.Orchestrator), a.Subagent.TakeWake()...)
+	// the relay hold: the held @$ orders are this wake's to claim, their prompts first
+	pending = append(h.claimHeld(), pending...)
 	// a denial with a reason opens the next turn with the human's words (the policy: a denial
 	// ends the turn; the reason reaches the model as the human speaking)
 	if r.Status == loop.Denied && reason != "" {
@@ -704,8 +706,15 @@ func (h *tuiHost) woke() {
 		return
 	}
 	if reports := h.a.Subagent.TakeWake(); len(reports) > 0 {
-		h.start(strings.Join(reports, "\n\n"), true)
+		h.start(strings.Join(append(h.claimHeld(), reports...), "\n\n"), true)
 	}
+}
+
+// claimHeld is the wake's claim on the held queue rows; the footer's held count follows it.
+func (h *tuiHost) claimHeld() []string {
+	lines := h.a.heldWakeLines()
+	h.send(tui.EvHeld{N: h.a.heldCount()})
+	return lines
 }
 
 // --- the loop's events ---
@@ -883,6 +892,7 @@ func (h *tuiHost) subagentFinished(name, report string) {
 	if report == "" {
 		return
 	}
+	h.send(tui.EvHeld{N: h.a.heldCount()}) // its @$ orders are held now, until the wake
 	rep, ok := wire.ParseReport(report)
 	if !ok {
 		rep = wire.Report{Status: "DONE", Other: strings.Split(strings.TrimSpace(report), "\n")}

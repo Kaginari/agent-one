@@ -16,6 +16,7 @@
 - Theme: the palette is package theme's (`tui/palette.go` adapts it; NewThemeFrom is the one constructor that reads roles); `tui/look.go` holds the look — DetectThemeFor(env, prefix, ui.theme, ui.mode) at start (<PREFIX>_THEME wins, system asks the terminal), /theme and /settings switch live and hand the switch to a ThemeHost, EvTheme follows one made elsewhere; a switch keeps the terminal's Color/TrueColor. NoColor gives a plain theme; markdown through glamour, code through chroma, diffs capped by `tui/diff.go`; cast.go draws one robot icon tinted by the rank's colour, with verbs per rank and state.
 - Value meters (`tui/rail.go`): FooterView carries Meters (cfg.Meters), Ranks, Values, Score and Promote; gauges band by meterDef/meterHue (never numbers of their own); the ranks tile shows value meters when any rank has a record, else each rank's token share; rankHue falls back to the family's lane for a custom rank.
 - Goldens live in `tui/testdata/golden` at 80 and 120 columns with escapes stripped; `go test ./tui/ -run TestBlocksGolden -args -goldens` rewrites them and the diff is looked at, not only accepted. TestShots writes ANSI frames only when TUI_SHOTS names a directory. A visual change refreshes the PNGs in `docs/screens/`.
+- The relay hold is visible: EvHeld{N} sets the model's held count (never reset by a turn's begin, unlike queued) and both footers (Footer, StatusBar) read "N held" beside "N queued" while it is above zero.
 
 ## Verify
 - `go test ./tui/`

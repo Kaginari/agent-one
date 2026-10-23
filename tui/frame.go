@@ -496,6 +496,9 @@ func (t Theme) StatusBar(f FooterView, width int) string {
 	if f.Queued > 0 {
 		parts = append(parts, t.text.Render(fmt.Sprintf("%d", f.Queued))+t.dim.Render(" queued"))
 	}
+	if f.Held > 0 {
+		parts = append(parts, t.text.Render(fmt.Sprintf("%d", f.Held))+t.dim.Render(" held"))
+	}
 	if f.Badge != "" {
 		parts = append(parts, t.magenta.Render(f.Badge))
 	}

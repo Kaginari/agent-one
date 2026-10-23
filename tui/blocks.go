@@ -1245,6 +1245,7 @@ type FooterView struct {
 	Subagents string // the plural word
 	Hint      string // "? for shortcuts"
 	Queued    int
+	Held      int    // the shared queue's rows held for the next wake
 	Badge     string // a mode the session is in ("mouse: terminal"), lit in the accent
 	Message   string // a transient message shown in place of the hint
 	// Zone carries the instrument zone of the session's context reading ("OK", "NEAR",
@@ -1308,6 +1309,9 @@ func (t Theme) Footer(f FooterView, width int) string {
 	}
 	if f.Queued > 0 {
 		parts = append(parts, fmt.Sprintf("%d queued", f.Queued))
+	}
+	if f.Held > 0 {
+		parts = append(parts, fmt.Sprintf("%d held", f.Held))
 	}
 	if f.Badge != "" {
 		parts = append(parts, t.accent.Render(f.Badge))
