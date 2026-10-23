@@ -942,7 +942,7 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 		}
 	}
 	if env.Policy != nil {
-		if err := env.Policy(tool.Access{Tool: t.Name, Class: cls.Class, Paths: cls.Paths, Input: call.Input}); err != nil {
+		if err := env.Policy(tool.Access{Tool: t.Name, Class: cls.Class, Paths: cls.Paths, Targets: cls.Targets, Input: call.Input}); err != nil {
 			st.Status = "refused"
 			s.Journal.Log(Event{"t": "gate", "id": st.ID, "tool": t.Name, "effective": st.Effective, "why": cls.Why, "needed": true, "decision": "refused", "by": "policy"})
 			s.Journal.Log(Event{"t": "record", "id": st.ID, "status": "refused", "attempts": 0})

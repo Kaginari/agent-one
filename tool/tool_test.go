@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -449,5 +450,41 @@ func TestReadSaysUnchanged(t *testing.T) {
 	}
 	if r := run(`{"paths":["a.txt","b.txt"]}`); !r.Unchanged {
 		t.Fatalf("a batch served twice: %q", r.Output)
+	}
+}
+
+// TestCommandTargets: a shell command's write targets are read as absolute paths inside the
+// workspace — redirects, tee/cp/…, inside a quoted `sh -c`, after a `cd`, through $AGENT_ONE_ROOT, a
+// symlink named where it points — never a harmless device or a path outside the workspace; a bare
+// redirection reads without a panic and the class is untouched.
+func TestCommandTargets(t *testing.T) {
+	env, root := workspace(t)
+	shelf := filepath.Join(root, ".agent-one", "shared", "queue.jsonl")
+	os.MkdirAll(filepath.Dir(shelf), 0o755)
+	os.Symlink(filepath.Join(root, ".agent-one", "shared"), filepath.Join(root, "door"))
+	for cmd, want := range map[string]string{
+		"cat >> .agent-one/shared/queue.jsonl <<'EOF'\n{}\nEOF":        shelf,
+		`echo x | tee -a "./.agent-one/shared/queue.jsonl"`:            shelf,
+		`bash -c "printf x >>.agent-one/shared/queue.jsonl"`:           shelf,
+		`sh -c 'tee -a .agent-one/shared/queue.jsonl </dev/null'`:      shelf,
+		"cd .agent-one && cd shared && echo x >>queue.jsonl":           shelf,
+		"(cd .agent-one/shared; echo x > queue.jsonl)":                 shelf,
+		"echo x >> $AGENT_ONE_ROOT/.agent-one/shared/queue.jsonl":      shelf,
+		"cp /dev/null ${AGENT_ONE_ROOT}/.agent-one/shared/queue.jsonl": shelf,
+		"echo x >> door/queue.jsonl":                                   shelf,
+		">.agent-one/shared/queue.jsonl":                               shelf,
+	} {
+		got := env.ClassifyCommand(cmd)
+		if !slices.Contains(got.Targets, want) {
+			t.Errorf("%q: targets %v, want %s", cmd, got.Targets, want)
+		}
+		if got.Class < Write || len(got.Paths) != 0 {
+			t.Errorf("%q: %s paths %v — a write that names no path a tool reported", cmd, got.Class, got.Paths)
+		}
+	}
+	for _, cmd := range []string{"go test ./... >/dev/null 2>&1", "cat README.md", "echo x > /tmp/x", "echo $X > $OUT"} {
+		if got := env.ClassifyCommand(cmd); len(got.Targets) != 0 {
+			t.Errorf("%q names no target in the workspace: %v", cmd, got.Targets)
+		}
 	}
 }

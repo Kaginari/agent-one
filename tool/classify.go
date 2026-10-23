@@ -123,10 +123,14 @@ var (
 func writeTargets(seg string) []string {
 	var out []string
 	for _, m := range redirectTo.FindAllStringSubmatch(seg, -1) {
-		out = append(out, m[1])
+		out = append(out, strings.Trim(m[1], `"'`))
+	}
+	words := strings.Fields(redirectTo.ReplaceAllString(seg, " "))
+	if len(words) == 0 {
+		return out // a bare redirection (`>x`) names its target and runs nothing
 	}
 	var args []string
-	for _, f := range strings.Fields(redirectTo.ReplaceAllString(seg, " "))[1:] {
+	for _, f := range words[1:] {
 		if !strings.HasPrefix(f, "-") {
 			args = append(args, strings.Trim(f, `"'`))
 		}
@@ -138,6 +142,97 @@ func writeTargets(seg string) []string {
 		out = append(out, args[len(args)-1])
 	}
 	return out
+}
+
+// Targets reads the paths a shell command may write — every segment's redirect targets and the
+// arguments of the commands that write to theirs, the same read inside a wrapper or a quoted
+// `sh -c` — resolved as absolute paths inside the workspace. A relative target is resolved against
+// the working dir and against every dir a `cd` in the command names; a symlinked target is
+// named where it points too; a glob adds what it matches. It is a reading, not a report: it
+// errs toward naming too much, and it feeds a refusal of harness soil, never an ownership claim.
+func (e Env) Targets(cmd string) []string {
+	cmd = guard.CommandWords(cmd)
+	segs := segments(cmd)
+	dirs := []string{e.Dir()}
+	for _, seg := range segs {
+		if seg = strings.TrimLeft(seg, "({ \t"); cdCmd.MatchString(seg) {
+			if f := strings.Fields(seg); len(f) > 1 {
+				if d := e.expandTarget(strings.Trim(f[1], `"'()`)); d != "" {
+					if !filepath.IsAbs(d) {
+						d = filepath.Join(dirs[len(dirs)-1], d)
+					}
+					dirs = append(dirs, d)
+				}
+			}
+		}
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(abs string) {
+		if abs = filepath.Clean(abs); !seen[abs] && e.insideLiteral(abs) {
+			seen[abs] = true
+			out = append(out, abs)
+		}
+	}
+	for _, seg := range append(segs, CommandForms(cmd)...) {
+		for _, t := range writeTargets(guard.CommandWords(seg)) {
+			t = e.expandTarget(strings.TrimRight(t, `)"'`+"`"))
+			if t == "" {
+				continue
+			}
+			var abs []string
+			if filepath.IsAbs(t) {
+				abs = []string{t}
+			} else {
+				for _, d := range dirs {
+					abs = append(abs, filepath.Join(d, t))
+				}
+			}
+			for _, a := range abs {
+				add(a)
+				add(realOf(a))
+				if strings.ContainsAny(a, "*?[") {
+					ms, _ := filepath.Glob(a)
+					for _, m := range ms {
+						add(m)
+						add(realOf(m))
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// expandTarget expands what a target names before its path: ~, $HOME, $AGENT_ONE_ROOT (the root a
+// shell tool's command sees) and $PWD. A target any other variable or substitution builds
+// cannot be read and is "".
+func (e Env) expandTarget(t string) string {
+	home, _ := os.UserHomeDir()
+	for _, v := range []struct{ name, val string }{{"AGENT_ONE_ROOT", e.Root}, {"PWD", e.Dir()}, {"HOME", home}} {
+		t = strings.ReplaceAll(t, "${"+v.name+"}", v.val)
+		if strings.HasPrefix(t, "$"+v.name) {
+			if rest := t[len(v.name)+1:]; rest == "" || rest[0] == '/' {
+				t = v.val + rest
+			}
+		}
+	}
+	if tildePath.MatchString(t) {
+		t = filepath.Join(home, t[1:])
+	}
+	if t == "" || strings.ContainsAny(t, "$`") || harmless(t) {
+		return ""
+	}
+	return t
+}
+
+func harmless(p string) bool {
+	for _, d := range harmlessDevices {
+		if p == d || strings.HasSuffix(d, "/") && strings.HasPrefix(p, d) {
+			return true
+		}
+	}
+	return false
 }
 
 // Segments is a command split at its pipes and separators, each part's leading assignments and
@@ -325,6 +420,7 @@ func (e Env) ClassifyCommand(cmd string) Classification {
 			bump(Outward, "cd outside the workspace")
 		}
 	}
+	best.Targets = e.Targets(cmd)
 	return best
 }
 

@@ -68,7 +68,10 @@ type Access struct {
 	Tool  string
 	Class Class
 	Paths []string
-	Input json.RawMessage
+	// Targets are the paths a shell command reads as writing (Classification.Targets): a
+	// heuristic, so the workspace refuses harness soil by them and never bills ownership to them.
+	Targets []string
+	Input   json.RawMessage
 }
 
 // Policy decides whether an act may proceed. nil allows everything inside the workspace.
@@ -111,6 +114,9 @@ type Classification struct {
 	Class Class
 	Why   string
 	Paths []string
+	// Targets: what a shell command's text names as written (redirects, tee, cp …) — read, not
+	// reported, so it may name too much and never stands for the paths a tool knows it touched.
+	Targets []string
 }
 
 // Tool is one capability. Class is its declared floor; Classify, when set, reads the call and
@@ -135,7 +141,7 @@ func (t *Tool) Settle(env Env, input json.RawMessage) (Classification, []string)
 	c := Classification{Class: t.Class, Why: "declared by the tool"}
 	if t.Classify != nil {
 		r := t.Classify(env, input)
-		c.Paths = r.Paths
+		c.Paths, c.Targets = r.Paths, r.Targets
 		if r.Class > c.Class {
 			c.Class, c.Why = r.Class, r.Why
 		} else if r.Why != "" && r.Class == c.Class {

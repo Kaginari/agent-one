@@ -53,6 +53,13 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The shell is no side door onto the harness's files.** An agent could append a line to the work
+  queue (or to the engine's journals) with a shell redirect or `tee` — forging a claim on work
+  ordered to someone else — because only the write tools were held to that soil. Now a command
+  that writes into `.agent-one/shared/` or the engine's journal folders is refused the same way,
+  whether the path is written plainly, after a `cd`, through `$AGENT_ONE_ROOT`, a symlink or inside
+  `sh -c '…'`, and the refusal points the agent at its `queue` tool. A command that is only a
+  redirection (`>file`) no longer crashes the classifier.
 - **A dispatch to an agent that does not exist fails at once.** In the background it used to be
   acknowledged as started, the refusal arriving only later as a failed report (and a second
   "spawn failed" after it). Now the dispatch itself is refused before anything starts, naming
