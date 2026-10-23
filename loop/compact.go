@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Kaginari/agent-one/provider"
 	"github.com/Kaginari/agent-one/tool"
@@ -143,27 +144,35 @@ func byteSize(n int) string {
 }
 
 // keepFold shelves a folded result's payload once per call and answers where it is kept (the
-// caption's restore pointer). A rootless engine keeps nothing; a payload that could not be
-// kept is tried again on the next replay.
+// caption's restore pointer; "" when a rootless engine keeps nothing or the keep failed). The
+// first fold of a read also marks its paths folded, so read's served-window cache stops
+// withholding a window the wire no longer carries (tool.Env.Folded).
 func (s *Session) keepFold(tc provider.ToolCall, content string) string {
 	if p, ok := s.folds[tc.ID]; ok {
 		return p
 	}
-	e := s.Engine
-	if e.Root == "" {
-		return ""
-	}
-	_, path, err := tool.FoldKeep(tool.FoldDir(e.Root, e.Lexicon.workspaceDir()), content)
-	if err != nil {
-		return ""
-	}
-	rel, _ := filepath.Rel(e.Root, path)
 	if s.folds == nil {
-		s.folds = map[string]string{}
+		s.folds, s.foldedReads = map[string]string{}, map[string]time.Time{}
 	}
-	s.folds[tc.ID] = "kept at " + filepath.ToSlash(rel)
-	return s.folds[tc.ID]
+	e := s.Engine
+	if tc.Name == "read" {
+		for _, abs := range tool.ReadPaths(e.env(), tc.Input) {
+			s.foldedReads[abs] = time.Now()
+		}
+	}
+	p := ""
+	if e.Root != "" {
+		if _, path, err := tool.FoldKeep(tool.FoldDir(e.Root, e.Lexicon.workspaceDir()), content); err == nil {
+			rel, _ := filepath.Rel(e.Root, path)
+			p = "kept at " + filepath.ToSlash(rel)
+		}
+	}
+	s.folds[tc.ID] = p
+	return p
 }
+
+// readFolded is tool.Env.Folded for this session: when a read naming abs last left the wire.
+func (s *Session) readFolded(abs string) time.Time { return s.foldedReads[abs] }
 
 type compactConfig struct {
 	keepTools     int // the newest tool-result groups left raw

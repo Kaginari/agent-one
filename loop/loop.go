@@ -324,8 +324,10 @@ type Session struct {
 	forgeAsked    bool      // the forge question has been asked this turn
 	turnStepBase  int       // s.Steps as this turn opened: the forge question counts the turn's own steps
 	stall         stall     // the turn's spin ledger: re-pins and turns since the last landing (stall.go)
-	// folds: each folded tool_use id's restore pointer, its payload kept once (compact.go)
-	folds map[string]string
+	// folds: each folded tool_use id's restore pointer, its payload kept once; foldedReads: when
+	// a read naming a path last left the wire (compact.go)
+	folds       map[string]string
+	foldedReads map[string]time.Time
 	// the guts' readings (nil Engine.Guts: never appended, never read)
 	gutsVals      []int
 	gutsLastSpoke int
@@ -933,6 +935,7 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	env := e.env()
 	env.Self = s.Pulse // the pulse tool reads the acting session's own state through the env
 	env.RunID = s.RunID
+	env.Folded = s.readFolded
 	cls, holes := t.Settle(env, call.Input)
 	st.Class, st.Effective = cls, cls.Class.String()
 	for _, h := range holes {

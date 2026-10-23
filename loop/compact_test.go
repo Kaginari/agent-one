@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Kaginari/agent-one/provider"
+	"github.com/Kaginari/agent-one/provider/mock"
 	"github.com/Kaginari/agent-one/tool"
 )
 
@@ -215,5 +217,36 @@ func TestCompactFoldKeepsThePayload(t *testing.T) {
 	s := &Session{Engine: &Engine{}}
 	if got := compactReplay(msgs, CompactKeepTools(0), CompactShelf(s.keepFold))[2].ToolResults[0].Content; !strings.Contains(got, "ask again") {
 		t.Fatalf("no shelf, no pointer: %q", got)
+	}
+}
+
+// The fold and the read cache agree: a window whose serve the replay folded off the wire is
+// served again on a re-read, never withheld as "unchanged" — the agent no longer holds it.
+func TestFoldedReadIsServedAgain(t *testing.T) {
+	big := func(w string) string { return strings.Repeat(w+" line of the file\n", 40) }
+	script := []provider.Response{mock.Call("1", "read", map[string]string{"path": "big.txt"})}
+	for i := 1; i <= 4; i++ {
+		script = append(script, mock.Call(fmt.Sprint(i+1), "read", map[string]string{"path": fmt.Sprintf("f%d.txt", i)}))
+	}
+	script = append(script, mock.Call("6", "read", map[string]string{"path": "big.txt"}), mock.Call("7", "read", map[string]string{"path": "big.txt"}),
+		mock.Text("@S DONE\n@F big.txt:1 x\n@U team c\n@E 0"))
+	m := mock.New(script...)
+	e := engine(t, m)
+	os.WriteFile(filepath.Join(e.Root, "big.txt"), []byte(big("big")), 0o644)
+	for i := 1; i <= 4; i++ {
+		os.WriteFile(filepath.Join(e.Root, fmt.Sprintf("f%d.txt", i)), []byte(big(fmt.Sprint("f", i))), 0o644)
+	}
+	if r, _ := e.Run(context.Background(), "tour"); r.Status != Done {
+		t.Fatalf("%+v", r)
+	}
+	last := func(req int) string {
+		msgs := m.Requests[req].Messages
+		return msgs[len(msgs)-1].ToolResults[0].Content
+	}
+	if got := last(6); !strings.Contains(got, "big line of the file") {
+		t.Fatalf("a re-read after the fold must ship the bytes again, got %q", got)
+	}
+	if got := last(7); !strings.Contains(got, "withheld") {
+		t.Fatalf("a re-read while the serve is still on the wire stays withheld, got %q", got)
 	}
 }

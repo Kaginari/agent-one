@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Class is how far an act reaches. The order is the policy's: a declaration may only move right.
@@ -90,6 +91,10 @@ type Env struct {
 	Self         func() string           // optional: the acting session's own state digest (the pulse tool); nil-safe
 	RunID        string                  // the acting run's id: a subagent's own working notes and scratch key on it ("" outside a run)
 	Timeout      int                     // seconds, for bash; 0 means the tool's default
+	// Folded answers when a read naming abs last left the acting session's wire (the replay's
+	// fold; zero = never): read withholds an unchanged window only while its serve is still
+	// there to see. nil-safe.
+	Folded func(abs string) time.Time
 }
 
 // DefaultWorkspaceDir is the workspace directory name when Env.WorkspaceDir is empty.

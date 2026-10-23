@@ -61,6 +61,7 @@ func ReadTool() *Tool {
 		sum  uint64
 		mod  time.Time
 		size int64
+		at   time.Time // when the window was last shipped
 	}
 	seen := map[string]served{}
 	// readOne serves one window; the bool says it was withheld as already served
@@ -127,8 +128,13 @@ func ReadTool() *Tool {
 		mu.Lock()
 		prev, ok := seen[key]
 		fresh := ok && prev.sum == sum && (!ok || st == nil || (prev.mod.Equal(st.ModTime()) && prev.size == st.Size()))
+		if fresh && env.Folded != nil && !env.Folded(abs).Before(prev.at) {
+			// the serve was folded off the wire since: the agent no longer holds those bytes,
+			// so the same window ships again rather than pointing at what it cannot see
+			fresh = false
+		}
 		if !fresh && st != nil {
-			seen[key] = served{sum: sum, mod: st.ModTime(), size: st.Size()}
+			seen[key] = served{sum: sum, mod: st.ModTime(), size: st.Size(), at: time.Now()}
 		}
 		mu.Unlock()
 		if fresh {
@@ -419,6 +425,25 @@ func siblingSuggestions(abs string) string {
 		return ""
 	}
 	return " did you mean: " + strings.Join(pick, ", ")
+}
+
+// ReadPaths is the files a read call names, absolute, each batch entry's own window peeled.
+func ReadPaths(env Env, in json.RawMessage) []string {
+	var a struct {
+		Path  string
+		Paths []string
+	}
+	_ = decode(in, &a)
+	names := a.Paths
+	if a.Path != "" {
+		names = append([]string{a.Path}, names...)
+	}
+	var abs []string
+	for _, n := range names {
+		name, _, _ := splitReadWindow(n, 0, 0)
+		abs = append(abs, env.Resolve(name))
+	}
+	return abs
 }
 
 // splitReadWindow peels an optional per-path window off a batch entry: "f.go:40" wins the

@@ -66,6 +66,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **A file read again after its output was folded away is shown again.** Reading a file a second
+  time used to answer "unchanged since the first read" even when that first read had already been
+  folded out of what the model sees — leaving it with neither the text nor a way to get it short of
+  asking for a different range. The second read now ships the text again when the first one has
+  been folded; while the first is still in view, it is still withheld.
 - **The record of who wrote what no longer grows for the life of a session.** The book that keeps
   a background subagent's writes off its dispatcher's account kept every file ever written; it now
   forgets a write as soon as no running turn could still need it.

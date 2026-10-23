@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // evalRoot resolves symlink components in a scratch root: darwin's TMPDIR lives under /var, a
@@ -486,5 +487,32 @@ func TestCommandTargets(t *testing.T) {
 		if got := env.ClassifyCommand(cmd); len(got.Targets) != 0 {
 			t.Errorf("%q names no target in the workspace: %v", cmd, got.Targets)
 		}
+	}
+}
+
+// A window folded off the acting session's wire since its serve ships again, once; after that
+// re-serve the cache withholds it as before.
+func TestReadReservesAFoldedWindow(t *testing.T) {
+	env, root := workspace(t)
+	_ = os.WriteFile(filepath.Join(root, "a.txt"), []byte("a\n"), 0o644)
+	var folded time.Time
+	env.Folded = func(abs string) time.Time {
+		if abs == filepath.Join(root, "a.txt") {
+			return folded
+		}
+		return time.Time{}
+	}
+	rd := ReadTool()
+	run := func() Result { return rd.Run(context.Background(), env, json.RawMessage(`{"path":"a.txt"}`)) }
+	run()
+	if r := run(); !r.Unchanged {
+		t.Fatalf("still on the wire: withheld, got %q", r.Output)
+	}
+	folded = time.Now()
+	if r := run(); r.Unchanged || !strings.Contains(r.Output, "a") {
+		t.Fatalf("folded since the serve: shipped again, got %q", r.Output)
+	}
+	if r := run(); !r.Unchanged {
+		t.Fatalf("re-served after the fold: withheld again, got %q", r.Output)
 	}
 }
