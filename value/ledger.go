@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Kaginari/agent-one/workspace/shelf"
 )
 
 // Shelf is the value ledger's path under the workspace dir, on the shared shelf: one append-only
@@ -94,7 +96,8 @@ type Row struct {
 }
 
 // Append writes one row to the ledger at path (created with its dirs). The write is one
-// O_APPEND line: concurrent writers interleave rows, never bytes of rows.
+// line (shelf.Append): concurrent writers interleave rows, never bytes of rows, and a torn
+// tail swallows nothing.
 func Append(path string, r Row) error {
 	if r.At.IsZero() {
 		r.At = time.Now().UTC()
@@ -103,16 +106,7 @@ func Append(path string, r Row) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.Write(append(b, '\n'))
-	return err
+	return shelf.Append(path, b, 0o644)
 }
 
 // Read replays a ledger. A missing file is an empty ledger; an unreadable line is skipped.

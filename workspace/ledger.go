@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Kaginari/agent-one/workspace/shelf"
 )
 
 // The ledger shelf (`<workspaceDir>/shared/ledgers.jsonl`): the council's strain, its
@@ -37,16 +39,7 @@ func (w *Workspace) ledgerNote(r ledgerRow) {
 	if err != nil {
 		return
 	}
-	p := filepath.Join(w.Dir(), filepath.FromSlash(ledgerShelf))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return
-	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(b, '\n'))
+	_ = shelf.Append(filepath.Join(w.Dir(), filepath.FromSlash(ledgerShelf)), b, 0o600)
 }
 
 // loadLedgers replays the shelf into the in-memory ledgers. Subagent-write rows replay through

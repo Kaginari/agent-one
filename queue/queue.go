@@ -16,12 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Kaginari/agent-one/workspace/shelf"
 )
 
 // State is where an item stands. Done and Dropped are terminal: nothing moves them again.
@@ -379,28 +380,9 @@ func (s *Store) commit(it Item) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	// one line in one write, on a line of its own after a torn tail (shelf.Append)
+	if err := shelf.Append(s.path, b, 0o644); err != nil {
 		return false, err
-	}
-	f, err := os.OpenFile(s.path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
-	if err != nil {
-		return false, err
-	}
-	line := append(b, '\n')
-	// a crash may have left half a line at the end: this move starts on a line of its own, in
-	// the same single write, so the torn bytes stay a skipped line and swallow nothing
-	if st, serr := f.Stat(); serr == nil && st.Size() > 0 {
-		last := make([]byte, 1)
-		if _, rerr := f.ReadAt(last, st.Size()-1); rerr == nil && last[0] != '\n' {
-			line = append([]byte{'\n'}, line...)
-		}
-	}
-	_, werr := f.Write(line)
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		return false, werr
 	}
 	_, hist, err := s.fold()
 	if err != nil {

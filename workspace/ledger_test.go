@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Kaginari/agent-one/loop"
@@ -48,5 +50,21 @@ func TestLedgersSurviveRestarts(t *testing.T) {
 	defer w3.mu.Unlock()
 	if _, ok := w3.stress["domain-security"]; ok {
 		t.Fatalf("a clean landing must clear the ledger forever: %+v", w3.stress)
+	}
+}
+
+// TestLedgerTornTailSwallowsNothing: a crash that left half a row at the ledger shelf's end does
+// not swallow the next note — it starts on a line of its own and replays.
+func TestLedgerTornTailSwallowsNothing(t *testing.T) {
+	dir := fixture(t)
+	w := open(t, dir)
+	p := filepath.Join(w.Dir(), filepath.FromSlash(ledgerShelf))
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte(`{"kind":"stress","agent":"zone-auth","val`), 0o600)
+	w.mu.Lock()
+	w.ledgerNote(ledgerRow{Kind: "death", Agent: "zone-auth", Lane: "lane-a"})
+	w.mu.Unlock()
+	if w2 := open(t, dir); w2.stressDeaths["zone-auth"].Lane != "lane-a" {
+		t.Fatalf("the note after a torn tail replays: %+v", w2.stressDeaths)
 	}
 }

@@ -58,6 +58,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The ledgers survive a torn line too.** A crash that left half a line at the end of the
+  council's ledgers or the value ledger glued the next row onto it, and that row was lost on the
+  next start. Both now start a new row on a line of its own, as the work queue already did; the
+  three files share one way of appending.
 - **The shell is no side door onto the harness's files.** An agent could append a line to the work
   queue (or to the engine's journals) with a shell redirect or `tee` — forging a claim on work
   ordered to someone else — because only the write tools were held to that soil. Now a command

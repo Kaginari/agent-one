@@ -206,3 +206,18 @@ func TestRebirthStartsTheRecordAgain(t *testing.T) {
 		t.Fatalf("the dispatcher keeps its own record of the old runs: %v", o)
 	}
 }
+
+// TestAppendTornTailSwallowsNothing: a crash that left half a row at the ledger's end does not
+// swallow the next row — it starts on a line of its own; the torn bytes stay, skipped.
+func TestAppendTornTailSwallowsNothing(t *testing.T) {
+	p := filepath.Join(t.TempDir(), Shelf)
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte(`{"kind":"run","agent":"domain-a","lo`), 0o644)
+	if err := Append(p, Row{Kind: KindRun, Agent: "domain-b", Status: "DONE"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := Read(p)
+	if len(rows) != 1 || rows[0].Agent != "domain-b" {
+		t.Fatalf("the row after a torn tail reads: %+v", rows)
+	}
+}
