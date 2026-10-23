@@ -58,6 +58,9 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The record of who wrote what no longer grows for the life of a session.** The book that keeps
+  a background subagent's writes off its dispatcher's account kept every file ever written; it now
+  forgets a write as soon as no running turn could still need it.
 - **No script can forge a line on the work queue.** Refusing shell writes onto `.agent-one/shared/`
   only works for commands the harness can read; a script file, a path built in a variable or a
   Python one-liner still got through. The harness now seals the queue and both ledgers as it

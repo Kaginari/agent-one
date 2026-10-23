@@ -138,10 +138,14 @@ func (a snapshot) diff(b snapshot) []string {
 }
 
 // Receipts is the write book of the engines sharing a root: which run's tool last reported
-// writing each root-relative path, when, and the file as that write left it.
+// writing each root-relative path, when, and the file as that write left it. It keeps only what
+// a watching turn could still need: a receipt explains a change only to a turn whose baseline
+// is older than it, so one noted before every live baseline (or with no turn watching — the
+// next baseline is newer still) leaves the book.
 type Receipts struct {
-	mu sync.Mutex
-	by map[string]receipt
+	mu   sync.Mutex
+	by   map[string]receipt
+	live map[*Session]time.Time // each watching turn's baseline (stampedAt)
 }
 
 type receipt struct {
@@ -152,7 +156,54 @@ type receipt struct {
 }
 
 // NewReceipts is an empty book.
-func NewReceipts() *Receipts { return &Receipts{by: map[string]receipt{}} }
+func NewReceipts() *Receipts {
+	return &Receipts{by: map[string]receipt{}, live: map[*Session]time.Time{}}
+}
+
+// watch books s's baseline at at — now, read under the book's lock, when at is zero, so no
+// receipt noted after it can be dropped before s is booked — and answers it.
+func (b *Receipts) watch(s *Session, at time.Time) time.Time {
+	if b == nil {
+		if at.IsZero() {
+			at = time.Now()
+		}
+		return at
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if at.IsZero() {
+		at = time.Now()
+	}
+	b.live[s] = at
+	b.prune()
+	return at
+}
+
+// unwatch ends s's turn: it asks the book nothing more until its next baseline.
+func (b *Receipts) unwatch(s *Session) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.live, s)
+	b.prune()
+}
+
+// prune drops every receipt no live baseline is older than (under b.mu).
+func (b *Receipts) prune() {
+	var oldest time.Time
+	for _, at := range b.live {
+		if oldest.IsZero() || at.Before(oldest) {
+			oldest = at
+		}
+	}
+	for p, r := range b.by {
+		if oldest.IsZero() || !r.at.After(oldest) {
+			delete(b.by, p)
+		}
+	}
+}
 
 // note books run's write of rel (root-relative) under root, stamping the file as it now stands.
 func (b *Receipts) note(run, root, rel string) {
@@ -165,6 +216,7 @@ func (b *Receipts) note(run, root, rel string) {
 	}
 	b.mu.Lock()
 	b.by[filepath.ToSlash(rel)] = r
+	b.prune()
 	b.mu.Unlock()
 }
 
@@ -187,11 +239,12 @@ func (s *Session) watch(r *Result) {
 	if s.nowatch {
 		return
 	}
-	s.stampedAt = time.Now()
+	s.stampedAt = s.Engine.Receipts.watch(s, time.Time{})
 	snap, why := s.Engine.stampTree()
 	if why != "" {
 		s.nowatch = true
 		s.base = nil
+		s.Engine.Receipts.unwatch(s)
 		r.hole(why)
 		s.Journal.Log(Event{"t": "watch", "off": why})
 		return
@@ -212,6 +265,7 @@ func (s *Session) seen() []string {
 	if why != "" {
 		s.nowatch = true
 		s.base = nil
+		s.Engine.Receipts.unwatch(s)
 		return nil
 	}
 	var changed []string
@@ -221,7 +275,7 @@ func (s *Session) seen() []string {
 			changed = append(changed, p)
 		}
 	}
-	s.base, s.stampedAt = snap, now
+	s.base, s.stampedAt = snap, s.Engine.Receipts.watch(s, now) // the old baseline was booked until the diff was read
 	return changed
 }
 

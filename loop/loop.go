@@ -676,6 +676,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 	g := s.gate()
 	r := &Result{RunID: s.RunID, Journal: journalRel(s), Holes: []string{}, Steps: []*StepRecord{}}
 	s.watch(r) // the turn's baseline: every write from here on is seen, whatever tool makes it
+	defer s.Engine.Receipts.unwatch(s)
 	stepsThisTurn := 0
 	s.gateTries = 0
 	s.wireTries = 0
