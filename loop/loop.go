@@ -1171,9 +1171,9 @@ func (s *Session) finish(ctx context.Context, r *Result, resp provider.Response,
 			r.hole(h)
 		}
 		s.Journal.Log(Event{"t": "gate", "id": "turn", "kind": "end", "verdict": verdict, "wrote": s.Wrote, "holes": holes, "error": errString(err)})
-		if err != nil && s.gateTries < e.Hooks.GateRetries {
+		if err != nil && s.gateTries < e.Hooks.GateRetries && ctx.Err() == nil {
 			// the gate's reasons go back to the model once more: it fixes what they name, and
-			// the whole turn's writes are gated again
+			// the whole turn's writes are gated again — never after the run's context ended
 			s.gateTries++
 			r.Holes = append(r.Holes[:before], fmt.Sprintf("gate failed and was sent back (%d of %d): %s", s.gateTries, e.Hooks.GateRetries, verdict))
 			s.Journal.Log(Event{"t": "gate", "id": "turn", "kind": "retry", "try": s.gateTries, "verdict": verdict})

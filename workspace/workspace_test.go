@@ -827,6 +827,38 @@ func TestGateUI(t *testing.T) {
 	}
 }
 
+// A gate whose run is cancelled mid-reading judges nothing: the checks after the cut are not
+// spawned, the verdict is `cancelled` (not a fail read off a dead context), log.md says so, the
+// circuit-breaker's streak does not move, and the turn is not sent back to the model.
+func TestGateCancelled(t *testing.T) {
+	dir := fixture(t)
+	w := open(t, dir)
+	doc := ".agent-one/zone/auth/README.md"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b := build(mock.New(writeCall("1", "src/auth/c.go", "package auth"), writeCall("2", doc, "# zone-auth\n- **Owns:** `src/auth/`\n- **Reports to:** domain-security\n"),
+		mock.Text("@S DONE\n@U team c\n@E 0"), mock.Text("@S DONE again\n@U team c\n@E 0")))
+	b.Hooks.Gate.Retries = 1
+	b.Hooks.Gate.UI = func([]string) []string { cancel(); return nil } // the hand is lowered mid-gate
+	b.Hooks.Gate.Checks = []Check{{Name: "after", Command: "touch src/auth/RAN"}}
+	r, _ := w.Engine("zone-auth", b).Run(ctx, "x")
+	if r.Status != loop.Fail || !r.Interrupted || !strings.HasPrefix(r.Verdict, "cancelled") || strings.Contains(r.Verdict, "exit") {
+		t.Fatalf("a cancelled gate must say so, not fail: %s %v %q %v", r.Status, r.Interrupted, r.Verdict, r.Holes)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "src/auth/RAN")); err == nil {
+		t.Fatal("the gate spawned a check after its context ended")
+	}
+	if hs := strings.Join(r.Holes, "|"); strings.Contains(hs, "sent back") || !strings.Contains(hs, "writes stand unjudged") {
+		t.Fatalf("a cancelled gate went back to the model, or left no hole: %v", r.Holes)
+	}
+	if lg := logText(t, dir); strings.Contains(lg, "gate fail") || !strings.Contains(lg, "] zone-auth — gate cancelled — x") || !strings.Contains(lg, "interrupted — the gate did not judge") {
+		t.Fatalf("log:\n%s", lg)
+	}
+	if st := w.gateStreaks["zone-auth"]; st != nil && st.N != 0 {
+		t.Fatalf("a cancelled gate moved the breaker streak: %+v", st)
+	}
+}
+
 // A member's own README at its seat (<dir>/README.md) is the member's identity in the
 // workspace's address space, never a work product the gate polices for authorship: the orchestrator
 // authors the skel at founding, the member edits itself after. Right-author never fires on it.

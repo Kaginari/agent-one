@@ -52,7 +52,7 @@ type GateOptions struct {
 
 // Verdict is one gate run.
 type Verdict struct {
-	Word    string   // pass | fail | n/a (no domain owners)
+	Word    string   // pass | fail | n/a (no domain owners) | off | cancelled
 	Reasons []string // why it failed
 	Holes   []string
 	Checked []string // what ran
@@ -277,6 +277,11 @@ func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, 
 		}
 		v.Checked = append(v.Checked, "check "+or(ck.Name, ck.Command))
 	}
+	if err := ctx.Err(); err != nil {
+		// a gate cut short judged nothing: a reading it skipped is not a red one, and a false fail
+		// would land in log.md, the circuit-breaker's streak and the agent's value record
+		return Verdict{Word: "cancelled", Checked: v.Checked, Holes: append(v.Holes, fmt.Sprintf("gate cancelled (%v) — the turn's writes stand unjudged", err))}
+	}
 	if len(v.Reasons) > 0 {
 		v.Word = "fail"
 	}
@@ -286,6 +291,9 @@ func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, 
 // run is one gate reading: under the sandbox with the network off and secrets scrubbed, killed
 // with everything it started when the timeout passes.
 func (w *Workspace) run(ctx context.Context, sb *sandbox.Sandbox, command string, timeout time.Duration) (int, string) {
+	if ctx.Err() != nil {
+		return 1, "" // the gate is cancelled: nothing more is spawned, and Gate reads no verdict
+	}
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
@@ -340,11 +348,14 @@ func (w *Workspace) EndGate(opt GateOptions) func(ctx context.Context, s *loop.S
 		holes := append([]string(nil), v.Holes...)
 		if opt.Log && opt.Enabled {
 			result := "done"
-			if v.Word == "fail" {
+			switch v.Word {
+			case "fail":
 				result = "failed — gate"
+			case "cancelled":
+				result = "interrupted — the gate did not judge"
 			}
 			title := "gate " + v.Word
-			if !isVerdictWord(v.Word) {
+			if !isVerdictWord(v.Word) && v.Word != "cancelled" {
 				title = v.Word // already `Gate: n/a (no domain owners)`
 			}
 			e := Entry{Author: or(as, "orchestrator"), Title: title + " — " + oneLine(firstLine(s.Ask)), Task: firstLine(s.Ask), Files: s.Wrote, Gate: v.String(), Result: result}
@@ -359,6 +370,9 @@ func (w *Workspace) EndGate(opt GateOptions) func(ctx context.Context, s *loop.S
 		}
 		if v.Word == "fail" {
 			return v.String(), holes, fmt.Errorf("gate fail — %s", strings.Join(v.Reasons, "; "))
+		}
+		if v.Word == "cancelled" {
+			return v.String(), holes, fmt.Errorf("gate cancelled — %w", ctx.Err())
 		}
 		if v.Word == "pass" {
 			// pair policy (freeze review 2026-10-07): a doc that moved and PASSED policy marks the
