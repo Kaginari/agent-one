@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,5 +125,30 @@ func TestDeleteArchives(t *testing.T) {
 	}
 	if c, _ := DeleteTool().Settle(env, []byte(`{"path":"/etc/passwd"}`)); c.Class != Outward {
 		t.Fatalf("outside is outward: %+v", c)
+	}
+}
+
+// The window gaps v1.0.0 left: a single path pins its own window as a batch entry does, a
+// batch entry's ":-N" is a tail (it read from line 1), a file named with a colon reads as
+// named, and a miss in the directory part still gets its did-you-mean.
+func TestReadWindowsTailsAndDirectoryMisses(t *testing.T) {
+	env, root := zoneEnv(t)
+	os.MkdirAll(filepath.Join(root, "memory"), 0o755)
+	os.WriteFile(filepath.Join(root, "memory/lines.md"), []byte("l1\nl2\nl3\nl4\nl5\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "memory/at:2"), []byte("colon named\n"), 0o644)
+
+	if r := run(t, ReadTool(), env, `{"path":"memory/lines.md:2:1"}`); r.Err || !strings.HasPrefix(r.Output, "     2\tl2\n… 3 more lines") {
+		t.Fatalf("a single path's own window: %q", r.Output)
+	}
+	r := run(t, ReadTool(), env, `{"paths":["memory/lines.md:-2","memory/at:2"]}`)
+	if r.Err || !strings.Contains(r.Output, "4\tl4\n     5\tl5\n") || strings.Contains(r.Output, "\tl1") || !strings.Contains(r.Output, "colon named") {
+		t.Fatalf("a batch tail and a colon-named file: %q", r.Output)
+	}
+	r = run(t, ReadTool(), env, `{"path":"mem/lines.md"}`)
+	if !r.Err || !strings.Contains(r.Output, "did you mean: memory (for mem/)") {
+		t.Fatalf("a missing directory names its likely sibling: %q", r.Output)
+	}
+	if c := ReadTool().Classify(env, json.RawMessage(`{"path":"memory/lines.md:2:2"}`)); c.Class != Read || c.Paths[0] != filepath.Join(root, "memory/lines.md") {
+		t.Fatalf("the window is not part of the path the policy sees: %+v", c)
 	}
 }

@@ -41,6 +41,10 @@ All notable changes to Agent-One are recorded here. The format follows
 - **Reading a folder lists it.** `read` on a directory now answers with what is in it (folders
   marked with a slash, and a pointer to `skim` when it holds Go code) instead of failing with
   "is a directory" and costing a second call.
+- **`read` takes a range in the path, in every form.** `f.go:40:20` (from line 40, 20 lines) and
+  `f.go:-20` (the last 20 lines) now work for a single file as they did in a batch, and `:-20`
+  in a batch is the tail instead of the whole file. A file whose real name has a colon in it is
+  still read as named. A mistyped folder now gets a "did you mean" too.
 - **Orders wait in the open.** Work a background subagent orders down the ranks (`@$`) is held on the
   shared queue until the session's next wake claims it in the ordered agent's name and opens the
   next turn with it; the terminal's status bar shows how many are held. Two sessions on one workspace

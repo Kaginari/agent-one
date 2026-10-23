@@ -148,24 +148,12 @@ func ReadTool() *Tool {
 	}
 	return &Tool{
 		Name: "read",
-		Description: "Read files. Lines are numbered, per-file headers on a batch. `path` is one file; `paths` is a batch of windows (same offset/limit each). " +
+		Description: "Read files. Lines are numbered, per-file headers on a batch. `path` is one file; `paths` is a batch of windows (same offset/limit each). Any path may pin its own window: f.go:40, f.go:40:20 (offset:limit), f.go:-20 (the tail). " +
 			"Unwindowed reads over 240 lines ship the first 240 with the widen hint; say full: true when every byte is honestly needed. A directory answers with its listing. skim gives a Go file's outline.",
 		Schema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"offset":{"type":"integer"},"limit":{"type":"integer"},"full":{"type":"boolean"}},"anyOf":[{"required":["path"]},{"required":["paths"]}]}`),
 		Class:  Read,
 		Classify: func(env Env, in json.RawMessage) Classification {
-			var a struct {
-				Path  string
-				Paths []string
-			}
-			_ = decode(in, &a)
-			names := a.Paths
-			if a.Path != "" {
-				names = append([]string{a.Path}, names...)
-			}
-			var abs []string
-			for _, n := range names {
-				abs = append(abs, env.Resolve(n))
-			}
+			abs := ReadPaths(env, in)
 			for _, p := range abs {
 				if !env.Inside(p) {
 					return Classification{Class: Outward, Why: "path outside the workspace: " + p, Paths: abs}
@@ -189,11 +177,12 @@ func ReadTool() *Tool {
 				names = append([]string{a.Path}, names...)
 			}
 			if len(names) == 1 {
-				out, unchanged, err := readOne(env, names[0], a.Offset, a.Limit, a.Full)
+				name, o, l := readWindow(env, names[0], a.Offset, a.Limit)
+				out, unchanged, err := readOne(env, name, o, l, a.Full)
 				if err != nil {
 					return fail("read: %v", err)
 				}
-				if z := zoneOwner(env, env.Rel(env.Resolve(names[0]))); z != "" && !strings.HasSuffix(out, "\n") {
+				if z := zoneOwner(env, env.Rel(env.Resolve(name))); z != "" && !strings.HasSuffix(out, "\n") {
 					out += "\n(zone of " + z + ")"
 				}
 				return Result{Output: clip(out), Unchanged: unchanged}
@@ -204,9 +193,9 @@ func ReadTool() *Tool {
 				if i > 0 {
 					b.WriteString("\n")
 				}
-				// a batch entry may pin its own window: "f.go:40" or "f.go:40:60" — the
-				// shared offset/limit stays the floor for entries that don't.
-				name, o, l := splitReadWindow(n, a.Offset, a.Limit)
+				// a batch entry may pin its own window: "f.go:40", "f.go:40:60" or the tail
+				// "f.go:-20" — the shared offset/limit stays the floor for entries that don't.
+				name, o, l := readWindow(env, n, a.Offset, a.Limit)
 				out, unchanged, err := readOne(env, name, o, l, a.Full)
 				if err != nil {
 					out = "! " + err.Error()
@@ -403,6 +392,11 @@ func siblingSuggestions(abs string) string {
 	dir := filepath.Dir(abs)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) && dir != abs {
+			if sug := siblingSuggestions(dir); sug != "" { // the directory is the miss: guess it, up the tree
+				return sug + " (for " + filepath.Base(dir) + "/)"
+			}
+		}
 		return ""
 	}
 	base := strings.ToLower(filepath.Base(abs))
@@ -444,7 +438,7 @@ func ReadPaths(env Env, in json.RawMessage) []string {
 	}
 	var abs []string
 	for _, n := range names {
-		name, _, _ := splitReadWindow(n, 0, 0)
+		name, _, _ := readWindow(env, n, 0, 0)
 		abs = append(abs, env.Resolve(name))
 	}
 	return abs
@@ -480,8 +474,17 @@ func listDir(env Env, abs string) (string, error) {
 	return b.String(), nil
 }
 
-// splitReadWindow peels an optional per-path window off a batch entry: "f.go:40" wins the
-// offset, "f.go:40:60" both ends. The shared offset/limit hold otherwise.
+// readWindow peels an optional per-path window off a read's path, single or batched:
+// "f.go:40" wins the offset, "f.go:40:60" both ends, "f.go:-20" is the last 20 lines. A file
+// whose own name carries the colon is read as named.
+func readWindow(env Env, n string, off, limit int) (string, int, int) {
+	if _, err := os.Stat(env.Resolve(n)); err == nil {
+		return n, off, limit
+	}
+	return splitReadWindow(n, off, limit)
+}
+
+// splitReadWindow is readWindow's parse; the shared offset/limit hold for a bare name.
 func splitReadWindow(n string, off, limit int) (string, int, int) {
 	parts := strings.Split(n, ":")
 	switch len(parts) {
@@ -489,6 +492,9 @@ func splitReadWindow(n string, off, limit int) (string, int, int) {
 		return n, off, limit
 	case 2:
 		if v, err := strconv.Atoi(parts[1]); err == nil {
+			if v < 0 {
+				return parts[0], 0, v // a tail
+			}
 			return parts[0], v, limit
 		}
 	case 3:
