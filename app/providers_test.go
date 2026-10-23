@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kaginari/agent-one/config"
 	"github.com/Kaginari/agent-one/provider"
@@ -195,8 +197,10 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := pr.(*fallback); !ok {
-		t.Fatalf("fallback wrapper expected, got %T", pr)
+	if r, ok := pr.(*retrying); !ok {
+		t.Fatalf("retry ladder expected outermost, got %T", pr)
+	} else if _, ok := r.Provider.(*fallback); !ok {
+		t.Fatalf("fallback wrapper expected inside the ladder, got %T", r.Provider)
 	}
 	ask := func(text string) provider.Response {
 		r, err := pr.Complete(context.Background(), provider.Request{Messages: []provider.Message{{Role: provider.User, Text: text}}})
@@ -276,5 +280,77 @@ func TestFinishReasonErrorFallsBack(t *testing.T) {
 	// the secondary rides on (2026-09-28: the bench workspace ran domain owner verdicts on a 404ing group)
 	if !retryable(fmt.Errorf("openai: HTTP 404: model group glm-5-conduit not found")) {
 		t.Fatal("a gateway 404 on the primary must move the call to the fallback")
+	}
+}
+
+// flaky fails with each of errs in turn, then answers.
+type flaky struct {
+	errs  []error
+	calls int
+}
+
+func (f *flaky) Name() string { return "fake/flaky" }
+
+func (f *flaky) Complete(ctx context.Context, req provider.Request) (provider.Response, error) {
+	f.calls++
+	if f.calls <= len(f.errs) {
+		return provider.Response{}, f.errs[f.calls-1]
+	}
+	return provider.Response{Message: provider.Message{Role: provider.Assistant, Text: "@S DONE"}}, nil
+}
+
+func TestRetryLadder(t *testing.T) {
+	ask := func(ctx context.Context, f *flaky) error {
+		_, err := (&retrying{f}).Complete(ctx, provider.Request{})
+		return err
+	}
+	// a gateway restart and a stream cut mid-answer are asked again, and the answer lands
+	for _, e := range []error{
+		errors.New(`openai: Post "http://gw/v1/chat/completions": dial tcp: connect: connection refused`),
+		errors.New("openai: HTTP 503: upstream restarting"),
+		fmt.Errorf("openai: stream: %w: no byte for 2m0s", provider.ErrStalled),
+		errors.New("openai: stream: unexpected EOF"),
+		errors.New("anthropic: stream: the connection ended before message_stop — the answer is incomplete"),
+	} {
+		f := &flaky{errs: []error{e, e}}
+		if err := ask(context.Background(), f); err != nil || f.calls != 3 {
+			t.Errorf("%v: transient fault must be re-asked until it answers: err %v after %d calls", e, err, f.calls)
+		}
+	}
+	// a refusal, a missing model, a client timeout and a cancelled run come back on the first ask
+	for _, e := range []error{
+		errors.New("openai: HTTP 400: context length exceeded"),
+		errors.New("anthropic: HTTP 401: invalid x-api-key"),
+		errors.New("openai: HTTP 404: model group not found"),
+		errors.New(`openai: Post "http://gw": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`),
+		fmt.Errorf("openai: %w", context.Canceled),
+	} {
+		f := &flaky{errs: []error{e}}
+		if err := ask(context.Background(), f); err == nil || f.calls != 1 {
+			t.Errorf("%v: must not be re-asked: err %v after %d calls", e, err, f.calls)
+		}
+	}
+	// the ladder is bounded and says how often it asked
+	down := errors.New("openai: HTTP 502: bad gateway")
+	f := &flaky{errs: []error{down, down, down, down}}
+	if err := ask(context.Background(), f); err == nil || f.calls != 3 || !strings.Contains(err.Error(), "HTTP 502") || !strings.Contains(err.Error(), "asked 3 times") {
+		t.Errorf("exhausted ladder: err %v after %d calls", err, f.calls)
+	}
+	// a run cancelled while a layer waits returns at once, not after the wait
+	saved := ladder
+	ladder = []time.Duration{time.Hour}
+	defer func() { ladder = saved }()
+	ctx, cancel := context.WithCancel(context.Background())
+	f = &flaky{errs: []error{down}}
+	time.AfterFunc(50*time.Millisecond, cancel)
+	done := make(chan error, 1)
+	go func() { done <- ask(ctx, f) }()
+	select {
+	case err := <-done:
+		if err == nil || f.calls != 1 {
+			t.Errorf("cancelled wait: err %v after %d calls", err, f.calls)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the ladder waited past its context")
 	}
 }

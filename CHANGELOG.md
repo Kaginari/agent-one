@@ -18,6 +18,11 @@ All notable changes to Agent-One are recorded here. The format follows
   begun ends with "stream stalled" instead of waiting out the client's ten-minute timeout (a slow
   first token on a queued or prefilling server is left alone), and a cancelled call
   returns the cancellation at once, whatever the transport.
+- **A gateway restart no longer ends the run.** When a model call fails for a passing reason (the
+  gateway refusing connections or answering 5xx for longer than the per-request retries last, or
+  a streamed answer cut off or stalled halfway), the whole call is asked again after 5 seconds,
+  then 15 — fallback model included. A refusal, a missing model, a timeout or a cancelled run is
+  never asked again.
 
 ### Changed
 

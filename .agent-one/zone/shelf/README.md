@@ -14,8 +14,9 @@
 - `ShellHooks` run the `hooks:` commands (preTool, postTool, sessionStart, preCompact, stop, userPrompt) with JSON on stdin; a preTool hook's non-empty output refuses the step; a userPrompt hook's refuses the turn.
 - `ConnectMCP` imports Claude Code's `.mcp.json` and OpenCode's servers when `mcp.import` allows, spawns stdio servers under the sandbox, and exposes prompts and resources; `ranksFor` builds the rank table from config over the lexicon; `foreignAgents` turns discovered agent files into rules.
 - The working notes tool keys on the acting run: a subagent writes <workspace>/instruments/working-notes/<run>.md (tool.Env.RunID — the file the drainer and a resume read), the orchestrator the session's.
+- **retry ladder** (`app/providers.go` retrying): Providers.For wraps every client, outside the fallback pair, in a ladder that re-asks the whole call after 5 s then 15 s (`ladder`, a var tests shorten) when `transient` names the fault — 429/5xx/529, a refused or reset connection, EOF, ErrStalled, `finish_reason error`, a stream ended before message_stop; never a 4xx refusal, a 404 (the fallback's), a timeout or a cancelled context, and never past the context. It covers what provider.Retry's ~7 s per-send ladder cannot: a restart that outlasts it and a cut after the headers. The last error says `asked 3 times`; unwrap sees through it.
 
 ## Verify
-- `go test ./app/ -run 'TestShelfJunction|TestMinimalProfileAndOpenAIShape|TestDiscoverAndHooks|TestRulesHoldOnCommandForms|TestFallbackAndScript|TestWindowAuto|TestFinishReasonErrorFallsBack|TestDispatchJunction|TestDrainJunction|TestReplaceRanks|TestAgentOneWorkspace|TestGuardPatternsFromConfig|TestRegistryToolsReachTheToolbox'`
+- `go test ./app/ -run 'TestShelfJunction|TestMinimalProfileAndOpenAIShape|TestDiscoverAndHooks|TestRulesHoldOnCommandForms|TestFallbackAndScript|TestRetryLadder|TestWindowAuto|TestFinishReasonErrorFallsBack|TestDispatchJunction|TestDrainJunction|TestReplaceRanks|TestAgentOneWorkspace|TestGuardPatternsFromConfig|TestRegistryToolsReachTheToolbox'`
 
 ## Working notes

@@ -77,7 +77,7 @@ func (p *Providers) hole(h string) {
 }
 
 // For builds (or returns the cached) client for a resolved model, with its fallback wrapped
-// around it when the entry names one.
+// around it when the entry names one, and the retry ladder around the pair.
 func (p *Providers) For(m config.Model) (provider.Provider, error) {
 	if m.Ref.Model == "" {
 		return nil, errors.New("no model resolved (models.default is unset)")
@@ -108,6 +108,7 @@ func (p *Providers) For(m config.Model) (provider.Provider, error) {
 			}
 		}
 	}
+	out = &retrying{out}
 	p.mu.Lock()
 	p.clients[key] = out
 	p.mu.Unlock()
@@ -231,6 +232,8 @@ func unwrap(pr provider.Provider) provider.Provider {
 		switch x := pr.(type) {
 		case *fallback:
 			pr = x.primary
+		case *retrying:
+			pr = x.Provider
 		case *Meter:
 			pr = x.Provider
 		default:
@@ -257,6 +260,57 @@ func (f *fallback) Complete(ctx context.Context, req provider.Request) (provider
 		return resp, fmt.Errorf("%v; fallback %s: %v", err, f.secondary.Name(), err2)
 	}
 	return resp2, nil
+}
+
+// ladder is the wait before each re-ask of the retrying wrapper; tests shorten it.
+var ladder = []time.Duration{5 * time.Second, 15 * time.Second}
+
+// retrying re-asks the whole call — the fallback pair when there is one — on a fault that
+// outlives provider.Retry's few seconds or that it never sees: a gateway restarting, a stream cut
+// or stalled mid-answer, an upstream that ended in error. A layer waits out its ladder step and
+// never the context; a refusal, a client timeout or a cancelled run comes back at once.
+type retrying struct{ provider.Provider }
+
+func (r *retrying) Complete(ctx context.Context, req provider.Request) (provider.Response, error) {
+	resp, err := r.Provider.Complete(ctx, req)
+	for i, wait := range ladder {
+		if err == nil || ctx.Err() != nil || !transient(err) {
+			return resp, err
+		}
+		select {
+		case <-ctx.Done():
+			return resp, err
+		case <-time.After(wait):
+		}
+		if resp, err = r.Provider.Complete(ctx, req); err != nil && i == len(ladder)-1 {
+			err = fmt.Errorf("%w (asked %d times)", err, len(ladder)+1)
+		}
+	}
+	return resp, err
+}
+
+// transient is a fault worth asking again a little later: unavailability (429, 5xx, 529, a
+// refused or reset connection) or an answer cut short (EOF, a stall, finish_reason error, a
+// stream that ended before message_stop). A 4xx refusal, a 404 (the fallback's business) and a
+// timeout (the client's whole clock already spent) are not.
+func transient(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, provider.ErrStalled) {
+		return true
+	}
+	s := err.Error()
+	if strings.Contains(strings.ToLower(s), "timeout") {
+		return false
+	}
+	for _, w := range []string{"HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 529",
+		"connection refused", "connection reset", "EOF", "finish_reason error", "before message_stop", "overloaded_error"} {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
 }
 
 func retryable(err error) bool {
