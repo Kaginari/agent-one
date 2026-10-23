@@ -23,6 +23,11 @@ All notable changes to Agent-One are recorded here. The format follows
   a streamed answer cut off or stalled halfway), the whole call is asked again after 5 seconds,
   then 15 — fallback model included. A refusal, a missing model, a timeout or a cancelled run is
   never asked again.
+- **A shared work queue.** Work ordered down the ranks now has one place to wait that every
+  session, every agent and the human can read: a plain file of snapshots, one line per move, never
+  rewritten. An item is held, then claimed by the agent it was ordered to, then closed as done or
+  dropped. Two hands moving the same item at once cannot both win: the second is told it lost
+  and to read again.
 
 ### Changed
 

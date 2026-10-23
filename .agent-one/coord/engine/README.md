@@ -1,7 +1,7 @@
 # coord-engine
 
 - **Rank:** Coordinator
-- **Owns:** `loop/`, `instrument/`, `provider/`, `wire/`, `compact/`, `guard/`, `gate/`, `sandbox/`, `shell/`, `tool/`
+- **Owns:** `loop/`, `instrument/`, `provider/`, `wire/`, `queue/`, `compact/`, `guard/`, `gate/`, `sandbox/`, `shell/`, `tool/`
 - **Reports to:** orchestrator
 - **Skills:** loop-core, gate-safety, review-core
 - **Purpose:** the shared skill of the run lane: plans an order across domain-engine and domain-safety, routes each slice to the domain owner whose domain owns it, and speaks the lane's verdicts back up — never authors code.
