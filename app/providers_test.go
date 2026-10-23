@@ -311,6 +311,9 @@ func TestRetryLadder(t *testing.T) {
 		fmt.Errorf("openai: stream: %w: no byte for 2m0s", provider.ErrStalled),
 		errors.New("openai: stream: unexpected EOF"),
 		errors.New("anthropic: stream: the connection ended before message_stop — the answer is incomplete"),
+		// a gateway's own timeout is its status, not the client's clock
+		errors.New("openai: HTTP 504: gateway timeout"),
+		errors.New("openai: HTTP 503: upstream connect error or disconnect/reset before headers. reset reason: connection timeout"),
 	} {
 		f := &flaky{errs: []error{e, e}}
 		if err := ask(context.Background(), f); err != nil || f.calls != 3 {

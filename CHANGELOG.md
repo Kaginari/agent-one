@@ -21,14 +21,16 @@ All notable changes to Agent-One are recorded here. The format follows
 - **A gateway restart no longer ends the run.** When a model call fails for a passing reason (the
   gateway refusing connections or answering 5xx for longer than the per-request retries last, or
   a streamed answer cut off or stalled halfway), the whole call is asked again after 5 seconds,
-  then 15 — fallback model included. A refusal, a missing model, a timeout or a cancelled run is
-  never asked again.
+  then 15 — fallback model included. A gateway's 504, or a 503 whose text speaks of a timeout, is
+  asked again like any 5xx; a refusal, a missing model, the client's own timeout or a cancelled
+  run is never asked again.
 - **A shared work queue.** Work ordered down the ranks now has one place to wait that every
   session, every agent and the human can read: a plain file of snapshots, one line per move, never
   rewritten. An item is held, then claimed by the agent it was ordered to, then closed as done or
   dropped. Two hands moving the same item at once cannot both win: the second is told it lost
-  and to read again. `agent-one q` reads and moves it — `list`, `show`, `add`, `claim`, `touch`,
-  `requeue`, `close` — with `--json` for scripts; it lives on the workspace's shared shelf
+  and to read again; a crash that leaves half a line at the end of the file costs no later move.
+  `agent-one q` reads and moves it — `list`, `show`, `add`, `claim`, `touch`, `requeue`, `close` —
+  with `--json` for scripts; it lives on the workspace's shared shelf
   (`.agent-one/shared/queue.jsonl`), which no agent may write by hand. Agents get a `queue` tool to
   read it and to note progress on, hand back or close the work they hold; reading is free, and
   only the holder (or a rank above it) may move an item (`tools.queue.enabled`, on by default).
@@ -36,8 +38,10 @@ All notable changes to Agent-One are recorded here. The format follows
   shared queue until the session's next wake claims it in the ordered agent's name and opens the
   next turn with it; the terminal's status bar shows how many are held. Two sessions on one workspace
   never both take the same order, and the terminal now runs these orders as the line session
-  always did. When the agent reports DONE its item closes; any other answer leaves it claimed with
-  the outcome noted.
+  always did. An order the session may not dispatch itself (strict layer flow, an agent outside its
+  line) is not claimed for an agent nobody will start: the session takes it, with the reason noted
+  on the item, and is asked to route it down the chain and then close or requeue it. When the
+  agent reports DONE its item closes; any other answer leaves it claimed with the outcome noted.
 
 ### Changed
 

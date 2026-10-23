@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -291,8 +292,9 @@ func (r *retrying) Complete(ctx context.Context, req provider.Request) (provider
 
 // transient is a fault worth asking again a little later: unavailability (429, 5xx, 529, a
 // refused or reset connection) or an answer cut short (EOF, a stall, finish_reason error, a
-// stream that ended before message_stop). A 4xx refusal, a 404 (the fallback's business) and a
-// timeout (the client's whole clock already spent) are not.
+// stream that ended before message_stop). A 4xx refusal, a 404 (the fallback's business) and
+// the client's own timeout (its whole clock already spent) are not. The status is read first:
+// a 504 or a 503 whose text says "timeout" is the gateway's answer, not the client's clock.
 func transient(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
@@ -301,11 +303,16 @@ func transient(err error) bool {
 		return true
 	}
 	s := err.Error()
-	if strings.Contains(strings.ToLower(s), "timeout") {
+	for _, w := range []string{"HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 529"} {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() || strings.Contains(strings.ToLower(s), "timeout") {
 		return false
 	}
-	for _, w := range []string{"HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 529",
-		"connection refused", "connection reset", "EOF", "finish_reason error", "before message_stop", "overloaded_error"} {
+	for _, w := range []string{"connection refused", "connection reset", "EOF", "finish_reason error", "before message_stop", "overloaded_error"} {
 		if strings.Contains(s, w) {
 			return true
 		}

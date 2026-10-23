@@ -230,3 +230,28 @@ func TestQueueCLI(t *testing.T) {
 		t.Fatal("an unknown q command passed")
 	}
 }
+
+// TestQueueTornTailSwallowsNothing: a crash that left half a line at the file's end does not
+// swallow the next move — the move starts on a line of its own, the torn bytes stay as they were
+// (skipped by the fold), and history is never rewritten.
+func TestQueueTornTailSwallowsNothing(t *testing.T) {
+	s := store(t)
+	if _, err := s.Add(Item{For: "zone-auth", Ask: "fix"}, "domain-x"); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.OpenFile(s.Path(), os.O_WRONLY|os.O_APPEND, 0o644)
+	f.WriteString(`{"id":"q1","rev":2,"op":"cl`)
+	f.Close()
+	torn, _ := os.ReadFile(s.Path())
+	it, err := s.Claim("q1", "zone-auth")
+	if err != nil || it.Owner != "zone-auth" {
+		t.Fatalf("the move after a torn tail: %+v %v", it, err)
+	}
+	if got, _, _ := s.Get("q1"); got.State != Claimed {
+		t.Fatalf("the claim folded: %+v", got)
+	}
+	b, _ := os.ReadFile(s.Path())
+	if !bytes.HasPrefix(b, torn) || !bytes.HasSuffix(b, []byte("\n")) {
+		t.Fatalf("history kept, the new line whole: %q", b)
+	}
+}

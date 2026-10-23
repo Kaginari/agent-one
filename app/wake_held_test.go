@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Kaginari/agent-one/queue"
+	"github.com/Kaginari/agent-one/workspace"
 )
 
 // TestRelayHoldWaitsForTheWake: a background report's @$ orders are held on the shared queue —
@@ -13,6 +14,7 @@ import (
 func TestRelayHoldWaitsForTheWake(t *testing.T) {
 	_, a := forgeWorkspace(t)
 	defer a.Close()
+	a.Cfg.Tools.Dispatch.StrictFlow = false // the orchestrator may order a zone worker directly here
 	a.Subagent.Finish("domain-security", "@S DONE\n@$ zone-auth: tighten the ttl\n@$ zone-api: page the routes\n@E 0")
 	q := a.Workspace.Queue()
 	held, _ := q.Held()
@@ -51,5 +53,26 @@ func TestRelayHoldWithoutAWorkspace(t *testing.T) {
 	a.Subagent.Finish("domain-x", "@S DONE\n@$ zone-y: count the retries\n@E 0")
 	if lines := a.heldWakeLines(); len(lines) != 1 || lines[0] != "dispatch zone-y: count the retries" {
 		t.Fatalf("%q", lines)
+	}
+}
+
+// TestRelayHoldRefusedOrderIsTheThrones: an order the orchestrator may not dispatch itself (strict
+// flow: a zone worker is two layers down) is never claimed in the agent's name with no subagent coming —
+// the wake claims it for the orchestrator, notes the refusal on it, and hands the orchestrator the ask to
+// route down the chain.
+func TestRelayHoldRefusedOrderIsTheThrones(t *testing.T) {
+	_, a := forgeWorkspace(t)
+	defer a.Close()
+	a.Subagent.Finish("domain-security", "@S DONE\n@$ zone-auth: tighten the ttl\n@E 0")
+	lines := a.heldWakeLines()
+	it, _, _ := a.Workspace.Queue().Get("q1")
+	if it.State != queue.Claimed || it.Owner != workspace.Orchestrator || !strings.Contains(it.Note, "may not dispatch zone-auth") {
+		t.Fatalf("the refused order is the orchestrator's, the refusal noted: %+v", it)
+	}
+	if len(lines) != 1 || strings.HasPrefix(lines[0], "dispatch zone-auth") || !strings.Contains(lines[0], "tighten the ttl") || !strings.Contains(lines[0], "may not dispatch zone-auth") {
+		t.Fatalf("the wake hands the orchestrator the ask with the refusal: %q", lines)
+	}
+	if again := a.heldWakeLines(); len(again) != 0 {
+		t.Fatalf("taken twice: %q", again)
 	}
 }

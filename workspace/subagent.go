@@ -379,6 +379,14 @@ func (w *Workspace) preflight(parent *loop.Engine, b Build, name string) (*Membe
 	return cr, nil
 }
 
+// MayOrder is the dispatch policy `from` would meet ordering agent — the same preflight its
+// dispatch tool asks — read before the order is taken: nil when the dispatch may go. The wake
+// asks it before it claims a held order in an agent's name.
+func (w *Workspace) MayOrder(from, agent string, opt SubagentOptions) error {
+	_, err := w.preflight(&loop.Engine{As: from}, Build{Subagent: opt}, agent)
+	return err
+}
+
 // nearMiss is the roster name a ghost most likely meant: the one name within two edits (a
 // typo, a rank prefix a letter off); "" when nothing is that close or two are equally close.
 // The zone alone (`auth` for zone-auth) is no ghost: Member already resolves it.
