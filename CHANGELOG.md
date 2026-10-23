@@ -68,8 +68,9 @@ All notable changes to Agent-One are recorded here. The format follows
 - **A subagent's writes are its own.** A subagent working in the background changes the same
   files its dispatcher's turn is watching; the dispatcher's gate used to see those changes on
   disk and judge them as the dispatcher's own (a false "belongs to …, written by orchestrator").
-  A file a subagent's tool reported writing is now left to that subagent's gate, while anything
-  the dispatcher changes itself afterwards is still its own.
+  A file a subagent's tool reported writing is now left to that subagent's gate, as long as the
+  file still stands as the subagent left it; anything the dispatcher changes itself afterwards,
+  even in the same turn, is still its own and is judged.
 - **A cancelled gate is not a failed one.** When a run is stopped while its end-of-turn gate is
   still reading, the gate stops spawning checks and says "cancelled" instead of recording every
   check it skipped as a red failure against the agent, and the turn is no longer sent back to the

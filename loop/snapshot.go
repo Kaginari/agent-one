@@ -26,8 +26,9 @@ import (
 //
 // The tree is shared: a subagent working in the background beside its dispatcher changes it too,
 // and a stamp cannot say whose hand moved a file. The receipt can — a tool that names its paths
-// notes them in the engines' shared Receipts book, and a change another run noted since this
-// session last stamped is that run's write, gated on its account, not this one's.
+// notes them in the engines' shared Receipts book with the file's stamp as the write left it,
+// and a change another run noted since this session last stamped, the file still standing as
+// that write left it, is that run's write, gated on its account, not this one's.
 
 type stamp struct {
 	size  int64
@@ -137,39 +138,48 @@ func (a snapshot) diff(b snapshot) []string {
 }
 
 // Receipts is the write book of the engines sharing a root: which run's tool last reported
-// writing each root-relative path, and when.
+// writing each root-relative path, when, and the file as that write left it.
 type Receipts struct {
 	mu sync.Mutex
 	by map[string]receipt
 }
 
 type receipt struct {
-	run string
-	at  time.Time
+	run  string
+	at   time.Time
+	left stamp // the file's stamp right after the write
+	gone bool  // the write left no file (a delete)
 }
 
 // NewReceipts is an empty book.
 func NewReceipts() *Receipts { return &Receipts{by: map[string]receipt{}} }
 
-func (b *Receipts) note(run, rel string) {
+// note books run's write of rel (root-relative) under root, stamping the file as it now stands.
+func (b *Receipts) note(run, root, rel string) {
 	if b == nil {
 		return
 	}
+	r := receipt{run: run, at: time.Now(), gone: true}
+	if info, err := os.Lstat(filepath.Join(root, rel)); err == nil {
+		r.left, r.gone = stamp{size: info.Size(), mtime: info.ModTime().UnixNano()}, false
+	}
 	b.mu.Lock()
-	b.by[filepath.ToSlash(rel)] = receipt{run: run, at: time.Now()}
+	b.by[filepath.ToSlash(rel)] = r
 	b.mu.Unlock()
 }
 
-// foreign is true when another run noted writing rel after since: the change is its receipt's.
-// A receipt older than since was already in the watcher's baseline and explains nothing new.
-func (b *Receipts) foreign(run, rel string, since time.Time) bool {
+// foreign is true when another run noted writing rel after since and the file still stands as
+// that write left it (cur, present): the change is its receipt's. A receipt older than since was
+// already in the watcher's baseline; a file moved again after its receipt was moved by another
+// hand — the watcher's own, if nobody else holds a receipt for it.
+func (b *Receipts) foreign(run, rel string, since time.Time, cur stamp, present bool) bool {
 	if b == nil {
 		return false
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	r, ok := b.by[rel]
-	return ok && r.run != run && r.at.After(since)
+	return ok && r.run != run && r.at.After(since) && r.gone == !present && (!present || r.left == cur)
 }
 
 // watch takes the turn's baseline; a failed stamp names the hole once and stops watching.
@@ -206,7 +216,8 @@ func (s *Session) seen() []string {
 	}
 	var changed []string
 	for _, p := range s.base.diff(snap) {
-		if !s.Engine.Receipts.foreign(s.RunID, p, s.stampedAt) {
+		cur, present := snap[p]
+		if !s.Engine.Receipts.foreign(s.RunID, p, s.stampedAt, cur, present) {
 			changed = append(changed, p)
 		}
 	}

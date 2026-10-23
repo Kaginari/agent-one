@@ -119,3 +119,34 @@ func TestWatchPaysTheReceiptNotTheStamp(t *testing.T) {
 		t.Fatalf("a stale receipt hid the orchestrator's own write: %v", gated)
 	}
 }
+
+// A receipt explains the file only as its tool left it: when the dispatcher writes the same file
+// after the subagent's receipt, in the same turn, the change is the dispatcher's own and is gated.
+func TestWatchReceiptExplainsOnlyItsOwnWrite(t *testing.T) {
+	book := NewReceipts()
+	orchestrator := engine(t, nil)
+	orchestrator.Receipts = book
+	subagent := &Engine{Provider: mock.New(mock.Call("1", "write", map[string]string{"path": "subagent.txt", "content": "the subagent's\n"}), mock.Text("@S DONE\n@U team c\n@E 0")),
+		Tools: tool.Builtins(), Gate: orchestrator.Gate, Root: orchestrator.Root, As: "zone-subagent", Unsaid: true, Receipts: book}
+	var gated [][]string
+	orchestrator.Hooks.EndGate = func(ctx context.Context, s *Session, r *Result) (string, []string, error) {
+		gated = append(gated, append([]string(nil), s.Wrote...))
+		return "pass", nil, nil
+	}
+	orchestrator.Provider = &steps{
+		func() provider.Response {
+			if r, err := subagent.Run(context.Background(), "write subagent.txt"); err != nil || r.Status != Done {
+				t.Fatalf("subagent: %v %+v", err, r)
+			}
+			return mock.Call("1", "bash", map[string]string{"command": "echo orchestrator >> subagent.txt"})
+		},
+		func() provider.Response { return mock.Text("@S DONE\n@U team c\n@E 0") },
+	}
+	r, err := orchestrator.Run(context.Background(), "write after the subagent")
+	if err != nil || r.Status != Done {
+		t.Fatalf("%v %+v", err, r)
+	}
+	if len(gated) != 1 || strings.Join(gated[0], ",") != "subagent.txt" {
+		t.Fatalf("the orchestrator's own write after the subagent's receipt must be gated: %v (wrote %v)", gated, r.Wrote)
+	}
+}

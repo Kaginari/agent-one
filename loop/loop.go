@@ -1062,7 +1062,7 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 		st.Wrote = append(st.Wrote, env.Rel(w))
 		s.Wrote = appendUnique(s.Wrote, env.Rel(w))
 		s.wroteTot++
-		e.Receipts.note(s.RunID, env.Rel(w))
+		e.Receipts.note(s.RunID, e.Root, env.Rel(w))
 	}
 	if cls.Class >= tool.Write {
 		// what the act changed on disk, whether or not the tool named it (the shell never does)
