@@ -51,7 +51,7 @@ func TestSnapshotSkipsHeavyDirs(t *testing.T) {
 
 func TestUnwatchedNamesHeavyDirsAtAnyDepth(t *testing.T) {
 	e := engine(t, mock.New(mock.Text("x")))
-	for _, rel := range []string{"node_modules", "a/b/node_modules", ".venv", "x/__pycache__", "target", "y/dist", ".agent-one/memory"} {
+	for _, rel := range []string{"node_modules", "a/b/node_modules", ".venv", "x/__pycache__", "target", "y/dist", ".agent-one/memory", ".agent-one/shared"} {
 		if !e.unwatched(rel) {
 			t.Fatalf("%s must be unwatched", rel)
 		}

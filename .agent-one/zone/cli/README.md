@@ -1,7 +1,7 @@
 # zone-cli
 
 - **Rank:** Zone worker
-- **Owns:** `cmd/`, `app/cli.go`, `app/app.go`, `app/app_helpers.go`, `app/embed.go`, `app/found.go`, `app/found.md`, `app/found_test.go`, `app/setup.go`, `app/selftest.go`, `app/logger.go`, `app/container.go`, `app/container.Dockerfile`, `app/container_test.go`, `app/ui.go`, `app/guard.go`, `app/bench.go`, `app/mockscript.go`, `app/cli_test.go`, `app/e2e_test.go`
+- **Owns:** `cmd/`, `app/cli.go`, `app/queue.go`, `app/app.go`, `app/app_helpers.go`, `app/embed.go`, `app/found.go`, `app/found.md`, `app/found_test.go`, `app/setup.go`, `app/selftest.go`, `app/logger.go`, `app/container.go`, `app/container.Dockerfile`, `app/container_test.go`, `app/ui.go`, `app/guard.go`, `app/bench.go`, `app/mockscript.go`, `app/cli_test.go`, `app/e2e_test.go`
 - **Reports to:** domain-app
 - **Skills:** zone-go-package, zone-workspace-docs
 - **Purpose:** the ground truth of the binary's entry: the command table, `init` and its three levels, the setup, the container re-exec, the selftest and the in-binary bench.
@@ -13,9 +13,10 @@
 - `selftest` prints `@S PASS <n> checks` over every package's selftest plus the app's — 195 today.
 - `bench` (bench.go) is the in-binary bench: scripted mock tasks judged by checks, then the same asks on every real provider whose key env is set — real calls cost money; the Harbor bench under `bench/` is service-release's, not this zone's.
 - `TestEmbeddedLawsMatchTheWorkspace` ties `app/policy/AGENT-ONE.md` to the root file; e2e_test.go builds the binary and app/testdata/mcpserver — the module's slowest tests.
+- **queue** (`app/queue.go`): `agent-one q list|show|add|claim|touch|requeue|close` is queue.CLI over the workspace's shared queue (Workspace.QueuePath) as the human — the lexicon's human word, every move allowed (the human stands over every agent); `--as <body>` acts for an agent, `--json` (output.format json) prints the items, a refusal exits 2.
 
 ## Verify
-- `go test ./app/ -run 'TestEmbeddedLawsMatchTheWorkspace|TestInitBench|TestBenchOnMock|TestRunIgnoresAnOpenStdin|TestContainer|TestSetup|TestSketchTeam|TestMediumWritesOnceAndFoundingBrief|TestNormLevel|TestE2E'`
+- `go test ./app/ -run 'TestEmbeddedLawsMatchTheWorkspace|TestInitBench|TestBenchOnMock|TestRunIgnoresAnOpenStdin|TestContainer|TestSetup|TestSketchTeam|TestMediumWritesOnceAndFoundingBrief|TestNormLevel|TestE2E|TestQueueCommand'`
 - `go vet ./cmd/...`
 
 ## Working notes

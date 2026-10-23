@@ -41,12 +41,17 @@ func (w *Workspace) ToolPolicy(agent string, opt OwnershipOptions) tool.Policy {
 		// engine soil: journals, reports, ledgers under instruments/loop and instruments/usage
 		// land from the harness only. Every agent's write there is refused — Policy 2 grows a
 		// sub-case: an agent's report speaks through the wire, the engine files it, nobody edits.
+		// The shared shelf is the same soil: the queue moves through the queue tool, never a write.
 		eng1 := normRel(w.Lex.WorkspaceDir + "/instruments/loop")
 		eng2 := normRel(w.Lex.WorkspaceDir + "/instruments/usage")
+		shelf := normRel(w.Lex.WorkspaceDir + "/" + sharedShelf)
 		for _, p := range a.Paths {
 			rel := normRel(w.Rel(p))
 			if under(rel, eng1) || under(rel, eng2) {
 				return fmt.Errorf("ownership: %s is engine soil (journals and reports land there from the harness only) — an agent never writes under %s; speak on the wire and the engine files it", rel, eng1)
+			}
+			if under(rel, shelf) {
+				return fmt.Errorf("ownership: %s is the shared shelf (the harness keeps it) — an agent never writes under %s; its work moves through the harness (the q command), never a write", rel, shelf)
 			}
 		}
 		// the orchestrator, bound (pure hard policy): an orchestrator write inside another member's soil is

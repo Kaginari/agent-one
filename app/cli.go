@@ -15,6 +15,7 @@ import (
 	"github.com/Kaginari/agent-one/loop"
 	"github.com/Kaginari/agent-one/memory"
 	"github.com/Kaginari/agent-one/onto"
+	"github.com/Kaginari/agent-one/queue"
 	"github.com/Kaginari/agent-one/toolbox"
 	"github.com/Kaginari/agent-one/workspace"
 )
@@ -159,6 +160,7 @@ var commands = []struct{ name, summary string }{
 	{"toolbox", "the toolbox instrument (index, brief, pick, load, status)"},
 	{"onto", "the ontology (check, project, query)"},
 	{"evolve", "the evolution queue (policy.evolution, propose mode): evolve list | show <id> | apply <id> | reject <id> <why>"},
+	{"q", "the shared work queue: " + queue.Usage + " — --json prints items"},
 	{"forge", "the forge working notes — the drafts subagents carried home: forge list | show <id> | register <id> [--yes] [--version] [--force] | reject <id> --why <reason>"},
 	{"housekeep", "the chain policy: audit member homes and links, heal the mechanical classes — housekeep [--heal] [--spawn]"},
 	{"usage", "the usage journal: usage [--session <id>] [--since <date>]"},
@@ -383,6 +385,8 @@ func Main(dist string, args []string, io IO, v Version) int {
 		return a.cmdSessions(io)
 	case "status":
 		return a.cmdStatus(io)
+	case "q":
+		return a.cmdQueue(leftover, io)
 	case "forge":
 		return a.cmdForge(leftover, io)
 	case "evolve":

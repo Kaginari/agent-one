@@ -438,3 +438,41 @@ func TestForgeDemandOffIsReported(t *testing.T) {
 		t.Fatal("the build carries the policy's value")
 	}
 }
+
+// TestQueueCommand: `q` reads and moves the workspace's shared queue as the human — add, claim
+// for an agent, close; --json prints the items; a refusal exits 2.
+func TestQueueCommand(t *testing.T) {
+	w, a := forgeWorkspace(t)
+	a.Close()
+	run := func(args ...string) (int, string, string) {
+		var out, errb bytes.Buffer
+		code := Main("agent-one", append([]string{"--root", w.root, "--quiet", "--no-board"}, args...), IO{In: strings.NewReader(""), Out: &out, Err: &errb, Env: func(k string) string {
+			if k == "HOME" {
+				return w.home
+			}
+			return ""
+		}}, Version{Version: "test"})
+		return code, out.String(), errb.String()
+	}
+	if code, out, errs := run("q", "add", "--for", "zone-auth", "--rank", "0", "tighten", "the", "ttl"); code != 0 || !strings.Contains(out, "queued q1") {
+		t.Fatalf("q add: %d %q %q", code, out, errs)
+	}
+	if code, out, _ := run("q", "claim", "q1", "--as", "zone-auth"); code != 0 || !strings.Contains(out, "held by zone-auth") {
+		t.Fatalf("q claim --as: %d %q", code, out)
+	}
+	if code, out, _ := run("--json", "q", "list"); code != 0 || !strings.HasPrefix(out, `[{"id":"q1"`) {
+		t.Fatalf("q list --json: %d %q", code, out)
+	}
+	if code, out, _ := run("q", "close", "q1", "landed"); code != 0 || !strings.Contains(out, "done q1") {
+		t.Fatalf("the human closes any work: %d %q", code, out)
+	}
+	if code, _, errs := run("q", "requeue", "q1"); code != 2 || !strings.Contains(errs, "only claimed work") {
+		t.Fatalf("a refusal exits 2: %d %q", code, errs)
+	}
+	if b, err := os.ReadFile(filepath.Join(w.root, ".agent-one", "shared", "queue.jsonl")); err != nil || strings.Count(string(b), "\n") != 3 {
+		t.Fatalf("three moves, three lines: %v %q", err, b)
+	}
+	if _, out, _ := run("--help"); !strings.Contains(out, "q list") {
+		t.Fatalf("help lists q: %s", out)
+	}
+}

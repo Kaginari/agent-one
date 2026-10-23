@@ -375,6 +375,7 @@ ui: { theme: rain-city, mode: system }
 | `config show\|explain\|check\|path\|patch` | the effective config with the origin of every value |
 | `memory` · `toolbox` · `onto` | the three memories, the two-level toolbox, the member graph |
 | `forge list\|show <id>\|register <id> [--yes] [--version] [--force]\|reject <id> --why …` | the forge's working notes, headless (§The forge) — `/forge` in a session |
+| `q list\|show <id>\|add <ask>\|claim\|touch\|requeue\|close <id>` | the shared work queue: what is held, who holds what, every move one appended line; `--json` for scripts |
 | `usage` | tokens and cost by agent, role, rank, model and day |
 | `bench` | a fixed task set on every configured model |
 | `goal --validate "<cmd>" "<objective>"` | work turn after turn until the command passes; the binary runs it, the model cannot skip it |
