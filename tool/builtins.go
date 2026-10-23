@@ -63,18 +63,19 @@ func ReadTool() *Tool {
 		size int64
 	}
 	seen := map[string]served{}
-	readOne := func(env Env, rel string, offset, limit int, full bool) (string, error) {
+	// readOne serves one window; the bool says it was withheld as already served
+	readOne := func(env Env, rel string, offset, limit int, full bool) (string, bool, error) {
 		abs := env.Resolve(rel)
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			// a missing file answers with the closest siblings — the second guess costs a turn
 			if sug := siblingSuggestions(abs); sug != "" {
-				return "", fmt.Errorf("%v —%s", err, sug)
+				return "", false, fmt.Errorf("%v —%s", err, sug)
 			}
-			return "", err
+			return "", false, err
 		}
 		if bytes.IndexByte(data[:min(len(data), 8192)], 0) >= 0 {
-			return "", fmt.Errorf("%s is binary (%d bytes)", env.Rel(abs), len(data))
+			return "", false, fmt.Errorf("%s is binary (%d bytes)", env.Rel(abs), len(data))
 		}
 		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 		if len(data) == 0 {
@@ -92,7 +93,7 @@ func ReadTool() *Tool {
 			limit, full = 0, true
 		}
 		if start > len(lines) {
-			return fmt.Sprintf("(%s has %d lines; offset %d is past the end)", env.Rel(abs), len(lines), start), nil
+			return fmt.Sprintf("(%s has %d lines; offset %d is past the end)", env.Rel(abs), len(lines), start), false, nil
 		}
 		windowed := limit > 0
 		auto := !windowed && !full && len(lines) > readAutoLimit
@@ -131,9 +132,9 @@ func ReadTool() *Tool {
 		}
 		mu.Unlock()
 		if fresh {
-			return fmt.Sprintf("(%s window %d-%d withheld — unchanged since this run's first read; say why the bytes are needed again)", env.Rel(abs), start, end), nil
+			return fmt.Sprintf("(%s window %d-%d withheld — unchanged since this run's first read; say why the bytes are needed again)", env.Rel(abs), start, end), true, nil
 		}
-		return strings.TrimRight(out, "\n"), nil
+		return strings.TrimRight(out, "\n"), false, nil
 	}
 	return &Tool{
 		Name: "read",
@@ -178,16 +179,17 @@ func ReadTool() *Tool {
 				names = append([]string{a.Path}, names...)
 			}
 			if len(names) == 1 {
-				out, err := readOne(env, names[0], a.Offset, a.Limit, a.Full)
+				out, unchanged, err := readOne(env, names[0], a.Offset, a.Limit, a.Full)
 				if err != nil {
 					return fail("read: %v", err)
 				}
 				if z := zoneOwner(env, env.Rel(env.Resolve(names[0]))); z != "" && !strings.HasSuffix(out, "\n") {
 					out += "\n(zone of " + z + ")"
 				}
-				return Result{Output: clip(out)}
+				return Result{Output: clip(out), Unchanged: unchanged}
 			}
 			var b strings.Builder
+			all := true // every window of the batch withheld as unchanged
 			for i, n := range names {
 				if i > 0 {
 					b.WriteString("\n")
@@ -195,13 +197,14 @@ func ReadTool() *Tool {
 				// a batch entry may pin its own window: "f.go:40" or "f.go:40:60" — the
 				// shared offset/limit stays the floor for entries that don't.
 				name, o, l := splitReadWindow(n, a.Offset, a.Limit)
-				out, err := readOne(env, name, o, l, a.Full)
+				out, unchanged, err := readOne(env, name, o, l, a.Full)
 				if err != nil {
 					out = "! " + err.Error()
 				}
+				all = all && unchanged && err == nil
 				fmt.Fprintf(&b, "== %s ==\n%s\n", name, out)
 			}
-			return Result{Output: clip(b.String())}
+			return Result{Output: clip(b.String()), Unchanged: all}
 		},
 	}
 }

@@ -421,10 +421,33 @@ func TestClassifyFormattersAndSeparators(t *testing.T) {
 		"gofmt -l .": Read, "goimports -d main.go": Read, "gofmt -s -w .": Write, "goimports -w=true x.go": Write,
 		"gofmt -l . | head": Read, "go fmt ./...": Write,
 		"sed -n 1,/^func/p main.go": Read, "git show HEAD:README.md": Read, "awk -F, '{print $1}' a.csv": Read,
-		"cat {README.md,/etc/shadow}": Outward, "PATH=/home/nobody/bin:$PATH ls": Outward, "gofmt -w .": Write, "ls --dir=/etc": Outward,
+		"cat {README.md,/etc/shadow}": Outward, "cat /etc/{hosts,passwd}": Outward, "cat /var/log/{syslog,messages}": Outward, "cat /{etc,var}/x": Outward,
+		"cat src/{a,b}.go": Read, "ls /etc/": Outward, "cat </etc/hosts": Outward, "PATH=/home/nobody/bin:$PATH ls": Outward, "gofmt -w .": Write, "ls --dir=/etc": Outward,
 	} {
 		if got := env.ClassifyCommand(cmd); got.Class != want {
 			t.Errorf("%q: %s (%s), want %s", cmd, got.Class, got.Why, want)
 		}
+	}
+}
+
+// The read cache says when it withheld: only an answer whose every window was already served is
+// Unchanged — a batch with one fresh file is fresh.
+func TestReadSaysUnchanged(t *testing.T) {
+	env, root := workspace(t)
+	_ = os.WriteFile(filepath.Join(root, "a.txt"), []byte("a\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "b.txt"), []byte("b\n"), 0o644)
+	rd := ReadTool()
+	run := func(in string) Result { return rd.Run(context.Background(), env, json.RawMessage(in)) }
+	if r := run(`{"path":"a.txt"}`); r.Unchanged {
+		t.Fatal("a first read is fresh")
+	}
+	if r := run(`{"path":"a.txt"}`); !r.Unchanged {
+		t.Fatalf("a re-read of an unchanged file: %q", r.Output)
+	}
+	if r := run(`{"paths":["a.txt","b.txt"]}`); r.Unchanged {
+		t.Fatal("a batch with a fresh file is fresh")
+	}
+	if r := run(`{"paths":["a.txt","b.txt"]}`); !r.Unchanged {
+		t.Fatalf("a batch served twice: %q", r.Output)
 	}
 }

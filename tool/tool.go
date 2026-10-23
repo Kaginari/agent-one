@@ -56,6 +56,9 @@ type Result struct {
 	Output string
 	Err    bool
 	Wrote  []string
+	// Unchanged: the tool withheld its answer as the same it served this run already (read's
+	// served-window cache) — the loop's re-pin guard reads it as the same answer.
+	Unchanged bool
 }
 
 // Access is what the policy hook sees before an act: the tool, the settled class, the paths it

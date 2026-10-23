@@ -209,6 +209,7 @@ func TestTmpGuardLeavesPatternsAlone(t *testing.T) {
 		`grep -E /api|/v1 routes.go`,
 		`grep -rn /usr\/lib src`,
 		`grep /end$ file`,
+		`perl -n -e /foo/p f`,
 	} {
 		if out, msg := rewriteTmpCommand(cmd, scratch, "/w", false); out != cmd || msg != "" {
 			t.Errorf("%q was rewritten: %q (%s)", cmd, out, msg)
@@ -219,6 +220,9 @@ func TestTmpGuardLeavesPatternsAlone(t *testing.T) {
 		`ls /tmp/run-[0-9]`,
 		`sed -n p /tmp/out.txt`,
 		`echo x; sed /a/d /tmp/f`,
+		`awk -f /tmp/p data`,
+		`perl /tmp/x`,
+		`sed -e /a/d /tmp/f`,
 	} {
 		if _, msg := rewriteTmpCommand(cmd, scratch, "/w", false); !strings.Contains(msg, "tmp-redirect") {
 			t.Errorf("%q kept its off-workspace path: %s", cmd, msg)

@@ -27,11 +27,29 @@ func readAll(t *testing.T, rc io.ReadCloser) error {
 	}
 }
 
-func TestWatchStallsASilentStream(t *testing.T) {
-	rc := Watch(context.Background(), silent(), 20*time.Millisecond)
+func TestWatchStallsAStreamThatStopped(t *testing.T) {
+	r, w := io.Pipe()
+	rc := Watch(context.Background(), r, 20*time.Millisecond)
 	defer rc.Close()
+	go func() { _, _ = w.Write([]byte("data: first\n")) }() // then silence, the socket held open
 	if err := readAll(t, rc); !errors.Is(err, ErrStalled) {
 		t.Fatalf("err = %v, want ErrStalled", err)
+	}
+}
+
+// Before the first byte the window is shut: a queued request or a long prefill sends nothing,
+// and that wait is the client timeout's to bound, not the stall's.
+func TestWatchWaitsForTheFirstByte(t *testing.T) {
+	r, w := io.Pipe()
+	rc := Watch(context.Background(), r, 20*time.Millisecond)
+	defer rc.Close()
+	go func() {
+		time.Sleep(100 * time.Millisecond) // five stall windows of prefill
+		_, _ = w.Write([]byte("data: token\n"))
+		w.Close()
+	}()
+	if err := readAll(t, rc); err != nil {
+		t.Fatalf("a slow first token was cut: %v", err)
 	}
 }
 
@@ -64,7 +82,10 @@ func TestWatchBytesKeepAStreamAlive(t *testing.T) {
 func TestWatchCloseReleasesTheWatchers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	rc := Watch(ctx, silent(), time.Hour).(*watched)
+	r, w := io.Pipe()
+	rc := Watch(ctx, r, time.Hour).(*watched)
+	go func() { _, _ = w.Write([]byte("x")) }()
+	_, _ = rc.Read(make([]byte, 1)) // the first byte arms the timer
 	_ = rc.Close()
 	if rc.unhook() {
 		t.Fatal("the context hook outlived Close")

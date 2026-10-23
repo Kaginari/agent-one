@@ -148,7 +148,7 @@ func rewriteTmpCommand(cmd, scratch, workspace string, refuseForCwd bool) (out, 
 	}
 	words := strings.Fields(cmd)
 	var rewrites []string
-	verb, operands := "", 0 // the current segment's command word, and the operands seen after it
+	verb, operands, given := "", 0, false // the segment's command word, its operands, a script named by flag
 	for i, w := range words {
 		if w == "--" {
 			break
@@ -156,13 +156,21 @@ func rewriteTmpCommand(cmd, scratch, workspace string, refuseForCwd bool) (out, 
 		if i > 0 && endsSegment(words[i-1]) {
 			verb = ""
 		}
-		script := false // a pattern verb's script: its first operand, or what -e names
+		// a pattern verb's inline script: what -e names, else its first operand — unless -e or -f
+		// already gave the script (`awk -f /tmp/p data`), or the verb is perl, whose first
+		// operand is a program file
+		script := false
 		switch {
 		case verb == "" && !strings.Contains(w, "="):
-			verb, operands = strings.ToLower(w[strings.LastIndex(w, "/")+1:]), 0
+			verb, operands, given = strings.ToLower(w[strings.LastIndex(w, "/")+1:]), 0, false
 		case strings.HasPrefix(w, "-"):
+			given = given || w == "-e" || w == "-f" || w == "--expression" || w == "--file"
 		default:
-			script = patternVerbs[verb] && (operands == 0 || words[i-1] == "-e" || words[i-1] == "--expression")
+			prev := ""
+			if i > 0 {
+				prev = words[i-1]
+			}
+			script = patternVerbs[verb] && (prev == "-e" || prev == "--expression" || operands == 0 && !given && verb != "perl")
 			operands++
 		}
 		lower := strings.ToLower(w)

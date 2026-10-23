@@ -3,6 +3,7 @@ package loop
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,14 +48,14 @@ func TestRepinGuardCheckpoints(t *testing.T) {
 	e := engine(t, m)
 	e.Guts = &Guts{}
 	r, _ := e.Run(context.Background(), "find the bug")
-	if r.Status != Checkpoint || len(r.Steps) != 3 || r.Steps[2].Status != "denied" {
+	if r.Status != Checkpoint || len(r.Steps) != 3 {
 		t.Fatalf("want a checkpoint at the third identical read: %+v", r)
 	}
 	if !strings.Contains(strings.Join(r.Holes, "\n"), "re-pin loop") {
 		t.Fatalf("the hole does not name the re-pin: %v", r.Holes)
 	}
 	second := m.Requests[2].Messages[len(m.Requests[2].Messages)-1].ToolResults[0].Content
-	if !strings.Contains(second, "[re-pin] the same read as s1") || !strings.Contains(second, "1 more time ") {
+	if !strings.Contains(second, "[re-pin] the same read as s1, the same answer") || !strings.Contains(second, "1 more time ") {
 		t.Fatalf("the second read carries no warning: %q", second)
 	}
 }
@@ -153,5 +154,21 @@ func TestRecallDedupe(t *testing.T) {
 	rc := Recall{Anchors: []string{"a.md#1", "b.md", "a.md#1"}, Tools: []string{"@T x", "@T x"}, Holes: []string{"h", "h"}}.dedupe()
 	if strings.Join(rc.Anchors, " ") != "a.md#1 b.md" || len(rc.Tools) != 1 || len(rc.Holes) != 1 {
 		t.Fatalf("%+v", rc)
+	}
+}
+
+// The answer is the witness: a file changed by another hand (a parallel subagent, the human's editor)
+// reads anew, however often the same read is asked.
+func TestRepinGuardReadsTheAnswer(t *testing.T) {
+	m := mock.New(read("1"), read("2"), read("3"), read("4"), mock.Text("done"))
+	e := engine(t, m)
+	e.Guts = &Guts{}
+	n := 0
+	e.Hooks.PostTool = func(ctx context.Context, s *Session, st *StepRecord) {
+		n++
+		_ = os.WriteFile(filepath.Join(e.Root, "README.md"), []byte(fmt.Sprintf("edited elsewhere %d\n", n)), 0o644)
+	}
+	if r, _ := e.Run(context.Background(), "watch the file"); r.Status != Done {
+		t.Fatalf("a file that moved outside the session is new evidence: %+v", r)
 	}
 }

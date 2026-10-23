@@ -135,9 +135,10 @@ func renderPlan(d planDeck) string {
 // planDir resolves the decks' directory (config override, else <workspace>/tmp/plans) — shared by
 // the plan tool and the loop's PlanOpen reader.
 func (a *App) planDir() string {
-	dir := a.Cfg.Plan.Dir
+	cfg := a.liveConfig() // the TUI polls it while an approval reloads the config
+	dir := cfg.Plan.Dir
 	if dir == "" {
-		dir = filepath.Join(a.Cfg.Dist.WorkspaceDir, "tmp", "plans")
+		dir = filepath.Join(cfg.Dist.WorkspaceDir, "tmp", "plans")
 	}
 	return filepath.Join(a.Root, dir)
 }

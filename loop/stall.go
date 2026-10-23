@@ -12,9 +12,11 @@ import (
 // nudges a run that slides; these end one that has stopped moving — in a CHECKPOINT, the
 // resumable stop, never a FAIL: the work so far stays and the working notes carries it on.
 //
-//   - re-pin: the same read (tool + canonical input) asked again with nothing landed since can
-//     only read the same answer. The second ask runs with a note naming the first; the limit-th
-//     is not run, and the turn checkpoints.
+//   - re-pin: the same read (tool + canonical input) answered the same (its output's hash, or
+//     the tool's own word that it withheld an unchanged answer — tool.Result.Unchanged) with
+//     nothing landed since. The second runs with a note naming the first; at the limit-th the
+//     turn checkpoints. The answer is the witness, not the session's own writes: a file another
+//     subagent or the human changed reads anew, and its pin starts over.
 //   - act budget: model turns since the last landing. A recon loop reads forever; past the budget
 //     the turn checkpoints, warned once at three quarters.
 //
@@ -36,8 +38,9 @@ type stall struct {
 }
 
 type pin struct {
-	first string // the step that first asked it
-	n     int
+	first  string // the step that first asked it
+	answer uint64 // its output's hash
+	n      int
 }
 
 // repin defaults to 3 and actBudget to 40; a negative value turns the guard off.
@@ -70,9 +73,9 @@ func signature(name string, in json.RawMessage) uint64 {
 	return h.Sum64()
 }
 
-// pinned reads one call against the re-pin guard: a note for the model on a repeat, or why the
-// call is not run at the limit.
-func (s *Session) pinned(name string, class tool.Class, in json.RawMessage, id string) (note, why string) {
+// pinned reads one landed read against the re-pin guard: a note for the model on a repeat, or why
+// the turn checkpoints at the limit.
+func (s *Session) pinned(name string, class tool.Class, in json.RawMessage, res tool.Result, id string) (note, why string) {
 	limit := s.Engine.Guts.repin()
 	if limit <= 0 || class != tool.Read || !repinTools[name] {
 		return "", ""
@@ -80,17 +83,26 @@ func (s *Session) pinned(name string, class tool.Class, in json.RawMessage, id s
 	if s.stall.pins == nil {
 		s.stall.pins = map[uint64]*pin{}
 	}
-	sig := signature(name, in)
+	sig, answer := signature(name, in), hashOf(res.Output)
 	p := s.stall.pins[sig]
-	if p == nil {
-		s.stall.pins[sig] = &pin{first: id, n: 1}
+	if p != nil && res.Unchanged { // withheld as already served: the same answer, said shorter
+		p.answer = answer
+	}
+	if p == nil || p.answer != answer {
+		s.stall.pins[sig] = &pin{first: id, answer: answer, n: 1}
 		return "", ""
 	}
 	p.n++
 	if p.n >= limit {
-		return "", fmt.Sprintf("re-pin loop: %s asked the same %s as %s %d times with nothing landed between — the answer cannot have moved. Checkpoint: pin the finding on the working notes, then resume: agent-one resume %s", id, name, p.first, p.n, s.RunID)
+		return "", fmt.Sprintf("re-pin loop: %s read the same %s as %s, the same answer %d times with nothing landed between. Checkpoint: pin the finding on the working notes, then resume: agent-one resume %s", id, name, p.first, p.n, s.RunID)
 	}
-	return fmt.Sprintf("\n[re-pin] the same %s as %s, nothing landed since — the same answer. Pin it on the working notes; ask it %d more time%s and the turn checkpoints.", name, p.first, limit-p.n, plural(limit-p.n)), ""
+	return fmt.Sprintf("\n[re-pin] the same %s as %s, the same answer, nothing landed since. Pin it on the working notes; read it %d more time%s unchanged and the turn checkpoints.", name, p.first, limit-p.n, plural(limit-p.n)), ""
+}
+
+func hashOf(s string) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return h.Sum64()
 }
 
 // landed is a successful act of class write or above that is not bookkeeping: new evidence, so

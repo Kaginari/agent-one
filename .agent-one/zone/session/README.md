@@ -12,7 +12,7 @@
 - `tuiHost` implements `tui.Host`: approvals come through `approve` (the choice block — yes, no with a reason, don't ask again which writes a permission rule to .agent-one/config.local.yaml), questions through `ask`; the `webBus` fans the same `tea.Msg` stream out as JSON to the dashboard (`dash`), replaying up to 4000 events; browser answers travel back through the board's token-guarded acts.
 - `Meter` wraps a provider: every call is journaled to instruments/usage/<session>.jsonl with tokens and USD (price from the registry); `budgets.session` and `budgets.subagent` stop the next call once reached (`Over()`); `usage` and the board roll the journal up by agent, role, model and day.
 - `Subagent` tracks live agents (name, rank, role, model, depth, state, reading), an inbox per agent (`/send`), and wake-ups when a subagent finishes. `review` runs two reviewers (judge and drafter roles) on two models in parallel and merges one shortlist; `goal` works turn after turn until `--validate` exits 0, at most 12 turns by default; `handoff` writes under <workspace>/handoffs/.
-- The tmp guard leaves a pattern alone (isPattern: regex syntax a path never has, or an address in a sed/awk/perl script position); globs stay paths.
+- The tmp guard leaves a pattern alone (isPattern: regex syntax a path never has, or an address in a sed/awk/perl inline script — after -e, else the first operand unless -e/-f gave the script; perl's first operand is a file); globs stay paths.
 
 ## Verify
 - `go test ./app/ -run 'TestREPLLive|TestCLIRunAndSessions|TestRoutingAndMeter|TestWebBusReplaysAndAnswers|TestTUI|TestBoard|TestE2EHandoff|TestE2EGoal|TestE2EReview'`

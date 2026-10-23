@@ -294,5 +294,5 @@ func (a *App) drainHooks() loop.Hooks {
 
 // workingNotesPath is where a session's workingNotes (working memory) lives.
 func (a *App) workingNotesPath(run string) string {
-	return filepath.Join(a.Root, a.Cfg.Dist.WorkspaceDir, "instruments", "working-notes", run+".md")
+	return filepath.Join(a.Root, a.liveConfig().Dist.WorkspaceDir, "instruments", "working-notes", run+".md")
 }

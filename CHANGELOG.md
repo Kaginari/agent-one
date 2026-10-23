@@ -8,13 +8,15 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
-- **Stall guards.** A run that asks the same read again with nothing written since gets a note the
-  second time and checkpoints the third (`policy.guts.repin`, 3). A turn that runs 40 model calls
+- **Stall guards.** A run that reads the same thing and gets the same answer, with nothing written
+  since, gets a note the second time and checkpoints the third (`policy.guts.repin`, 3); a file
+  changed by another hand reads as new. A turn that runs 40 model calls
   with no write or dispatch checkpoints too, warned at three quarters (`policy.guts.actBudget`).
   Both stops are resumable, reset at every new ask and every landing, and a negative value turns
   them off.
-- **A silent stream is cut.** A streamed answer that sends no byte for two minutes ends with
-  "stream stalled" instead of waiting out the client's ten-minute timeout, and a cancelled call
+- **A stream that stops is cut.** A streamed answer that falls silent for two minutes after it has
+  begun ends with "stream stalled" instead of waiting out the client's ten-minute timeout (a slow
+  first token on a queued or prefilling server is left alone), and a cancelled call
   returns the cancellation at once, whatever the transport.
 
 ### Changed
@@ -36,8 +38,9 @@ All notable changes to Agent-One are recorded here. The format follows
 - **Recall sends each anchor once** when two sources return the same one.
 - **Patterns are not paths.** The scratch redirect leaves `sed -n /^func/p`, `awk /x/` and
   `grep -E '/a|/b'` alone (globs are still redirected), and the classifier no longer reads
-  `sed -n 1,/^x/p` or `git show HEAD:path` as leaving the workspace, while a brace expansion such as
-  `{a,/etc/x}` still does.
+  `sed -n 1,/^x/p` or `git show HEAD:path` as leaving the workspace; a brace expansion is expanded as
+  the shell does (`/etc/{hosts,passwd}`), and `ls /etc/` and `cat </etc/hosts` now ask, as reads
+  outside the workspace should.
 - **`gofmt -l` and `goimports -d` are reads; `go fmt` and `-w` are writes.** `go fmt` was read
   as read-only.
 

@@ -927,13 +927,6 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	for _, h := range holes {
 		r.hole(st.ID + ": " + h)
 	}
-	pinNote, pinWhy := s.pinned(t.Name, cls.Class, call.Input, st.ID)
-	if pinWhy != "" {
-		st.Status = "denied"
-		s.Journal.Log(Event{"t": "budget", "id": st.ID, "why": "repin", "tool": t.Name})
-		s.trace("○ %s %s re-pinned — checkpoint", st.ID, t.Name)
-		return st, deny("not run: " + pinWhy), Checkpoint, pinWhy
-	}
 	s.observe(st, "start")
 	if e.Hooks.Guard != nil {
 		if why := e.Hooks.Guard(s, t.Name, call.Input); why != "" {
@@ -1033,6 +1026,10 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	s.Journal.Log(Event{"t": "act", "id": st.ID, "attempt": 1, "ok": !res.Err, "ms": st.Ms, "out": tail(res.Output), "wrote": res.Wrote})
 	// VERIFY: the tool's own reading — an error result is a failed act
 	s.Journal.Log(Event{"t": "verify", "id": st.ID, "attempt": 1, "code": map[bool]int{false: 0, true: 1}[res.Err]})
+	pinNote, pinWhy := "", ""
+	if !res.Err {
+		pinNote, pinWhy = s.pinned(t.Name, cls.Class, call.Input, res, st.ID)
+	}
 	gutsNote := pinNote + s.gutsNote(st, call, res)
 	if (len(res.Wrote) > 0 || cls.Class >= tool.Write) && !res.Err {
 		s.gutsSpoke = 0 // a landed write is the opposite of thrash — streak resets
@@ -1096,6 +1093,11 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	out := res.Output
 	if out == "" {
 		out = "(no output)"
+	}
+	if pinWhy != "" {
+		s.Journal.Log(Event{"t": "budget", "id": st.ID, "why": "repin", "tool": t.Name})
+		s.trace("○ %s %s re-pinned — checkpoint", st.ID, t.Name)
+		return st, provider.ToolResult{ID: call.ID, Content: out + gutsNote}, Checkpoint, pinWhy
 	}
 	return st, provider.ToolResult{ID: call.ID, Content: out + gutsNote}, "", ""
 }

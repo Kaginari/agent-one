@@ -102,7 +102,6 @@ var (
 	// a comma joins paths only inside a brace expansion ({a,/etc/x} is two words to the shell);
 	// a colon only in a list value (PATH=/a:/b). Elsewhere both are text — `sed -n 1,/^x/p` and
 	// `git show HEAD:path` name no path at the root.
-	braceList  = regexp.MustCompile(`[{},]+`)
 	assignList = regexp.MustCompile(`^[A-Za-z_]\w*=`)
 	// A quoted token is a pattern or a label, not a path — OutsideWorkspace skips it, so
 	// `awk '/x|y/'` never reads the alternation as /x|y/ on disk.
@@ -202,9 +201,10 @@ func (e Env) OutsideWorkspace(cmd string) string {
 		if tok == "" {
 			continue
 		}
-		if c := tok[0]; c == '\'' || c == '"' || c == '`' || tok[len(tok)-1] == c {
-			continue
+		if c := tok[0]; c == '\'' || c == '"' || c == '`' {
+			continue // a quoted token is a pattern or a label, not a path
 		}
+		tok = strings.TrimLeft(tok, "<") // `cat </etc/hosts` reads the path after the redirection
 		p := ""
 		switch {
 		case tildePath.MatchString(tok):
@@ -224,7 +224,7 @@ func (e Env) OutsideWorkspace(cmd string) string {
 }
 
 // pathWords are the words of cmd that may name a path: split at spaces and =, a brace expansion
-// split at its commas, an assignment's list value at its colons.
+// expanded as the shell does, an assignment's list value split at its colons.
 func pathWords(cmd string) []string {
 	var out []string
 	for _, f := range strings.Fields(cmd) {
@@ -233,14 +233,46 @@ func pathWords(cmd string) []string {
 			parts = append(parts[:1], strings.Split(strings.Join(parts[1:], "="), ":")...)
 		}
 		for _, p := range parts {
-			if strings.Contains(p, "{") && strings.Contains(p, ",") {
-				out = append(out, braceList.Split(p, -1)...)
-				continue
-			}
-			out = append(out, p)
+			out = append(out, braces(p)...)
 		}
 	}
 	return out
+}
+
+// braces expands a word's brace expansions as the shell does — /etc/{hosts,passwd} is
+// /etc/hosts and /etc/passwd, prefix and suffix kept on every alternative, nested groups
+// included. A word with no comma group is itself.
+func braces(w string) []string {
+	open, depth := -1, 0
+	var commas []int
+	for i := 0; i < len(w); i++ {
+		switch w[i] {
+		case '{':
+			if depth == 0 {
+				open, commas = i, nil
+			}
+			depth++
+		case ',':
+			if depth == 1 {
+				commas = append(commas, i)
+			}
+		case '}':
+			if depth == 0 {
+				continue
+			}
+			if depth--; depth == 0 && len(commas) > 0 {
+				pre, post := w[:open], w[i+1:]
+				var out []string
+				from := open + 1
+				for _, c := range append(commas, i) {
+					out = append(out, braces(pre+w[from:c]+post)...)
+					from = c + 1
+				}
+				return out
+			}
+		}
+	}
+	return []string{w}
 }
 
 // ClassifyCommand reads a shell command and returns the strongest class any segment reaches,

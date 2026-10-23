@@ -15,7 +15,7 @@
 - Provider.Name() is anthropic/<model> or openai/<model> (the fallback wrapper keeps the primary's); the usage journal and the board key spend by that name. Usage.Context() = Input + CacheRead + CacheWrite is what the instrument reads; Usage.Add sums a Subagent's spend into its parent.
 - provider.Validate refuses before any send: no messages, two user messages in a row, a tool result that answers no call or a call left unanswered, an empty user message, a conversation not ending on the user.
 - mock.Provider plays scripted Responses in order for tests and selftests; the app's bench uses its own scriptProvider (app/mockscript.go).
-- watch.go: both clients wrap every response body in provider.Watch — the context's end (context.AfterFunc, no goroutine) or, on an SSE stream only, StreamStall (2 min, a package var) with no byte closes it, and the blocked read returns ctx.Err() or ErrStalled. A non-stream agent has no idle watch: it arrives whole after the generation.
+- watch.go: both clients wrap every response body in provider.Watch — the context's end (context.AfterFunc, no goroutine) or, on an SSE stream only and from its first byte on, StreamStall (2 min, a package var) with no byte closes it — time to first token stays the client timeout's, and the blocked read returns ctx.Err() or ErrStalled. A non-stream agent has no idle watch: it arrives whole after the generation.
 
 ## Verify
 - `go test ./provider/...`
