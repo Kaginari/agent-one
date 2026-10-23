@@ -1026,3 +1026,29 @@ func TestCancelledGateCarriesTheWrites(t *testing.T) {
 		t.Fatalf("the unjudged write must reach the next turn's gate: %v", gated)
 	}
 }
+
+// TestSealsFailTheAct: after every act the engine reads the harness's seals; an act that left
+// bytes the harness did not write fails with the finding, and the finding rides the turn's holes.
+func TestSealsFailTheAct(t *testing.T) {
+	m := mock.New(
+		mock.Call("1", "bash", map[string]string{"command": "echo hi"}),
+		mock.Text("@S DONE\n@U team c\n@E 0"))
+	e := engine(t, m)
+	n := 0
+	e.Seals = func() []string {
+		if n++; n == 1 {
+			return []string{"7 bytes on shared/q.jsonl the harness did not write"}
+		}
+		return nil
+	}
+	r, err := e.Run(context.Background(), "say hi")
+	if err != nil || len(r.Steps) != 1 || r.Steps[0].Status != "failed" {
+		t.Fatalf("the act fails: %v %+v", err, r)
+	}
+	if res := m.Requests[1].Messages[2].ToolResults[0]; !res.IsError || !strings.Contains(res.Content, "hi\nrefused after the act: 7 bytes on shared/q.jsonl") {
+		t.Fatalf("the agent reads its output and the finding: %+v", res)
+	}
+	if !strings.Contains(strings.Join(r.Holes, "\n"), "s1: 7 bytes on shared/q.jsonl") {
+		t.Fatalf("the finding rides the holes: %v", r.Holes)
+	}
+}

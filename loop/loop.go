@@ -280,8 +280,12 @@ type Engine struct {
 	// Receipts is the write book shared by every engine on this root (the workspace keeps one): the
 	// tree watch leaves a change another run's tool reported writing to that run. nil = no book.
 	Receipts *Receipts
-	Wire     bool              // the answer is expected on the wire (a Subagent): providers with guided decoding constrain it
-	OnDelta  func(text string) // streamed text, as it arrives
+	// Seals reads the harness's own files against their seals after every act (the workspace's
+	// shared shelf): each answer names bytes the harness did not write, already set aside, and
+	// the act that left them fails. nil = no check.
+	Seals   func() []string
+	Wire    bool              // the answer is expected on the wire (a Subagent): providers with guided decoding constrain it
+	OnDelta func(text string) // streamed text, as it arrives
 	// OnThinking is the model's reasoning, as it arrives (shown, never replayed from here).
 	OnThinking func(text string)
 	// Doom: notes-stress auto-relief (policy.budget doomLoop). > 0: when the guts' spoke streak
@@ -1023,6 +1027,15 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	t0 := time.Now()
 	res := t.Run(ctx, env, call.Input)
 	st.Ms = time.Since(t0).Milliseconds()
+	if e.Seals != nil {
+		// whatever tool it was, an act that left bytes on harness soil the harness did not
+		// write (a script, an interpreter, a path the classifier could not read) fails
+		if found := e.Seals(); len(found) > 0 {
+			res.Err = true
+			res.Output = strings.TrimRight(res.Output, "\n") + "\nrefused after the act: " + strings.Join(found, "; ")
+			r.hole(st.ID + ": " + strings.Join(found, "; "))
+		}
+	}
 	st.Result = res
 	if e.Hooks.PostTool != nil {
 		e.Hooks.PostTool(ctx, s, st)

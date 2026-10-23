@@ -163,7 +163,7 @@ func (w *Workspace) Engine(as string, b Build) *loop.Engine {
 	e := &loop.Engine{
 		Provider: b.providerFor(Route{Role: role, Rank: rank.Name, Member: as, Task: task}), Gate: b.Gate, Root: w.Root, As: as, Budget: b.Budget, Journal: b.Journal, Trace: b.Trace,
 		Lexicon: w.Lex.Loop(), Policy: w.ToolPolicy(as, b.Ownership), Cap: b.Subagent.Cap,
-		Guts: b.Guts, Doom: b.Doom, ForgeDemandAt: b.ForgeDemandAt, Receipts: w.receipts,
+		Guts: b.Guts, Doom: b.Doom, ForgeDemandAt: b.ForgeDemandAt, Receipts: w.receipts, Seals: w.CheckShelf,
 		// every write/edit/delete answers naming its zone's persistent agent — the ownership truth
 		// quoted at the moment of the landing, out of the same w.Owner the gate reads
 		ZoneOwner: func(rel string) string {

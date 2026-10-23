@@ -141,9 +141,10 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 	}
 	w.promote = newPromoteState(w.Ranks)
 	w.SetEvolution(opt.Evolution)
-	w.migrateShelf() // ledgers and value move onto the shared shelf once (workspace/shared.go)
-	w.loadLedgers()  // the scars come home before the first agent runs (freeze policy 2026-10-07)
-	w.openValue()    // and the value ledger: an agent's runs count across sessions
+	w.migrateShelf()                             // ledgers and value move onto the shared shelf once (workspace/shared.go)
+	w.Notes = append(w.Notes, w.CheckShelf()...) // what the harness did not write leaves before a fold reads it
+	w.loadLedgers()                              // the scars come home before the first agent runs (freeze policy 2026-10-07)
+	w.openValue()                                // and the value ledger: an agent's runs count across sessions
 	policyPath := filepath.Join(abs, lex.WorkspaceDir, lex.Policy)
 	if w.Policy, err = LoadPolicy(policyPath, lex.WorkspaceDir+"/"+lex.Policy, lex.Principles); err != nil {
 		w.Notes = append(w.Notes, err.Error())

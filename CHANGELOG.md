@@ -58,6 +58,13 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **No script can forge a line on the work queue.** Refusing shell writes onto `.agent-one/shared/`
+  only works for commands the harness can read; a script file, a path built in a variable or a
+  Python one-liner still got through. The harness now seals the queue and both ledgers as it
+  writes them, checks them after every act, and moves anything it did not write into
+  `.agent-one/shared/attic/` (kept, never deleted) before any reader sees it; the act that wrote
+  it fails and says so. A file rewritten by hand is set aside whole and replaced by an empty
+  one — to put it back, move it into place and delete its `.seal` file.
 - **The ledgers survive a torn line too.** A crash that left half a line at the end of the
   council's ledgers or the value ledger glued the next row onto it, and that row was lost on the
   next start. Both now start a new row on a line of its own, as the work queue already did; the

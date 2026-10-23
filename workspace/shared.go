@@ -8,6 +8,7 @@ import (
 
 	"github.com/Kaginari/agent-one/queue"
 	"github.com/Kaginari/agent-one/value"
+	"github.com/Kaginari/agent-one/workspace/shelf"
 )
 
 // The shared shelf (`<workspaceDir>/shared/`): the workspace's own bookkeeping that every session,
@@ -114,6 +115,27 @@ func mergeHomes[T any](homes [][]T, at func(T) time.Time, seed func(T) bool) []T
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+// shelves are the shelf's line files, each written only through shelf.Append and sealed.
+func (w *Workspace) shelves() []string {
+	return []string{w.QueuePath(), filepath.Join(w.Dir(), filepath.FromSlash(ledgerShelf)), w.valuePath()}
+}
+
+// CheckShelf reads each shelf file against its seal (workspace/shelf): bytes the harness did not
+// write — an agent's script, an interpreter, a path the classifier could not read — are set aside
+// in shared/attic/ (kept, never deleted) so no fold reads them, and named. Open runs it, and
+// every engine after every act (loop.Engine.Seals), so the act that left them fails.
+func (w *Workspace) CheckShelf() []string {
+	var out []string
+	for _, p := range w.shelves() {
+		if found, err := shelf.Check(p); found != "" {
+			out = append(out, "the shared shelf is the harness's: "+found+" — the queue moves only through the queue tool")
+		} else if err != nil {
+			out = append(out, "the shared shelf's seal could not be read: "+err.Error())
+		}
+	}
+	return out
 }
 
 // SharedDir is the shared shelf's directory.

@@ -232,17 +232,17 @@ func TestQueueCLI(t *testing.T) {
 }
 
 // TestQueueTornTailSwallowsNothing: a crash that left half a line at the file's end does not
-// swallow the next move — the move starts on a line of its own, the torn bytes stay as they were
-// (skipped by the fold), and history is never rewritten.
+// swallow the next move — the torn bytes the harness never sealed are set aside whole in the
+// attic beside the file (workspace/shelf), the move lands on a line of its own, and every line left
+// is a whole one.
 func TestQueueTornTailSwallowsNothing(t *testing.T) {
 	s := store(t)
 	if _, err := s.Add(Item{For: "zone-auth", Ask: "fix"}, "domain-x"); err != nil {
 		t.Fatal(err)
 	}
 	f, _ := os.OpenFile(s.Path(), os.O_WRONLY|os.O_APPEND, 0o644)
-	f.WriteString(`{"id":"q1","rev":2,"op":"cl`)
+	f.WriteString(`{"id":"q1","rev":2,"op":"to`)
 	f.Close()
-	torn, _ := os.ReadFile(s.Path())
 	it, err := s.Claim("q1", "zone-auth")
 	if err != nil || it.Owner != "zone-auth" {
 		t.Fatalf("the move after a torn tail: %+v %v", it, err)
@@ -251,7 +251,12 @@ func TestQueueTornTailSwallowsNothing(t *testing.T) {
 		t.Fatalf("the claim folded: %+v", got)
 	}
 	b, _ := os.ReadFile(s.Path())
-	if !bytes.HasPrefix(b, torn) || !bytes.HasSuffix(b, []byte("\n")) {
-		t.Fatalf("history kept, the new line whole: %q", b)
+	for _, l := range bytes.Split(bytes.TrimSuffix(b, []byte("\n")), []byte("\n")) {
+		if !json.Valid(l) {
+			t.Fatalf("every line left is whole: %q", b)
+		}
+	}
+	if attic, _ := os.ReadFile(filepath.Join(filepath.Dir(s.Path()), "attic", "queue.jsonl")); !bytes.Contains(attic, []byte(`"op":"to`)) {
+		t.Fatalf("the torn bytes are kept: %q", attic)
 	}
 }

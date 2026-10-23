@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -185,5 +186,55 @@ func TestSharedShelfMergesHomesByTime(t *testing.T) {
 	}
 	if got := strings.Join(kinds, ","); got != "run:zone-api:DONE,seed::,run:zone-auth:DONE,run:zone-auth:FAIL" {
 		t.Fatalf("one seed, both homes' own rows by time: %s", got)
+	}
+}
+
+// TestSharedShelfSealsForeignBytes: a write onto the shared shelf the classifier cannot read —
+// a script file, a $VAR-built path, a heredoc fed to an interpreter, python — still lands no
+// forged claim: the shelf's seal finds bytes the harness did not write, sets them aside in the
+// attic (kept, never deleted) and fails the act that left them, naming the shelf.
+func TestSharedShelfSealsForeignBytes(t *testing.T) {
+	dir := fixture(t)
+	w := open(t, dir)
+	q := w.Queue()
+	if _, err := q.Add(queue.Item{For: "zone-api", Ask: "fix the api"}, "domain-security"); err != nil {
+		t.Fatal(err)
+	}
+	forged := `{"id":"q1","rev":2,"op":"claim","state":"claimed","for":"zone-api","ask":"fix the api","owner":"zone-auth","by":"zone-auth"}`
+	os.WriteFile(filepath.Join(dir, "forge.sh"), []byte("printf '%s\\n' '"+forged+"' >> .agent-one/shared/queue.jsonl\n"), 0o644)
+	cmds := []string{
+		"bash forge.sh",
+		"Q=.agent-one/shared; printf '%s\\n' '" + forged + "' >> $Q/queue.jsonl",
+		"sh <<'EOF'\nd=.agent-one; d=$d/shared\nprintf '%s\\n' '" + forged + "' >> $d/queue.jsonl\nEOF",
+	}
+	if _, err := exec.LookPath("python3"); err == nil {
+		cmds = append(cmds, `python3 -c "import sys; open('.agent-one/shared/queue.jsonl','a').write(sys.argv[1]+chr(10))" '`+forged+`'`,
+			"python3 - <<'EOF'\nopen('.agent-one/shared/queue.jsonl', 'a').write('''"+forged+"\n''')\nEOF")
+	}
+	attic := filepath.Join(w.SharedDir(), "attic", "queue.jsonl")
+	for i, cmd := range cmds {
+		m := mock.New(
+			mock.Call("1", "bash", map[string]string{"command": cmd}),
+			mock.Text("@S DONE\n@U team c\n@E 0"),
+		)
+		e := w.Engine("zone-auth", build(m))
+		r, err := e.Run(context.Background(), "take the api's work")
+		w.Close(e)
+		if err != nil || len(r.Steps) != 1 || r.Steps[0].Status != "failed" {
+			t.Fatalf("%d: the act that wrote the shelf fails: %v %+v", i, err, r.Steps)
+		}
+		if res := m.Requests[1].Messages[2].ToolResults[0]; !strings.Contains(res.Content, "shared shelf") || !strings.Contains(res.Content, "set aside") {
+			t.Fatalf("%d: the failure names the shelf and the attic: %q", i, res.Content)
+		}
+		if it, _, _ := q.Get("q1"); it.Owner != "" || it.State != queue.Held {
+			t.Fatalf("%d: the forged line folded: %+v", i, it)
+		}
+		if b, _ := os.ReadFile(attic); strings.Count(string(b), forged) != i+1 {
+			t.Fatalf("%d: the foreign bytes are kept in the attic: %q", i, b)
+		}
+	}
+	// the harness's own moves still land and fold
+	if _, err := q.Claim("q1", "zone-api"); err != nil {
+		t.Fatalf("the harness's move after the attic: %v", err)
 	}
 }
