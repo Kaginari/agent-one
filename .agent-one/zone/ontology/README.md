@@ -15,6 +15,7 @@
 - Skills come from discover.SkillBases(WorkspaceDir) — crafted-skills, base-skills, then the host dirs, first home wins; a skill whose name prefix is no rank dir is `shared`. A member holds a skill its Skills field names or whose name appears as a whole word in its doc.
 - Housekeep(root, heal, spawn): check-only reports and writes nothing; heal registers a missing member home, rewires a missing chain edge, and rewires a dead bond (a `Reports to:` naming no live seat) to the rank's policy parent — a live bond, policy-shaped or not, stays the operator's. spawn seats draft homes for tracked top-level dirs nobody covers. Overlaps are reported, never rewritten. app runs heal at every workspace-touching CLI start and at init, so a heal must stay idempotent.
 - CLI: `onto check` prints `@S PASS|FAIL n findings · members · skills · facts · triples` (non-zero on findings), plus show, project, owner (ownerOf mirrors workspace.Owner: longest claim, authoring rank on a tie) and assert. Project(member, budget) renders @ONTO by token budget (Tokens = runes/4, rounded up); Visible walks the bonds.
+- cache.go: Stamp fingerprints what LoadLayout reads (ontology turtle, rank-dir docs, skill bases; path · size · mtime, dirs included); Cached memoizes LoadLayout on it — the TUI board and the web board's team poll Cached (≈0.5 ms vs ≈13 ms a load on this repo). The cached Workspace is shared and read-only; a writer (Record, the workspace) loads its own.
 
 ## Verify
 - `go test ./onto/`

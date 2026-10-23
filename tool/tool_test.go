@@ -412,3 +412,19 @@ func TestRelKeepsDotDotNames(t *testing.T) {
 		t.Fatalf("outside stays absolute: %q", got)
 	}
 }
+
+// A formatter is a look until told to write; a comma or a colon is text except where the shell
+// makes it a path separator (a brace expansion, a list-valued assignment).
+func TestClassifyFormattersAndSeparators(t *testing.T) {
+	env, _ := workspace(t)
+	for cmd, want := range map[string]Class{
+		"gofmt -l .": Read, "goimports -d main.go": Read, "gofmt -s -w .": Write, "goimports -w=true x.go": Write,
+		"gofmt -l . | head": Read, "go fmt ./...": Write,
+		"sed -n 1,/^func/p main.go": Read, "git show HEAD:README.md": Read, "awk -F, '{print $1}' a.csv": Read,
+		"cat {README.md,/etc/shadow}": Outward, "PATH=/home/nobody/bin:$PATH ls": Outward, "gofmt -w .": Write, "ls --dir=/etc": Outward,
+	} {
+		if got := env.ClassifyCommand(cmd); got.Class != want {
+			t.Errorf("%q: %s (%s), want %s", cmd, got.Class, got.Why, want)
+		}
+	}
+}

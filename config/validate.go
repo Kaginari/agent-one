@@ -180,6 +180,12 @@ func (c *Config) Off() []Finding {
 	if c.Policy.Guts.DigestEvery <= 0 {
 		add("policy.guts.digestEvery")
 	}
+	if c.Policy.Guts.Repin < 0 {
+		add("policy.guts.repin")
+	}
+	if c.Policy.Guts.ActBudget < 0 {
+		add("policy.guts.actBudget")
+	}
 	if c.Policy.Budget.SalvageTokens < 0 {
 		add("policy.budget.salvageTokens")
 	}
@@ -259,9 +265,13 @@ func (c *Config) mergeRegistry() error {
 }
 
 // checkGuts refuses a guts floor above zero: the floor is the momentum the gut speaks at, and a
-// positive one would speak on a run that is gaining ground. Zero is a floor like any other.
+// positive one would speak on a run that is gaining ground. Zero is a floor like any other. A
+// repin of 1 is refused too: it would checkpoint on the first read, which repeats nothing.
 func (c *Config) checkGuts() error {
 	g := c.Policy.Guts
+	if g.Repin == 1 {
+		return fmt.Errorf("%s: policy.guts.repin: 1 — the first read is never a re-pin: 2 or more, or negative for off", c.Where("policy.guts.repin"))
+	}
 	if g.Floor > 0 {
 		return fmt.Errorf("%s: policy.guts.floor: %d — the gut speaks when the momentum falls to the floor, so the floor is ≤ 0", c.Where("policy.guts.floor"), g.Floor)
 	}

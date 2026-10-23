@@ -196,3 +196,32 @@ func TestTmpGuardProbeMarker(t *testing.T) {
 		t.Fatal("ls probe must mark")
 	}
 }
+
+// A slash-led pattern is not a path: rewriting it into scratch breaks the command and herds
+// nothing. Globs stay paths — the shell expands them on disk.
+func TestTmpGuardLeavesPatternsAlone(t *testing.T) {
+	const scratch = "/w/.agent-one/tmp/scratch/r"
+	for _, cmd := range []string{
+		`sed -n /^func/p main.go`,
+		`sed /old/d notes.txt`,
+		`sed -n /start/,/end/p log.txt`,
+		`awk /error/ build.log`,
+		`grep -E /api|/v1 routes.go`,
+		`grep -rn /usr\/lib src`,
+		`grep /end$ file`,
+	} {
+		if out, msg := rewriteTmpCommand(cmd, scratch, "/w", false); out != cmd || msg != "" {
+			t.Errorf("%q was rewritten: %q (%s)", cmd, out, msg)
+		}
+	}
+	for _, cmd := range []string{
+		`cat /tmp/*.log`,
+		`ls /tmp/run-[0-9]`,
+		`sed -n p /tmp/out.txt`,
+		`echo x; sed /a/d /tmp/f`,
+	} {
+		if _, msg := rewriteTmpCommand(cmd, scratch, "/w", false); !strings.Contains(msg, "tmp-redirect") {
+			t.Errorf("%q kept its off-workspace path: %s", cmd, msg)
+		}
+	}
+}

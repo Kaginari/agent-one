@@ -194,6 +194,8 @@ var keyDocs = map[string]string{
 	"policy.guts.benchThrashVisits":             "re-runs of one test bench that read as thrashing",
 	"policy.guts.digestEvery":                   "every how many acts the gut is summarised",
 	"policy.guts.ring":                          "how many benches the echo remembers",
+	"policy.guts.repin":                         "the identical read, nothing landed between, that checkpoints the turn (< 0 = off)",
+	"policy.guts.actBudget":                     "model turns with no write or dispatch landed before the turn checkpoints (< 0 = off)",
 	"policy.guts.benches":                       "test commands and their red/green words; empty = the built-in ones",
 	"policy.guts.lexemes":                       "words that read as bad or good in output; empty = the built-in ones",
 	"policy.guts.weights":                       "the weight of each signal; empty = the built-in ones",

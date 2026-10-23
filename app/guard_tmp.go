@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Kaginari/agent-one/loop"
@@ -147,9 +148,22 @@ func rewriteTmpCommand(cmd, scratch, workspace string, refuseForCwd bool) (out, 
 	}
 	words := strings.Fields(cmd)
 	var rewrites []string
+	verb, operands := "", 0 // the current segment's command word, and the operands seen after it
 	for i, w := range words {
 		if w == "--" {
 			break
+		}
+		if i > 0 && endsSegment(words[i-1]) {
+			verb = ""
+		}
+		script := false // a pattern verb's script: its first operand, or what -e names
+		switch {
+		case verb == "" && !strings.Contains(w, "="):
+			verb, operands = strings.ToLower(w[strings.LastIndex(w, "/")+1:]), 0
+		case strings.HasPrefix(w, "-"):
+		default:
+			script = patternVerbs[verb] && (operands == 0 || words[i-1] == "-e" || words[i-1] == "--expression")
+			operands++
 		}
 		lower := strings.ToLower(w)
 		// never rewrite a target already inside scratch
@@ -170,7 +184,7 @@ func rewriteTmpCommand(cmd, scratch, workspace string, refuseForCwd bool) (out, 
 		if !assign || name == "" || strings.ContainsAny(name, " \t") {
 			name, val, assign = w, w, false
 		}
-		if !strings.HasPrefix(val, "/") || strings.HasPrefix(val, "//") {
+		if !strings.HasPrefix(val, "/") || strings.HasPrefix(val, "//") || isPattern(val, script) {
 			continue
 		}
 		// a path inside the workspace is the workspace's own, wherever the workspace lives (/app in a
@@ -205,6 +219,30 @@ func rewriteTmpCommand(cmd, scratch, workspace string, refuseForCwd bool) (out, 
 		return cmd, ""
 	}
 	return strings.Join(words, " "), "tmp-redirect: " + strings.Join(rewrites, ", ")
+}
+
+// endsSegment is a word after which the next word is a command again.
+func endsSegment(w string) bool {
+	return w == "|" || w == "||" || w == "&&" || w == "&" || strings.HasSuffix(w, ";")
+}
+
+// sedAddress is a sed/awk address or command — /re/, /re/p, /a/,/b/d — whose slashes are a
+// pattern's, not a path's.
+var sedAddress = regexp.MustCompile(`^/(?:[^/\\]|\\.)*/(?:,/(?:[^/\\]|\\.)*/)?[A-Za-z!{}=;]{0,3}$`)
+
+// patternVerbs take their slashes as patterns.
+var patternVerbs = map[string]bool{"sed": true, "gsed": true, "awk": true, "gawk": true, "mawk": true, "perl": true}
+
+// isPattern says a slash-led word is a pattern, not a path: it carries regex syntax a path never
+// does (anchors, groups, alternation, escapes — never a glob's * ? [ ], which the shell expands
+// as a path), or it is an address in a pattern verb's script (a file operand after the script
+// stays a path). Rewriting one into scratch breaks the command and herds nothing; what it skips,
+// the classifier still reads.
+func isPattern(word string, script bool) bool {
+	if strings.ContainsAny(word, `^|\()`) || strings.HasSuffix(word, "$") || strings.Contains(word, "$/") {
+		return true
+	}
+	return script && sedAddress.MatchString(word)
 }
 
 // classifyRoot decides which known off-workspace root a path hangs from and the suffix beneath it.

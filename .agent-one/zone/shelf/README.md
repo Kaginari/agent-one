@@ -13,6 +13,7 @@
 - `newSandbox` fills `sandbox.Options` from `tools.bash.sandbox`, the RW paths, env drop/allow, and `registry.packages` (EnvSet); `sandboxLine` is what `status` prints.
 - `ShellHooks` run the `hooks:` commands (preTool, postTool, sessionStart, preCompact, stop, userPrompt) with JSON on stdin; a preTool hook's non-empty output refuses the step; a userPrompt hook's refuses the turn.
 - `ConnectMCP` imports Claude Code's `.mcp.json` and OpenCode's servers when `mcp.import` allows, spawns stdio servers under the sandbox, and exposes prompts and resources; `ranksFor` builds the rank table from config over the lexicon; `foreignAgents` turns discovered agent files into rules.
+- The working notes tool keys on the acting run: a subagent writes <workspace>/instruments/working-notes/<run>.md (tool.Env.RunID — the file the drainer and a resume read), the orchestrator the session's.
 
 ## Verify
 - `go test ./app/ -run 'TestShelfJunction|TestMinimalProfileAndOpenAIShape|TestDiscoverAndHooks|TestRulesHoldOnCommandForms|TestFallbackAndScript|TestWindowAuto|TestFinishReasonErrorFallsBack|TestDispatchJunction|TestDrainJunction|TestReplaceRanks|TestAgentOneWorkspace|TestGuardPatternsFromConfig|TestRegistryToolsReachTheToolbox'`

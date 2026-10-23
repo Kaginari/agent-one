@@ -690,7 +690,13 @@ func (a *App) workingNotesTool(agent string) *tool.Tool {
 				Add   string
 			}
 			_ = json.Unmarshal(in, &q)
-			p := a.workingNotesPath(a.SessionID)
+			// the orchestrator keeps the session's one working notes; a subagent's is its own run's, the file the
+			// drainer and a resume read — never the orchestrator's working memory written over
+			run := env.RunID
+			if agent == workspace.Orchestrator || run == "" {
+				run = a.SessionID
+			}
+			p := a.workingNotesPath(run)
 			cur := readWorkingNotes(p)
 			switch {
 			case len(q.Notes) > 0:

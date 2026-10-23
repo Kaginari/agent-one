@@ -266,9 +266,11 @@ func (c *Client) Complete(ctx context.Context, req provider.Request) (provider.R
 	if err != nil {
 		return provider.Response{}, err
 	}
+	sse := stream && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("content-type"), "text/event-stream")
+	res.Body = provider.Watch(ctx, res.Body, map[bool]time.Duration{true: provider.StreamStall}[sse])
 	defer res.Body.Close()
 	var resp provider.Response
-	if stream && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("content-type"), "text/event-stream") {
+	if sse {
 		resp, err = c.readStream(res.Body, req.OnDelta, req.OnThinking)
 		if err != nil {
 			return provider.Response{}, err

@@ -48,6 +48,10 @@ type Guts struct {
 	ClampMin, ClampMax int
 	// Ring is how many recent workbenches the echo penalty remembers (policy.guts.ring); 0 = 12.
 	Ring int
+	// Repin and ActBudget arm the stall guards (stall.go): the identical read that checkpoints
+	// (policy.guts.repin, 0 = 3) and the model turns with nothing landed that do (policy.guts.actBudget,
+	// 0 = 40). Negative = off.
+	Repin, ActBudget int
 }
 
 // Bench is one test workbench: a command that carries any Match substring, run through a shell

@@ -1029,7 +1029,7 @@ func containsStr(ss []string, s string) bool {
 func (f *fileSources) team() *Team {
 	now := f.now()
 	src := f.rel(onto.OntologyDirIn(f.root, f.layout)) + " + " + f.workspaceDir + "/{ranks}/*/"
-	w, err := onto.LoadLayout(f.root, f.layout)
+	w, err := onto.Cached(f.root, f.layout)
 	if err != nil {
 		return &Team{Reading: silent(src, "ontology failed to load: "+err.Error(), time.Time{}, now)}
 	}

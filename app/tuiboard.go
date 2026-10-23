@@ -189,7 +189,7 @@ func (a *App) BoardView(rng string) tui.BoardView {
 // graph knows about it — its classes, derived chain, territory, minds, facts it can see (the
 // flow rules), and the shape findings against it.
 func (a *App) boardGraph(layout onto.Layout) tui.GraphView {
-	w, err := onto.LoadLayout(a.Root, layout)
+	w, err := onto.Cached(a.Root, layout)
 	if err != nil {
 		return tui.GraphView{Note: "the ontology did not load: " + err.Error()}
 	}

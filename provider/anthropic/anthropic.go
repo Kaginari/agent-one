@@ -219,8 +219,10 @@ func (c *Client) Complete(ctx context.Context, req provider.Request) (provider.R
 	if err != nil {
 		return provider.Response{}, fmt.Errorf("anthropic: %w", err)
 	}
+	sse := stream && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("content-type"), "text/event-stream")
+	res.Body = provider.Watch(ctx, res.Body, map[bool]time.Duration{true: provider.StreamStall}[sse])
 	defer res.Body.Close()
-	if stream && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("content-type"), "text/event-stream") {
+	if sse {
 		return c.readStream(res.Body, req.OnDelta, req.OnThinking)
 	}
 	return c.readBody(res, req)

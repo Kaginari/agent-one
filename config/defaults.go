@@ -65,7 +65,7 @@ const defaultsJSON = `{
     "log":        { "enabled": true, "path": "[dist-dir]/log.md" },
     "escalation": { "enabled": true, "maxRetries": 2 },
     "budget":     { "contextTokens": 200000, "stressTokens": 180000, "steps": 40, "minutes": 60, "salvageTokens": 4096 },
-    "guts":       { "enabled": true, "window": 5, "floor": -2, "benchThrashVisits": 6, "digestEvery": 10, "ring": 12 },
+    "guts":       { "enabled": true, "window": 5, "floor": -2, "benchThrashVisits": 6, "digestEvery": 10, "ring": 12, "repin": 3, "actBudget": 40 },
     "value":      { "enabled": true, "window": "28d", "pass": ["DONE", "PASS"], "fail": ["FAIL", "ESCALATE", "CHECKPOINT"], "neutral": ["DENIED", "INTERRUPTED", "DRY", "SUSPENDED"], "reopenTurns": 3, "minRecord": 5, "families": {} },
     "doomLoop":   { "enabled": true, "threshold": 3 },
     "stress":     { "escalateAt": 5, "maxConsults": 3, "relieveAt": 7 },

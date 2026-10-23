@@ -15,6 +15,7 @@
 - The dash is built on the ui system: web/tokens.css, palettes.css and layout.css are byte copies of the ui foundation, and web/components/<name>/ must lint clean under ui.Lint — TestDashboardHoldsTheUISystem fails on drift ("copy it again"). Colours and lengths come from tokens only.
 - Names maps every word a page shows through the lexicon (DefaultNames); a new page word goes into Names, never literally into a template or dash.js.
 - `board/sources.go` reads the instruments: every figure carries a Reading (lit or silent, why); a silent or missing instrument renders as "silent since …" or "never lit", never as zero. Usage rollups treat a null usd as unpriced.
+- The team reads onto.Cached, so a poll with nothing moved on disk costs a stat walk, not a load.
 
 ## Verify
 - `go test ./board/`

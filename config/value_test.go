@@ -71,6 +71,7 @@ func TestValuePolicyRefusals(t *testing.T) {
 		"words":   "policy:\n  value:\n    pass: [DONE, FAIL]\n",
 		"asl":     "ranks:\n  principal-domain-owner:\n    promotesWhen: \"promote domain when luck >= 1\"\n",
 		"floor":   "policy:\n  guts:\n    floor: 2\n",
+		"repin":   "policy:\n  guts:\n    repin: 1\n",
 	} {
 		w := newWorkspace(t, map[string]string{".agent-one/config.yaml": cfg})
 		if err := w.loadErr(); err == nil {
@@ -81,6 +82,14 @@ func TestValuePolicyRefusals(t *testing.T) {
 	w := newWorkspace(t, map[string]string{".agent-one/config.yaml": "policy:\n  guts:\n    floor: 0\n"})
 	if c := w.load(); c.Policy.Guts.Floor != 0 {
 		t.Fatal("floor 0 is honoured")
+	}
+	// the stall guards ship armed: the loop reads 3 and 40, and a workspace tunes or turns them off
+	if g := newWorkspace(t, nil).load().Policy.Guts; g.Repin != 3 || g.ActBudget != 40 {
+		t.Fatalf("stall guards default: repin %d, actBudget %d", g.Repin, g.ActBudget)
+	}
+	w = newWorkspace(t, map[string]string{".agent-one/config.yaml": "policy:\n  guts:\n    repin: -1\n    actBudget: 120\n"})
+	if g := w.load().Policy.Guts; g.Repin != -1 || g.ActBudget != 120 {
+		t.Fatalf("stall guards tuned: %+v", g)
 	}
 }
 

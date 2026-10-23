@@ -109,6 +109,25 @@ type Recall struct {
 	Rebuilt bool
 }
 
+// dedupe drops repeats, first sighting kept: two recall sources (MergeHooks) or two hits on one
+// section must not spend the prompt twice on the same anchor.
+func (rc Recall) dedupe() Recall {
+	rc.Anchors, rc.Tools, rc.Holes = unique(rc.Anchors), unique(rc.Tools), unique(rc.Holes)
+	return rc
+}
+
+func unique(xs []string) []string {
+	seen := make(map[string]bool, len(xs))
+	out := xs[:0:0]
+	for _, x := range xs {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
 // StepRecord is one tool step as the journal and the report see it.
 type StepRecord struct {
 	ID        string              `json:"id"`
@@ -296,6 +315,7 @@ type Session struct {
 	closingAsked  bool     // the closing check has been asked this session (it asks once, never twice)
 	forgeAsked    bool     // the forge question has been asked this turn
 	turnStepBase  int      // s.Steps as this turn opened: the forge question counts the turn's own steps
+	stall         stall    // the turn's spin ledger: re-pins and turns since the last landing (stall.go)
 	// the guts' readings (nil Engine.Guts: never appended, never read)
 	gutsVals      []int
 	gutsLastSpoke int
@@ -652,6 +672,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 	s.gateTries = 0
 	s.wireTries = 0
 	s.gutsThrash, s.gutsReads = 0, 0 // the turn's gut summary is the turn's own
+	s.stall = stall{}                // a new ask is new ground: spin is counted from here
 	end := func(status string, why string) (*Result, error) {
 		r.Status = status
 		if why != "" {
@@ -717,6 +738,10 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 				return end(Checkpoint, why+" — "+resumeHint())
 			}
 		}
+		if why := s.budgetSpent(); why != "" {
+			s.Journal.Log(Event{"t": "budget", "why": "actBudget", "idle": s.stall.idle, "before": "turn"})
+			return end(Checkpoint, why)
+		}
 		c := s.perceive()
 		if c.Stressed() {
 			s.Journal.Log(Event{"t": "budget", "context": c, "before": "turn"})
@@ -736,7 +761,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 		// RECALL (the turn): anchors for the current ask, never payloads
 		var rc Recall
 		if e.Hooks.Recall != nil {
-			rc = e.Hooks.Recall(ctx, s, currentAsk(s))
+			rc = e.Hooks.Recall(ctx, s, currentAsk(s)).dedupe()
 			s.Journal.Log(Event{"t": "recall", "id": fmt.Sprintf("t%d", s.Turns+1), "q": currentAsk(s), "rebuilt": rc.Rebuilt, "hits": rc.Anchors, "tools": rc.Tools, "holes": rc.Holes})
 			for _, h := range rc.Holes {
 				r.hole("recall: " + h)
@@ -799,6 +824,7 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 			return res, err
 		}
 		// each tool call is a step
+		s.spin()
 		var results []provider.ToolResult
 		stop, stopWhy := "", ""
 		for _, call := range resp.Message.ToolCalls {
@@ -817,12 +843,16 @@ func (s *Session) drive(ctx context.Context) (*Result, error) {
 			}
 		}
 		next := provider.Message{Role: provider.User, ToolResults: results}
+		var lines []string
 		if e.Hooks.Inbox != nil {
-			if lines := e.Hooks.Inbox(s); len(lines) > 0 {
-				next.Text = strings.Join(lines, "\n")
+			if lines = e.Hooks.Inbox(s); len(lines) > 0 {
 				s.Journal.Log(Event{"t": "inbox", "n": len(lines)})
 			}
 		}
+		if warn := s.idleWarning(); warn != "" {
+			lines = append(lines, warn)
+		}
+		next.Text = strings.Join(lines, "\n")
 		s.Messages = append(s.Messages, next)
 		if stop != "" {
 			return end(stop, stopWhy)
@@ -891,10 +921,18 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	// PLAN: the class, then the gate
 	env := e.env()
 	env.Self = s.Pulse // the pulse tool reads the acting session's own state through the env
+	env.RunID = s.RunID
 	cls, holes := t.Settle(env, call.Input)
 	st.Class, st.Effective = cls, cls.Class.String()
 	for _, h := range holes {
 		r.hole(st.ID + ": " + h)
+	}
+	pinNote, pinWhy := s.pinned(t.Name, cls.Class, call.Input, st.ID)
+	if pinWhy != "" {
+		st.Status = "denied"
+		s.Journal.Log(Event{"t": "budget", "id": st.ID, "why": "repin", "tool": t.Name})
+		s.trace("○ %s %s re-pinned — checkpoint", st.ID, t.Name)
+		return st, deny("not run: " + pinWhy), Checkpoint, pinWhy
 	}
 	s.observe(st, "start")
 	if e.Hooks.Guard != nil {
@@ -995,9 +1033,10 @@ func (s *Session) step(ctx context.Context, g *gate.Gate, call provider.ToolCall
 	s.Journal.Log(Event{"t": "act", "id": st.ID, "attempt": 1, "ok": !res.Err, "ms": st.Ms, "out": tail(res.Output), "wrote": res.Wrote})
 	// VERIFY: the tool's own reading — an error result is a failed act
 	s.Journal.Log(Event{"t": "verify", "id": st.ID, "attempt": 1, "code": map[bool]int{false: 0, true: 1}[res.Err]})
-	gutsNote := s.gutsNote(st, call, res)
+	gutsNote := pinNote + s.gutsNote(st, call, res)
 	if (len(res.Wrote) > 0 || cls.Class >= tool.Write) && !res.Err {
 		s.gutsSpoke = 0 // a landed write is the opposite of thrash — streak resets
+		s.landed(t.Name, max(cls.Class, tool.Write))
 	}
 	if e.Hooks.Note != nil {
 		gutsNote += e.Hooks.Note(ctx, s, st)

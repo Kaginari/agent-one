@@ -6,6 +6,41 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Stall guards.** A run that asks the same read again with nothing written since gets a note the
+  second time and checkpoints the third (`policy.guts.repin`, 3). A turn that runs 40 model calls
+  with no write or dispatch checkpoints too, warned at three quarters (`policy.guts.actBudget`).
+  Both stops are resumable, reset at every new ask and every landing, and a negative value turns
+  them off.
+- **A silent stream is cut.** A streamed answer that sends no byte for two minutes ends with
+  "stream stalled" instead of waiting out the client's ten-minute timeout, and a cancelled call
+  returns the cancellation at once, whatever the transport.
+
+### Changed
+
+- **A subagent's timeout names how it died:** a provider that never answered, an agent that only read
+  (a recon loop), or one that worked and ran long, with its turns, acts and writes.
+- **The boards poll the ontology from a cache** keyed on the files it is read from: a poll with
+  nothing changed costs about half a millisecond instead of a full load, and the terminal board
+  keeps its Graph page.
+
+### Fixed
+
+- **Each subagent keeps its own working notes.** Every agent's `working notes` wrote the orchestrator's file; a subagent now
+  writes its run's, the one compaction and `agent-one resume` read.
+- **One agent, one live subagent.** A second dispatch to an agent whose subagent is still running is
+  refused, naming the run, instead of two subagents sharing one working notes and scratch.
+- **Subagent reports no longer overwrite each other.** They were stamped on a 12-hour clock (3 a.m.
+  and 3 p.m. shared a name); each is now named for its run, beside its journal.
+- **Recall sends each anchor once** when two sources return the same one.
+- **Patterns are not paths.** The scratch redirect leaves `sed -n /^func/p`, `awk /x/` and
+  `grep -E '/a|/b'` alone (globs are still redirected), and the classifier no longer reads
+  `sed -n 1,/^x/p` or `git show HEAD:path` as leaving the workspace, while a brace expansion such as
+  `{a,/etc/x}` still does.
+- **`gofmt -l` and `goimports -d` are reads; `go fmt` and `-w` are writes.** `go fmt` was read
+  as read-only.
+
 ## [1.0.0] - 2026-10-11
 
 The first stable release. From here the configuration keys, the `agent-one` commands and flags, and

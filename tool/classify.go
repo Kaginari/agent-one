@@ -90,13 +90,20 @@ var vocabularyWriteRules = []rule{
 var writeRules = []rule{
 	{regexp.MustCompile(`(^|[^>])>>?`), "redirect"}, {at(`(tee|cp|mkdir|touch|ln|chmod|chown|chgrp|install|patch|unzip|tar)\s`), "writes files"}, {at(`sed\s+(-\S*i|--in-place)`), "sed -i"},
 	{at(git + `(add|commit|checkout|switch|merge|stash|tag|init|apply|cherry-pick|notes|worktree)\b`), "git local write"}, {at(`memory\.js\s+[^|;&]*\b(remember|index|forget)\b`), "memory write"},
+	// a formatter reads unless told to write: gofmt -l/-d is a look, -w rewrites; go fmt always does
+	{at(`(gofmt|goimports)(\s[^|;&]*)?\s--?w(=\S*)?(\s|$)`), "formatter write"}, {at(`go\s+fmt\b`), "formatter write"},
 }
 
-var readOnly = regexp.MustCompile(`^(cat|ls|head|tail|wc|grep|egrep|fgrep|rg|ag|find|stat|file|which|type|echo|printf|test|\[|\[\[|true|false|pwd|date|env|printenv|sleep|sort|uniq|cut|tr|diff|cmp|md5sum|sha\d*sum|jq|yq|awk|sed|less|more|basename|dirname|realpath|readlink|du|df|tree|column|nl|tac|rev|od|xxd|hexdump|strings|seq|expr|bc|comm|paste|join|fold|fmt|xargs|` + git + `(status|log|diff|show|rev-parse|ls-files|blame|describe|cat-file|branch(\s+(-a|-r|-v|-vv|--list|-l))*\s*$|remote(\s+-v)?\s*$|shortlog|grep|count-objects|rev-list)|node\s+\S*memory\.js\s+[^|;&]*\b(recall|status)\b|go\s+(version|env|list|vet|test|build|fmt|doc)\b)(\s|$)`)
+var readOnly = regexp.MustCompile(`^(cat|ls|head|tail|wc|grep|egrep|fgrep|rg|ag|find|stat|file|which|type|echo|printf|test|\[|\[\[|true|false|pwd|date|env|printenv|sleep|sort|uniq|cut|tr|diff|cmp|md5sum|sha\d*sum|jq|yq|awk|sed|less|more|basename|dirname|realpath|readlink|du|df|tree|column|nl|tac|rev|od|xxd|hexdump|strings|seq|expr|bc|comm|paste|join|fold|fmt|xargs|` + git + `(status|log|diff|show|rev-parse|ls-files|blame|describe|cat-file|branch(\s+(-a|-r|-v|-vv|--list|-l))*\s*$|remote(\s+-v)?\s*$|shortlog|grep|count-objects|rev-list)|gofmt|goimports|node\s+\S*memory\.js\s+[^|;&]*\b(recall|status)\b|go\s+(version|env|list|vet|test|build|doc)\b)(\s|$)`)
 
 var (
 	segmentLead = regexp.MustCompile(`^\s*(\w+=\S*\s+)*(sudo\s+|env\s+|time\s+|nice\s+)*`)
-	tokenSplit  = regexp.MustCompile("[\\s=:,]+")
+	tokenSplit  = regexp.MustCompile(`[\s=]+`)
+	// a comma joins paths only inside a brace expansion ({a,/etc/x} is two words to the shell);
+	// a colon only in a list value (PATH=/a:/b). Elsewhere both are text — `sed -n 1,/^x/p` and
+	// `git show HEAD:path` name no path at the root.
+	braceList  = regexp.MustCompile(`[{},]+`)
+	assignList = regexp.MustCompile(`^[A-Za-z_]\w*=`)
 	// A quoted token is a pattern or a label, not a path — OutsideWorkspace skips it, so
 	// `awk '/x|y/'` never reads the alternation as /x|y/ on disk.
 	tokenTrail = regexp.MustCompile(`[)\]}>;,.]+$`)
@@ -191,7 +198,7 @@ func lead(parts []string) []string {
 // OutsideWorkspace returns the first token of cmd that names a path outside the workspace, or "".
 func (e Env) OutsideWorkspace(cmd string) string {
 	home, _ := os.UserHomeDir()
-	for _, tok := range tokenSplit.Split(cmd, -1) {
+	for _, tok := range pathWords(cmd) {
 		if tok == "" {
 			continue
 		}
@@ -214,6 +221,26 @@ func (e Env) OutsideWorkspace(cmd string) string {
 		}
 	}
 	return ""
+}
+
+// pathWords are the words of cmd that may name a path: split at spaces and =, a brace expansion
+// split at its commas, an assignment's list value at its colons.
+func pathWords(cmd string) []string {
+	var out []string
+	for _, f := range strings.Fields(cmd) {
+		parts := tokenSplit.Split(f, -1)
+		if assignList.MatchString(f) {
+			parts = append(parts[:1], strings.Split(strings.Join(parts[1:], "="), ":")...)
+		}
+		for _, p := range parts {
+			if strings.Contains(p, "{") && strings.Contains(p, ",") {
+				out = append(out, braceList.Split(p, -1)...)
+				continue
+			}
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ClassifyCommand reads a shell command and returns the strongest class any segment reaches,

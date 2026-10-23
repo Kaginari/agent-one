@@ -191,7 +191,7 @@ func policyGuts(cfg *config.Config) *loop.Guts {
 	g := cfg.Policy.Guts
 	out := &loop.Guts{Window: g.Window, Floor: g.Floor, FloorExact: true,
 		BenchThrashVisits: g.BenchThrashVisits, DigestEvery: g.DigestEvery,
-		Negative: g.Lexemes.Negative, Positive: g.Lexemes.Positive, Ring: g.Ring}
+		Negative: g.Lexemes.Negative, Positive: g.Lexemes.Positive, Ring: g.Ring, Repin: g.Repin, ActBudget: g.ActBudget}
 	for _, b := range g.Benches {
 		out.Benches = append(out.Benches, loop.Bench{Name: b.Name, Match: b.Match, Red: b.Red, Green: b.Green})
 	}

@@ -65,6 +65,7 @@ type Workspace struct {
 
 	mu       sync.Mutex
 	sessions map[*loop.Engine]*loop.Session
+	seats    map[string]*loop.Engine // agent → the one subagent sitting it (seat, Close)
 	closers  map[*loop.Engine]func()
 	// subagentWrote is the subagent-write ledger's SAME-ENGINE LANE: what the Subagents of a
 	// dispatcher's engine wrote and gated on their own account, kept as path → {writer, at};

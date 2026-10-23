@@ -398,6 +398,11 @@ type GutsCfg struct {
 	Clamp *GutsClamp `json:"clamp"`
 	// Ring is how many recent workbenches the echo penalty remembers; 0 = 12.
 	Ring int `json:"ring"`
+	// Repin is the identical read (tool + input, nothing landed between) that checkpoints the
+	// turn; 0 = 3, < 0 = off. ActBudget is the model turns with nothing landed that do; 0 = 40,
+	// < 0 = off.
+	Repin     int `json:"repin"`
+	ActBudget int `json:"actBudget"`
 }
 
 // GutsBench is one test workbench.
