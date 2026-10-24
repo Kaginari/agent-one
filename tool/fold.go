@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The fold shelf: a tool result the replay folds off the wire keeps its bytes here, named by
 // their digest, so the caption it leaves can point at the exact payload instead of asking for
-// a re-run. Content-addressed: the same payload folded by two sessions keeps once, a kept file
-// is never rewritten, and nothing here is pruned — a fold never loses bytes.
+// a re-run. Each run keeps its own drawer (<shelf>/<run id>/): a fold is that run's raw output,
+// and the fold tool restores only the acting run's — never another agent's. Content-addressed
+// within a drawer: a kept file is never rewritten. FoldSweep drops drawers left untouched past
+// the keep window (tools.output.foldKeepDays).
 
 // FoldDir is the shelf's directory: <root>/<workspaceDir>/tmp/fold.
 func FoldDir(root, workspaceDir string) string {
@@ -21,6 +24,38 @@ func FoldDir(root, workspaceDir string) string {
 		workspaceDir = DefaultWorkspaceDir
 	}
 	return filepath.Join(root, workspaceDir, "tmp", "fold")
+}
+
+// FoldRunDir is one run's drawer on the shelf: <shelf>/<run id>. A run id never walks off the
+// shelf; "" (no run) has no drawer.
+func FoldRunDir(root, workspaceDir, runID string) string {
+	id := strings.TrimSpace(runID)
+	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\`) {
+		return ""
+	}
+	return filepath.Join(FoldDir(root, workspaceDir), id)
+}
+
+// FoldSweep removes what the shelf kept longer than keep: every drawer (and any loose file a
+// workspace-wide shelf left) last touched before now-keep. keep <= 0 sweeps nothing.
+func FoldSweep(shelf string, keep time.Duration, now time.Time) (removed int) {
+	if keep <= 0 {
+		return 0
+	}
+	ents, err := os.ReadDir(shelf)
+	if err != nil {
+		return 0
+	}
+	for _, e := range ents {
+		fi, err := e.Info()
+		if err != nil || now.Sub(fi.ModTime()) < keep {
+			continue
+		}
+		if os.RemoveAll(filepath.Join(shelf, e.Name())) == nil {
+			removed++
+		}
+	}
+	return removed
 }
 
 // FoldDigest names a payload by its content (sha256, the first 16 hex digits).
@@ -59,8 +94,8 @@ func FoldKeep(dir, content string) (digest, path string, err error) {
 }
 
 // FoldTool restores a folded payload: by its digest, or by the kept-at path its caption quoted.
-// It reads only the shelf, and only a file whose bytes still hash to its name — what comes back
-// is exactly what was folded.
+// It reads only the acting run's drawer (env.RunID), and only a file whose bytes still hash to
+// its name — what comes back is exactly what that run folded.
 func FoldTool() *Tool {
 	return &Tool{
 		Name:        "fold",
@@ -72,18 +107,21 @@ func FoldTool() *Tool {
 			if err := decode(in, &a); err != nil || (a.Digest == "" && a.Path == "") {
 				return fail("fold: digest or path is required")
 			}
-			dir := FoldDir(env.Root, env.WorkspaceDir)
+			dir := FoldRunDir(env.Root, env.WorkspaceDir, env.RunID)
+			if dir == "" {
+				return fail("fold: no run is acting — a fold is restored only by the run that folded it")
+			}
 			name := strings.TrimSuffix(strings.TrimSpace(a.Digest), ".txt")
 			if a.Path != "" {
 				p := env.Resolve(a.Path)
 				if filepath.Dir(p) != dir {
-					return fail("fold: %s is not on the fold shelf (%s)", a.Path, env.Rel(dir))
+					return fail("fold: %s is not on this run's fold shelf (%s) — a run restores only its own folds", a.Path, env.Rel(dir))
 				}
 				name = strings.TrimSuffix(filepath.Base(p), ".txt")
 			}
 			data, err := os.ReadFile(filepath.Join(dir, filepath.Base(name)+".txt"))
 			if err != nil {
-				return fail("fold: no payload %s is kept on the shelf (%s)", name, env.Rel(dir))
+				return fail("fold: no payload %s is kept on this run's shelf (%s) — a run restores only its own folds", name, env.Rel(dir))
 			}
 			if FoldDigest(string(data)) != name {
 				return fail("fold: the payload kept as %s no longer hashes to its name — not restored", name)

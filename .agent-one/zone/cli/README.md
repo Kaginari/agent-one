@@ -16,6 +16,7 @@
 - **queue** (`app/queue.go`): `agent-one q list|show|add|claim|touch|requeue|close` is queue.CLI over the workspace's shared queue (Workspace.QueuePath) as the human — the lexicon's human word, every move allowed (the human stands over every agent); `--as <body>` acts for an agent, `--json` (output.format json) prints the items, a refusal exits 2.
 
 - **onto owner** (`app/cli.go` cmdInstrument → zoneOwner): wires onto.CLIOwner to a workspace opened under the config, so `agent-one onto owner <path>` answers Workspace.ZoneOfPath — the gate's own reading — instead of the graph's mirror.
+- **fold sweep** (`app/app.go` New): once the workspace opens, tool.FoldSweep drops every run's fold drawer (and any loose file of the old shared shelf) untouched past tools.output.foldKeepDays (default 7; 0 keeps them) — TestAppSweepsTheFoldShelf.
 
 ## Verify
 - `go test ./app/ -run 'TestEmbeddedLawsMatchTheWorkspace|TestInitBench|TestBenchOnMock|TestRunIgnoresAnOpenStdin|TestContainer|TestSetup|TestSketchTeam|TestMediumWritesOnceAndFoundingBrief|TestNormLevel|TestE2E|TestQueueCommand'`

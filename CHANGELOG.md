@@ -135,9 +135,11 @@ All notable changes to Agent-One are recorded here. The format follows
   longer fills all five places and hides the one doc that answers. The `memory recall` command
   keeps its plain ranking, identical to `memory.js`.
 - **Folded tool output is kept, not lost.** The bytes behind a folded line are saved once under
-  `.agent-one/tmp/fold/`, named by their content, and the line says where — so the exact output can
-  be read back instead of running the tool again (which may cost a slow command, or give a
-  different answer). The same output folded twice is kept once; nothing there is ever deleted.
+  `.agent-one/tmp/fold/<run>/`, named by their content, and the line says where — so the exact output
+  can be read back instead of running the tool again (which may cost a slow command, or give a
+  different answer). Only the run that folded an output can read it back — one member never
+  reads another's raw output this way. Kept outputs go after a week untouched
+  (`tools.output.foldKeepDays`, 0 keeps them).
 - **A folded tool output says what it was.** Old tool output that the model no longer sees in full
   now leaves a line naming the tool, what it ran on (the file, the pattern, the command) and its
   size — "read pkg/x.go: 412 lines, 9.8kB" — instead of only the tool's name, so an agent can tell

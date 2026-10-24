@@ -296,6 +296,9 @@ type ToolOutput struct {
 	MaxBytes int    `json:"maxBytes"`
 	DumpDir  string `json:"dumpDir"`
 	KeepDays int    `json:"keepDays"`
+	// FoldKeepDays (tools.output.foldKeepDays): days a run's drawer on the fold shelf is kept
+	// untouched before the start-of-run sweep drops it; 0 keeps it
+	FoldKeepDays int `json:"foldKeepDays"`
 }
 
 // Missing is the policy when the model calls a tool that is off or absent.

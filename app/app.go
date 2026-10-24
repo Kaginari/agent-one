@@ -175,6 +175,8 @@ func New(opt Options) (*App, error) {
 		return nil, err
 	}
 	a.Workspace = w
+	// the fold shelf keeps each run's raw outputs; a drawer untouched past tools.output.foldKeepDays goes
+	tool.FoldSweep(tool.FoldDir(a.Root, cfg.Dist.WorkspaceDir), time.Duration(cfg.Tools.Output.FoldKeepDays)*24*time.Hour, time.Now())
 	a.Tracer = NewTracer(cfg.Instruments.OTLP, cfg.Dist.Name, opt.Env, func(agent string) string { return w.RankOf(agent).Name }, a.notice)
 	for _, t := range cfg.Registry.Tools {
 		if b, err := json.Marshal(t); err == nil {

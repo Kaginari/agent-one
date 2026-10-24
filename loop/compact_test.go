@@ -185,8 +185,8 @@ func TestCompactReplayLongSessionBytes(t *testing.T) {
 	}
 }
 
-// A folded payload keeps on the shelf under its digest, byte for byte, and the caption quotes
-// where; a second session folding the same bytes keeps them once.
+// A folded payload keeps in its run's drawer under its digest, byte for byte, and the caption
+// quotes where; folding the same bytes again in that run keeps them once.
 func TestCompactFoldKeepsThePayload(t *testing.T) {
 	root := t.TempDir()
 	payload := strings.Repeat("the exact bytes\n", 50) + "no trailing newline"
@@ -195,9 +195,9 @@ func TestCompactFoldKeepsThePayload(t *testing.T) {
 		{Role: provider.Assistant, ToolCalls: []provider.ToolCall{{ID: "a", Name: "read", Input: json.RawMessage(`{"path":"x.go"}`)}}},
 		{Role: provider.User, ToolResults: []provider.ToolResult{{ID: "a", Content: payload}}},
 	}
-	kept := ".agent-one/tmp/fold/" + tool.FoldDigest(payload) + ".txt"
+	kept := ".agent-one/tmp/fold/run-a/" + tool.FoldDigest(payload) + ".txt"
 	for i := 0; i < 2; i++ {
-		s := &Session{Engine: &Engine{Root: root}}
+		s := &Session{Engine: &Engine{Root: root}, RunID: "run-a"}
 		out := compactReplay(msgs, CompactKeepTools(0), CompactShelf(s.keepFold))
 		if got := out[2].ToolResults[0].Content; !strings.HasSuffix(got, "— kept at "+kept+"]") {
 			t.Fatalf("caption %q does not quote the kept path %s", got, kept)
@@ -258,7 +258,7 @@ func TestFoldCaptionNamesTheFoldTool(t *testing.T) {
 		{Role: provider.Assistant, ToolCalls: []provider.ToolCall{{ID: "a", Name: "grep", Input: json.RawMessage(`{"pattern":"x"}`)}}},
 		{Role: provider.User, ToolResults: []provider.ToolResult{{ID: "a", Content: strings.Repeat("hit\n", 20)}}},
 	}
-	s := &Session{Engine: &Engine{Root: t.TempDir(), Tools: tool.Builtins()}}
+	s := &Session{Engine: &Engine{Root: t.TempDir(), Tools: tool.Builtins()}, RunID: "run-a"}
 	got := compactReplay(msgs, CompactKeepTools(0), CompactShelf(s.keepFold))[2].ToolResults[0].Content
 	if !strings.HasSuffix(got, ".txt (fold restores it)]") {
 		t.Fatalf("caption %q does not name the fold tool", got)

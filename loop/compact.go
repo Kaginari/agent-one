@@ -144,7 +144,8 @@ func byteSize(n int) string {
 }
 
 // keepFold shelves a folded result's payload once per call and answers where it is kept (the
-// caption's restore pointer; "" when a rootless engine keeps nothing or the keep failed). The
+// caption's restore pointer; "" when a rootless or run-less engine keeps nothing or the keep
+// failed). The
 // first fold of a read also marks its paths folded, so read's served-window cache stops
 // withholding a window the wire no longer carries (tool.Env.Folded).
 func (s *Session) keepFold(tc provider.ToolCall, content string) string {
@@ -161,8 +162,9 @@ func (s *Session) keepFold(tc provider.ToolCall, content string) string {
 		}
 	}
 	p := ""
-	if e.Root != "" {
-		if _, path, err := tool.FoldKeep(tool.FoldDir(e.Root, e.Lexicon.workspaceDir()), content); err == nil {
+	// the run's own drawer: the fold tool restores only the acting run's folds (tool/fold.go)
+	if dir := tool.FoldRunDir(e.Root, e.Lexicon.workspaceDir(), s.RunID); e.Root != "" && dir != "" {
+		if _, path, err := tool.FoldKeep(dir, content); err == nil {
 			rel, _ := filepath.Rel(e.Root, path)
 			p = "kept at " + filepath.ToSlash(rel)
 			if e.Tools != nil {
