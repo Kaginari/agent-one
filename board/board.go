@@ -214,7 +214,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (b *Board) routes() {
 	// one page, at the root: the dashboard. Every other path is an API, the event stream, or
 	// an asset under /web/.
-	b.mux.HandleFunc("/", b.root)
+	b.mux.HandleFunc("/", guarded(b.root))
 	// the old addresses keep working: /dash was the dashboard's own path; the pages that became
 	// tabs open their tab
 	b.mux.HandleFunc("/dash", b.moved(""))

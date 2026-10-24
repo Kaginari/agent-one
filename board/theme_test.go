@@ -121,6 +121,8 @@ func TestThemeAPI(t *testing.T) {
 func serve(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+	req := httptest.NewRequest("GET", path, nil)
+	req.Host = "127.0.0.1:7411" // as the browser addresses the board; any other Host is refused
+	h.ServeHTTP(rec, req)
 	return rec
 }

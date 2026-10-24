@@ -36,7 +36,7 @@ func modeAttr(mode string) string {
 }
 
 func (b *Board) themeRoutes() {
-	b.mux.HandleFunc("/theme.css", func(w http.ResponseWriter, r *http.Request) {
+	b.mux.HandleFunc("/theme.css", guarded(func(w http.ResponseWriter, r *http.Request) {
 		name, _ := b.look()
 		if q := r.URL.Query().Get("name"); q != "" {
 			if _, ok := theme.Get(q); ok {
@@ -46,8 +46,8 @@ func (b *Board) themeRoutes() {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write([]byte(theme.CSS(theme.Must(name))))
-	})
-	b.mux.HandleFunc("/api/theme", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	b.mux.HandleFunc("/api/theme", guarded(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			b.setTheme(w, r)
 			return
@@ -77,7 +77,7 @@ func (b *Board) themeRoutes() {
 			list = append(list, e)
 		}
 		writeJSON(w, map[string]any{"name": name, "mode": mode, "modes": theme.Modes, "themes": list, "settable": b.opt.SetTheme != nil})
-	})
+	}))
 }
 
 // setTheme is the dashboard's switch: this board's own page only (loopback, the token), even

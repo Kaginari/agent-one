@@ -98,8 +98,16 @@ func TestDashWithoutSessionIsReadOnly(t *testing.T) {
 
 func TestDashPageCarriesTokenAndCSP(t *testing.T) {
 	b := liveBoard(t, &fakeLive{events: make(chan []byte)})
+	// the page carries the board's token: a rebound DNS name gets no page, so no token
+	rb := httptest.NewRequest(http.MethodGet, "/", nil)
+	rb.Host = "evil.example:7411"
 	w := httptest.NewRecorder()
-	b.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	b.ServeHTTP(w, rb)
+	if w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), b.token) {
+		t.Fatalf("a rebound Host read the page: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	b.ServeHTTP(w, atLoopback(httptest.NewRequest(http.MethodGet, "/", nil)))
 	agent := w.Body.String()
 	if w.Code != 200 || !strings.Contains(agent, `content="`+b.token+`"`) || strings.Contains(agent, "{{") {
 		t.Fatalf("dash page: %d, token or placeholders wrong", w.Code)
@@ -109,7 +117,7 @@ func TestDashPageCarriesTokenAndCSP(t *testing.T) {
 	}
 	for _, asset := range []string{"/web/dash.js", "/web/workspace.js", "/web/tokens.css", "/web/components/net/net.css", "/web/components/ledger/ledger.css"} {
 		w := httptest.NewRecorder()
-		b.ServeHTTP(w, httptest.NewRequest(http.MethodGet, asset, nil))
+		b.ServeHTTP(w, atLoopback(httptest.NewRequest(http.MethodGet, asset, nil)))
 		if w.Code != 200 {
 			t.Errorf("%s: %d", asset, w.Code)
 		}
@@ -173,4 +181,10 @@ func TestDashboardHoldsTheUISystem(t *testing.T) {
 			t.Errorf("web/%s drifted from the ui foundation's copy — copy it again", name)
 		}
 	}
+}
+
+// atLoopback addresses r as the browser addresses the board.
+func atLoopback(r *http.Request) *http.Request {
+	r.Host = "127.0.0.1:7411"
+	return r
 }
