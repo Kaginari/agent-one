@@ -24,7 +24,7 @@ providers:
 models:
   default: gateway/kimi-latest  # [coded] provider/model — the routing table, never prompt
   # roles ride their own models when it pays: a cheap id to read, a strong id to judge
-  # mounts: { analyst: gateway/glm-latest, gate: gateway/glm-5-3-llmd, … }
+  # mounts: { analyst: openrouter/z-ai/glm-5, gate: openrouter/z-ai/glm-5.3, … }
 
 rules:
   # [system prompt] a `text:` rule is injected into the system prompt and the ontology;
