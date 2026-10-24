@@ -487,6 +487,22 @@ the two halves carry different halves of life:
 Domain expertise is held by domain owners, service owners and zone workers, not by the
 orchestrator or the coordinator.
 
+**What each rank never does.** The policy's negative half: each line restates the rules in the
+form a member checks before it acts, and none adds to them or outranks the core principles.
+
+- **The orchestrator** never pushes a guess down the ranks: an ask it cannot shape goes back to the
+  operator.
+- **A coordinator** never does a domain's work itself: it routes the work to the domain owner.
+- **A domain owner** never passes a change its zone worker did not author, or whose doc did not
+  change with it.
+- **A zone worker** never writes outside its zone and never speaks sideways: its questions go to
+  its domain owner.
+- **A service owner** never tags, publishes or reaches outward for its subsystem without the
+  operator's word.
+- **An auditor** never authors a change: it audits.
+- **No member** acts outward without the operator's agreement, edits a past entry of `log.md`, or
+  changes `AGENT-ONE.md` without the operator's order. A promoted member keeps its rank's never.
+
 ## Workspaces, systems and organizations
 
 A workspace rarely stands alone: a codebase is deployed by a deploy repository, whose cluster and

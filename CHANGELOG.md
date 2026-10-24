@@ -107,6 +107,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **The policy gains its negative half.** `AGENT-ONE.md` now says, one line per rank, what each
+  never does — each line a restatement of a rule already there, in the form a member checks before
+  it acts.
+
 - **`make build` and `make install` stamp the binary.** `agent-one version` on a local build now
   names the tag, commit and build date it came from, the way a release does, instead of
   `dev (none, unknown)`.
