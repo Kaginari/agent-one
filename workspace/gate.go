@@ -151,6 +151,10 @@ func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, 
 		// 1. right zone worker authored
 		if opt.RightAuthor && domainOwners {
 			switch {
+			case w.provisioningExempt(as, rel, zone, before):
+				// provisioning (gate_provisioning.go): the zone-parent registers its own child's README — new
+				// since the last commit, reporting to the writer, claiming only live soil the
+				// writer holds or nobody does
 			case orchestratorSeat && orchestratorAuthored:
 				// the orchestrator's own work, on its own seat — no agent's authorship to check
 			case memberDoc && as == owner.Name:

@@ -8,6 +8,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **A parent can write its new child's README.** A domain owner founding a zone worker for part of its zone, or
+  the orchestrator founding a coordinator, used to fail the end-of-turn gate as if it had written another
+  member's file. The gate now lets it through while the README is new (not yet committed), the
+  child reports to the writer, and everything the child claims exists and belongs to the
+  writer's line or to nobody. Once the README is committed it is the child's own.
 - **Stall guards.** A run that reads the same thing and gets the same answer, with nothing written
   since, gets a note the second time and checkpoints the third (`policy.guts.repin`, 3); a file
   changed by another hand reads as new. A turn that runs 40 model calls
