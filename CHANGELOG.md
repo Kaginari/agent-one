@@ -8,6 +8,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Two knobs for the shipped promotion rule.** `policy.promote.greenFloor` adds a minimum share of
+  runs that landed cleanly (`landRate`, in percent), and `policy.promote.tenure` a minimum number of
+  days since the member was provisioned, to the built-in rule for rising to principal-coordinator or principal-domain-owner. Both
+  are 0 by default, which leaves the rule exactly as it was; a workspace that wrote its own rule keeps
+  it untouched.
 - **Every member has a provisioning record.** Each time a member is provisioned — written by its parent,
   split off by the council, risen by promotion or remade by evolution — one line is added to
   `.agent-one/attic/births/<member>.jsonl` saying when, how and from whom. A new `tenure` value

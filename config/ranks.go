@@ -67,6 +67,48 @@ const (
 	DefaultPromoteDomain = "promote domain when reports >= 20 && passRate >= 90% && holeRate <= 10%"
 )
 
+// RenderPromote is the shipped promotion sentence for a base rank with policy.promote's green-floor
+// knobs folded in: a landRate floor and a tenure, each clause only when its knob is set — zero
+// knobs render the shipped sentence itself.
+func RenderPromote(base string, k PromotePolicy) string {
+	s := "promote " + base + " when reports >= 20 && passRate >= 90% && holeRate <= 10%"
+	if k.GreenFloor > 0 {
+		s += fmt.Sprintf(" && landRate >= %d%%", k.GreenFloor)
+	}
+	if k.Tenure > 0 {
+		s += fmt.Sprintf(" && tenure >= %d", k.Tenure)
+	}
+	return s
+}
+
+// applyPromoteKnobs folds policy.promote into every promoted rank still carrying the shipped
+// sentence (a workspace that wrote its own promotesWhen keeps it whole).
+func (c *Config) applyPromoteKnobs(byName map[string]*Rank, order []string) error {
+	k := c.Policy.Promote
+	if k.GreenFloor < 0 || k.GreenFloor > 100 {
+		return fmt.Errorf("%s: policy.promote.greenFloor %d is a percent, 0..100", c.Where("policy.promote.greenFloor"), k.GreenFloor)
+	}
+	if k.Tenure < 0 {
+		return fmt.Errorf("%s: policy.promote.tenure %d is a count of days, 0 or more", c.Where("policy.promote.tenure"), k.Tenure)
+	}
+	if k == (PromotePolicy{}) {
+		return nil
+	}
+	where := c.Where("policy.promote.greenFloor")
+	if k.GreenFloor == 0 {
+		where = c.Where("policy.promote.tenure")
+	}
+	for _, name := range order {
+		r := byName[name]
+		if r.PromotesFrom == "" || r.Origins["promotesWhen"] != "policy" || r.PromotesWhen != RenderPromote(r.PromotesFrom, PromotePolicy{}) {
+			continue
+		}
+		r.PromotesWhen = RenderPromote(r.PromotesFrom, k)
+		r.Origins["promotesWhen"] = where
+	}
+	return nil
+}
+
 // builtinRanks is AGENT-ONE.md §The workspace as data.
 var builtinRanks = []Rank{
 	{Name: "coord", ReportsTo: "orchestrator", Job: "the shared skill and voice: thinks across domains, routes work to domain owners, speaks back up", Role: "drafter", Tools: []string{"*"}, Dir: "coord", Prefix: "coord-"},
@@ -190,6 +232,9 @@ func (c *Config) buildRanks() error {
 		// (a base does not carry its overload's rules or its evolution condition). So are dir and
 		// prefix: the promoted agent lives in its own dir (default: the rank's name), or its registered
 		// name would be its base's.
+	}
+	if err := c.applyPromoteKnobs(byName, order); err != nil {
+		return err
 	}
 	// Validations that need every name resolved (promotesWhen parses and must name its base).
 	for _, name := range order {

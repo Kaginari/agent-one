@@ -334,6 +334,17 @@ type Policy struct {
 	// Evolution: a stressed member whose Notes working notes overflows heals itself — split, mutate
 	// or rebirth (ranks.md §Evolution).
 	Evolution EvolutionPolicy `json:"evolution"`
+	// Promote: the green-floor knobs folded into the shipped promotion sentences (principal-coordinator,
+	// principal-domain-owner) a workspace did not rewrite. Zero knobs render the shipped sentence unchanged.
+	Promote PromotePolicy `json:"promote"`
+}
+
+// PromotePolicy is policy.promote: GreenFloor is the landRate (reports that landed: DONE, no fail word,
+// no failed gate) a promotion asks for on top of the shipped record, in percent; Tenure the
+// days since the agent's first provisioning (the tenure signal). 0 leaves that clause out.
+type PromotePolicy struct {
+	GreenFloor int `json:"greenFloor"`
+	Tenure     int `json:"tenure"`
 }
 
 // EvolutionPolicy is policy.evolution (ranks.md §Evolution): a member that is stressed (strain at

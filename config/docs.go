@@ -228,6 +228,9 @@ var keyDocs = map[string]string{
 	"policy.evolution.arms":                     "the ways it may evolve: split, mutate, rebirth",
 	"policy.evolution.splitLines":               "an ownership this many lines reads as large enough to split; 0 = never",
 	"policy.evolution.splitFiles":               "an ownership this many files reads as large enough to split; 0 = never",
+	"policy.promote":                            "green-floor knobs folded into the shipped promotion rules",
+	"policy.promote.greenFloor":                 "the landRate (%) a promotion also asks for; 0 = not asked",
+	"policy.promote.tenure":                     "the days since its first birth a promotion also asks for; 0 = not asked",
 
 	// memory
 	"memory":                          "what the workspace remembers",

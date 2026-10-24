@@ -126,6 +126,9 @@ evolution:
   failStreak: 3         # or this many gate verdicts failed in a row
   cooldownRuns: 10      # a member evolves at most once per this many of its runs
   arms: [split, mutate, rebirth]
+promote:
+  greenFloor: 0         # a promotion also asks landRate >= this %; 0 = not asked
+  tenure: 0             # and tenure >= this many days since its first birth; 0 = not asked
 `
 	scaffoldAgents["budgets"] = fmt.Sprintf(localHead, "budgets.local.yaml") + `
 # budgets — spend ceilings (the VALUE of the budgets section). Off = 0.

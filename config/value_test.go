@@ -175,3 +175,25 @@ func TestEvolutionPolicy(t *testing.T) {
 		}
 	}
 }
+
+// policy.promote's green-floor knobs fold into the shipped promotion sentences: zero knobs render the
+// shipped sentence itself, set knobs add their clauses, a workspace's own promotesWhen is kept whole,
+// and an out-of-range knob is refused.
+func TestPromoteKnobs(t *testing.T) {
+	c := newWorkspace(t, nil).load()
+	if r, _ := c.Rank("principal-domain-owner"); r.PromotesWhen != DefaultPromoteDomain || RenderPromote("domain", PromotePolicy{}) != DefaultPromoteDomain {
+		t.Errorf("zero knobs: %q", r.PromotesWhen)
+	}
+	c = newWorkspace(t, map[string]string{".agent-one/config.yaml": "policy:\n  promote: {greenFloor: 80, tenure: 14}\nranks:\n  principal-coordinator: {promotesWhen: \"promote coord when reports >= 3\"}\n"}).load()
+	if r, _ := c.Rank("principal-domain-owner"); r.PromotesWhen != DefaultPromoteDomain+" && landRate >= 80% && tenure >= 14" || !strings.Contains(r.Origins["promotesWhen"], "config.yaml") {
+		t.Errorf("knobs: %q (%s)", r.PromotesWhen, r.Origins["promotesWhen"])
+	}
+	if r, _ := c.Rank("principal-coordinator"); r.PromotesWhen != "promote coord when reports >= 3" {
+		t.Errorf("a workspace's own sentence was rewritten: %q", r.PromotesWhen)
+	}
+	for _, bad := range []string{"policy:\n  promote: {greenFloor: 101}\n", "policy:\n  promote: {tenure: -1}\n"} {
+		if err := newWorkspace(t, map[string]string{".agent-one/config.yaml": bad}).loadErr(); err == nil {
+			t.Errorf("%q was taken", bad)
+		}
+	}
+}

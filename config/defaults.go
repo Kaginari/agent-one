@@ -73,7 +73,8 @@ const defaultsJSON = `{
     "doomLoop":   { "enabled": true, "threshold": 3 },
     "stress":     { "escalateAt": 5, "maxConsults": 3, "relieveAt": 7 },
     "forge":      { "demandAtSteps": 12, "evolvedStatus": "trial" },
-    "evolution":  { "enabled": true, "mode": "auto", "notesMax": 7, "stressAt": 0, "failStreak": 3, "cooldownRuns": 10, "arms": ["split", "mutate", "rebirth"], "splitLines": 1500, "splitFiles": 24 }
+    "evolution":  { "enabled": true, "mode": "auto", "notesMax": 7, "stressAt": 0, "failStreak": 3, "cooldownRuns": 10, "arms": ["split", "mutate", "rebirth"], "splitLines": 1500, "splitFiles": 24 },
+    "promote":    { "greenFloor": 0, "tenure": 0 }
   },
   "memory": {
     "short":  { "enabled": true, "cacheDir": "[dist-dir]/memory/short" },
