@@ -26,6 +26,7 @@
 <link rel="stylesheet" href="web/components/choice/choice.css">
 <link rel="stylesheet" href="web/components/net/net.css">
 <link rel="stylesheet" href="web/components/timeline/timeline.css">
+<link rel="stylesheet" href="web/components/slice/slice.css">
 <link rel="stylesheet" href="web/components/now/now.css">
 <link rel="stylesheet" href="web/components/leaderboard/leaderboard.css">
 <link rel="stylesheet" href="web/components/matrix/matrix.css">
@@ -80,7 +81,7 @@
     </div>
     <button class="button tabs-end" data-size="s" data-variant="quiet" type="button" id="drawer-open" aria-controls="tree-panel" aria-expanded="false" title="the folder tree as a drawer (t, or Alt+T from the prompt)">files <kbd class="shell-key">t</kbd></button>
   </nav>
-  <main class="shell-main" id="main" data-view="overview">
+  <main class="shell-main" id="main" data-view="overview" data-slice="timeline">
     <section class="panel" data-panel="net" aria-labelledby="h-net">
       <header class="panel-head"><h2 class="panel-title" id="h-net">Neural net</h2><span class="panel-note" id="net-note">—</span><div class="now" id="now" aria-label="now" role="group" hidden></div>
         <div class="panel-tools"><span class="net-mode" id="net-mode" role="group" aria-label="net view"><button type="button" data-mode="2d" aria-pressed="true">2D</button><button type="button" data-mode="3d" aria-pressed="false">3D</button></span><button class="button" data-size="s" data-variant="quiet" type="button" id="net-card" hidden title="show the selected neuron's card">Card</button><button class="button" data-size="s" data-variant="quiet" type="button" id="net-clear">Clear focus</button></div></header>
@@ -115,9 +116,27 @@
         </div>
       </div>
     </section>
+    <div class="slice-tabs" id="slice-tabs" role="group" aria-label="the slice under the net">
+      <button class="slice-tab" type="button" data-slice="timeline" aria-pressed="true">Timeline <span class="slice-tab-n" id="st-timeline"></span></button>
+      <button class="slice-tab" type="button" data-slice="plan" aria-pressed="false">Plan <span class="slice-tab-n" id="st-plan"></span></button>
+      <button class="slice-tab" type="button" data-slice="board" aria-pressed="false">Board <span class="slice-tab-n" id="st-board"></span></button>
+      <button class="slice-tab" type="button" data-slice="files" aria-pressed="false">Files <span class="slice-tab-n" id="st-files"></span></button>
+    </div>
     <section class="panel" data-panel="timeline" aria-labelledby="h-timeline">
       <header class="panel-head"><h2 class="panel-title" id="h-timeline">Timeline</h2><span class="panel-note" id="timeline-note">subagents and verdicts, newest first</span></header>
       <div class="panel-body"><ol class="timeline" id="timeline"></ol></div>
+    </section>
+    <section class="panel" data-panel="plan" aria-labelledby="h-ov-plan">
+      <header class="panel-head"><h2 class="panel-title" id="h-ov-plan">Plan</h2><span class="panel-note" id="ov-plan-note">no deck yet</span></header>
+      <div class="panel-body"><ol class="slice" id="ov-plan"></ol></div>
+    </section>
+    <section class="panel" data-panel="files" aria-labelledby="h-ov-files">
+      <header class="panel-head"><h2 class="panel-title" id="h-ov-files">Files</h2><span class="panel-note" id="ov-files-note">written this session</span></header>
+      <div class="panel-body"><ol class="slice" id="ov-files"></ol></div>
+    </section>
+    <section class="panel" data-panel="board" aria-labelledby="h-ov-board">
+      <header class="panel-head"><h2 class="panel-title" id="h-ov-board">Board</h2><span class="panel-note" id="ov-board-note">the shared shelf</span></header>
+      <div class="panel-body"><ol class="slice" id="ov-board"></ol></div>
     </section>
     <section class="panel" data-panel="metrics" aria-labelledby="h-metrics">
       <header class="panel-head"><h2 class="panel-title" id="h-metrics">Metrics</h2><span class="panel-note" id="metrics-note">—</span>

@@ -57,6 +57,13 @@ func TestRootIsTheDashboard(t *testing.T) {
 	if i, j := strings.Index(html, `data-view="overview"`), strings.Index(html, `data-view="console"`); i < 0 || i > j || !strings.Contains(html, `id="main" data-view="overview"`) {
 		t.Error("Overview is the first tab and the view the root opens on")
 	}
+	// the overview's slices under the net, behind their switch: the timeline, the plan, the
+	// shared board, the files written
+	for _, sl := range []string{"timeline", "plan", "board", "files"} {
+		if !strings.Contains(html, `data-panel="`+sl+`"`) || !strings.Contains(html, `class="slice-tab" type="button" data-slice="`+sl+`"`) {
+			t.Errorf("the overview has no %s slice behind the switch", sl)
+		}
+	}
 	for _, gone := range []string{"board pages", `href="./"`, "bootstrap"} {
 		if strings.Contains(html, gone) {
 			t.Errorf("the dashboard still links the old pages: %q", gone)
@@ -122,7 +129,7 @@ func TestPrefixMount(t *testing.T) {
 func TestWorkspaceAPIsRefuseAReboundHost(t *testing.T) {
 	b := newBoard(t, "workspace", Options{Sources: Sources{Config: func() any { return map[string]any{"a": 1} }}})
 	for _, p := range []string{"/api/config", "/api/memory", "/api/memory/recall?q=auth", "/api/memory/review", "/api/toolbox", "/api/runs", "/api/run?id=r1",
-		"/events", "/api/doc?path=README.md", "/api/subagent", "/api/usage", "/api/team", "/api/activity", "/api/tree", "/api/tree/children?path=.", "/api/subagents", "/api/plan",
+		"/events", "/api/doc?path=README.md", "/api/subagent", "/api/usage", "/api/team", "/api/activity", "/api/tree", "/api/tree/children?path=.", "/api/subagents", "/api/plan", "/api/board",
 		"/", "/api/workspace", "/api/live", "/api/theme", "/theme.css", "/web/dash.js", "/api/value", "/api/meters", "/portraits/zone", "/dash/stream"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", p, nil)

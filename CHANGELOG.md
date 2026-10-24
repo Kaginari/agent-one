@@ -8,6 +8,12 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **The dashboard's overview shows the plan, the shared board and the files written.** Under the
+  neural net, a switch picks one of four slices: the timeline, the plan (your session's deck, step
+  by step, or the one in hand), the board — the work waiting on the shared queue, every member's
+  plan deck with its progress, and the last verdict each member returned — and the files written
+  this session. Each tab shows its count, and the switch remembers your pick. On a phone they
+  stack. A new `/api/board` serves the board.
 - **A subagent that escalates, fails or is denied says so loudly.** In the terminal, a subagent landing
   ESCALATE, FAIL or DENIED now prints one bright line under its card naming the verdict, who sent
   it and to whom (the member that dispatched it), and why — the first hole in its report. The
@@ -127,6 +133,9 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The plan meter in the dashboard's header lights up.** It read a deck file the plan tool never
+  writes, so it stayed hidden; it now shows the same deck as the overview's plan. The plan reader
+  also no longer follows a name that climbs out of the plans folder.
 - **The dashboard answers only your own machine, on every address.** The dashboard page itself
   (which carries the key the console's actions need), its stylesheets and scripts, the theme list,
   and the live-session and workspace summaries now refuse a request that does not come addressed to

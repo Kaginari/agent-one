@@ -472,6 +472,7 @@ type Sources struct {
 	Skills    func() []SkillInfo
 	Tree      func(string) ([]TreeEntry, bool) // one level of the workspace tree ("" = root): entries, truncated; nil means unwired (integrator decides); consumers must nil-guard, never panic
 	Subagents func() (any, error)              // subagents strip: every entity's open hand (queued cards, presence from hearts, plan stats); agent fields stay local; nil = offline
+	Shared    func() *SharedView               // the shared board: the open queue, every deck, each agent's last report (shared.go)
 	Plan      func(deck string) (any, error)   // THE deck: the workspace's plan.json Parsed + hearts; deck selects tmp/plans/<deck>.json ("" = the workspace deck); nil = offline
 	// RunDetail is one journaled run read back whole (its steps, holes, length); an unknown id
 	// is an error. Recall searches the memory tiers read-only (no cache line is written);
@@ -539,12 +540,14 @@ func FileSources(root, workspaceDir string, layout onto.Layout, now func() time.
 			return e, trunc
 		},
 		RunDetail: f.runDetail,
+		Shared:    f.shared,
 		Recall:    f.recall,
 		Review:    f.review,
 		Plan: func(deck string) (any, error) {
 			// deck == the agent name; "" reads the workspace's own deck
 			// (.agent-one/tmp/plans/<deck>.json, "" → plan.json like the tool).
-			name := deck
+			// the deck's file name as the plan tool pens it: a separator never climbs out
+			name := deckName.Replace(deck)
 			if name == "" {
 				name = "plan"
 			}
@@ -625,6 +628,9 @@ func (s Sources) withDefaults(d Sources) Sources {
 	if s.Plan == nil {
 		s.Plan = d.Plan
 	}
+	if s.Shared == nil {
+		s.Shared = d.Shared
+	}
 	if s.RunDetail == nil {
 		s.RunDetail = d.RunDetail
 	}
@@ -636,6 +642,9 @@ func (s Sources) withDefaults(d Sources) Sources {
 	}
 	return s
 }
+
+// deckName is an agent's deck file name, as the plan tool pens it (app's planFile).
+var deckName = strings.NewReplacer("/", "-", "\\", "-", ":", "-")
 
 type fileSources struct {
 	root, dir, workspaceDir string

@@ -887,12 +887,113 @@
     if (tlSaid.size > 400) tlSaid = new Set([...tlSaid].slice(-200));
     if (fresh.length) announcer.textContent = fresh.slice(0, 2).join(' · ');
     $('#timeline-note').textContent = rows.length + ' · subagents and verdicts, newest first';
+    sliceCount('timeline', String(rows.length), rows.some(r => r.live) ? 'warn' : '');
   }
   // the instruments moved: tiles, bond weights and the timeline follow (at most every few seconds)
   let actT = 0;
   function refreshActivity() {
     clearTimeout(actT);
     actT = setTimeout(() => getJSON('api/activity').then(a => { activity = a; if (team) net.set(team, a); timeline(); leaderboard(); }).catch(() => {}), 2500);
+  }
+
+  // ---------- the slices under the net: the plan, the shared board, the files written ----------
+  // each is a short list the overview keeps current; a row naming a member focuses its neuron
+  const nodeByName = name => team && team.nodes.find(x => x.name === name && x.kind !== 'skill');
+  function sliceRow(o) {
+    const n = o.who ? nodeByName(o.who) : null;
+    const kids = [el('span', { class: 'slice-mark' }),
+      el('span', { class: 'slice-line' }, o.who ? el('span', { class: 'slice-who', text: labelOf(o.who) }) : null, el('span', { class: 'slice-what', text: o.what || '' })),
+      el('span', { class: 'slice-end', 'data-tone': o.endTone || false, 'data-name': !!o.endName, text: o.end || '' }),
+      o.bar !== undefined ? el('span', { class: 'slice-bar', style: { '--slice-value': Math.round(100 * o.bar) + '%' } }) : null];
+    const attrs = { class: 'slice-row', 'data-rank': o.rank || (n ? n.rank : false) || false, 'data-tone': o.tone || false, 'data-live': !!o.live, 'data-done': !!o.done, title: o.title || false };
+    if (!n) return el('li', {}, el('div', attrs, kids));
+    return el('li', {}, el('button', Object.assign(attrs, { type: 'button', onclick: () => setFocus(n.id), onpointerenter: () => net.hover(n.id), onpointerleave: () => net.hover('') }), kids));
+  }
+  // the switch: one slice in the band under the net (side by side on a wide screen), remembered
+  const sliceTabs = [...document.querySelectorAll('#slice-tabs .slice-tab')];
+  function slice(v) {
+    if (!sliceTabs.some(b => b.dataset.slice === v)) v = 'timeline';
+    main.dataset.slice = v;
+    for (const b of sliceTabs) b.setAttribute('aria-pressed', String(b.dataset.slice === v));
+  }
+  for (const b of sliceTabs) b.addEventListener('click', () => { slice(b.dataset.slice); store.set('slice', b.dataset.slice); });
+  slice(store.get('slice') || 'timeline');
+  function sliceCount(v, text, tone) { const n = $('#st-' + v); if (n) { n.textContent = text || ''; n.dataset.tone = tone || ''; } }
+  const sliceHead = (a, b) => el('li', { class: 'slice-head' }, el('span', { text: a }), el('span', { text: b || '' }));
+  const sliceEmpty = t => el('li', {}, el('p', { class: 'slice-empty', text: t }));
+  const STEP_TONE = { done: 'ok', in_progress: 'info', blocked: 'danger' };
+  // the plan: the session's own deck, else the deck in hand on the shared board — every step
+  let shared = null;
+  function ovPlan() {
+    const orchestrator = team && team.nodes.find(x => x.orchestrator);
+    const agents = [orchestrator ? orchestrator.name : '', ...((shared && shared.decks) || []).map(d => d.agent)].filter(Boolean);
+    const tryDeck = i => i >= agents.length ? Promise.resolve(null) : getJSON('api/plan?agent=' + encodeURIComponent(agents[i]))
+      .then(p => (p && !p.empty && (p.items || []).length ? p : tryDeck(i + 1))).catch(() => tryDeck(i + 1));
+    return tryDeck(0).then(p => {
+      const box = $('#ov-plan'), m = $('#plan');
+      if (!p) {
+        box.replaceChildren(sliceEmpty('no deck yet — a plan lands here as it is penned'));
+        $('#ov-plan-note').textContent = 'no deck yet';
+        sliceCount('plan', '');
+        m.hidden = true;
+        return;
+      }
+      const items = p.items, done = items.filter(i => i.status === 'done').length, pct = Math.round(100 * done / items.length);
+      box.replaceChildren(...items.map(it => sliceRow({ what: it.text, tone: STEP_TONE[it.status] || 'muted', live: it.status === 'in_progress', done: it.status === 'done',
+        end: it.status === 'blocked' ? 'blocked' : (it.who || ''), endName: it.status !== 'blocked', endTone: it.status === 'blocked' ? 'danger' : '' })));
+      $('#ov-plan-note').textContent = labelOf(p.agent) + ' · ' + done + '/' + items.length;
+      sliceCount('plan', done + '/' + items.length, items.some(i => i.status === 'blocked') ? 'danger' : '');
+      // the header's meter reads the same deck
+      m.hidden = false;
+      m.style.setProperty('--meter-value', pct + '%');
+      m.setAttribute('aria-valuenow', String(pct));
+      m.querySelector('.meter-label').textContent = 'plan ' + done + '/' + items.length;
+      m.dataset.level = items.some(i => i.status === 'blocked') ? 'warn' : '';
+    });
+  }
+  // the board: the open briefs on the shared queue, every deck, each member's last report
+  const QSTATE = { claimed: 'info', held: 'warn' };
+  function ovBoard() {
+    return getJSON('api/board').then(b => {
+      shared = b;
+      const q = b.queue || {}, rows = [];
+      rows.push(sliceHead('queue', q.reading && q.reading.Lit ? (q.held || 0) + ' held · ' + (q.claimed || 0) + ' claimed' : 'silent'));
+      if (!(q.items || []).length) rows.push(sliceEmpty(q.reading && q.reading.Lit ? 'no open work' : 'nothing ordered down yet'));
+      for (const it of q.items || []) rows.push(sliceRow({ who: it.state === 'claimed' && it.owner ? it.owner : it.for, what: it.ask, end: it.state + (it.rank ? ' · P' + it.rank : ''), endTone: QSTATE[it.state],
+        live: it.state === 'claimed', title: it.id + (it.from ? ' · from ' + it.from : '') + ' — ' + it.ask }));
+      rows.push(sliceHead('decks', String((b.decks || []).length)));
+      if (!(b.decks || []).length) rows.push(sliceEmpty('no deck penned'));
+      for (const d of b.decks || []) rows.push(sliceRow({ who: d.agent, what: d.current || (d.done === d.total ? 'done' : ''), end: d.done + '/' + d.total, endTone: d.blocked ? 'danger' : d.done === d.total ? 'ok' : '',
+        bar: d.total ? d.done / d.total : 0, live: d.done < d.total && !!d.current }));
+      rows.push(sliceHead('reports', String((b.reports || []).length)));
+      if (!(b.reports || []).length) rows.push(sliceEmpty('no report journaled'));
+      for (const r of b.reports || []) { const st = String(r.status || '').split(/\s/)[0]; rows.push(sliceRow({ who: r.as, what: r.ask, end: st, endTone: tone(st), title: r.at })); }
+      $('#ov-board').replaceChildren(...rows);
+      $('#ov-board-note').textContent = (q.held || 0) + (q.claimed || 0) + ' open · ' + (b.decks || []).length + ' decks';
+      sliceCount('board', String((q.held || 0) + (q.claimed || 0)), q.held ? 'warn' : '');
+    }).catch(() => { $('#ov-board').replaceChildren(sliceEmpty('the board is not readable here')); });
+  }
+  // the files: every path a tool wrote this session (the stream replays the session's own), newest first
+  const written = new Map();
+  let filesT = 0;
+  function filesTouch(path, body, cls) {
+    const prev = written.get(path);
+    written.delete(path);
+    written.set(path, { body, cls, at: Date.now(), n: (prev ? prev.n : 0) + 1 });
+    if (written.size > 200) written.delete(written.keys().next().value);
+    if (!filesT) filesT = requestAnimationFrame(ovFiles);
+  }
+  const ago = t => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.round(s / 60) + 'm' : Math.round(s / 3600) + 'h'; };
+  function ovFiles() {
+    filesT = 0;
+    const box = $('#ov-files');
+    const rows = [...written.entries()].reverse().slice(0, 40);
+    sliceCount('files', written.size ? String(written.size) : '');
+    if (!rows.length) { box.replaceChildren(sliceEmpty('nothing written yet this session')); $('#ov-files-note').textContent = 'written this session'; return; }
+    box.replaceChildren(...rows.map(([p, f]) => {
+      return sliceRow({ who: f.agent, what: p, end: ago(f.at) + (f.n > 1 ? ' · ×' + f.n : ''), endTone: f.cls === 'destructive' ? 'danger' : f.cls === 'outward' ? 'warn' : '', title: p });
+    }));
+    $('#ov-files-note').textContent = written.size + ' written this session';
   }
 
   // ---------- the cockpit: the console docks, folds and resizes ----------
@@ -985,21 +1086,6 @@
   treeEl.addEventListener('pointerover', ev => { const row = ev.target.closest('.tree-node'); if (row) net.hover(ownerOf(row.dataset.path)); });
   treeEl.addEventListener('pointerleave', () => net.hover(''));
   treeEl.addEventListener('focusin', ev => { const row = ev.target.closest('.tree-node'); if (row) net.hover(ownerOf(row.dataset.path)); });
-
-  // ---------- the plan's progress in the header ----------
-  function planMeter() {
-    getJSON('/api/plan').then(p => {
-      const m = $('#plan'), items = (p && (p.items || p.deck)) || [];
-      if (!items.length) { m.hidden = true; return; }
-      const done = items.filter(i => i.status === 'done').length;
-      const pct = Math.round(100 * done / items.length);
-      m.hidden = false;
-      m.style.setProperty('--meter-value', pct + '%');
-      m.setAttribute('aria-valuenow', String(pct));
-      m.querySelector('.meter-label').textContent = 'plan ' + done + '/' + items.length;
-      m.dataset.level = items.some(i => i.status === 'blocked') ? 'warn' : '';
-    }).catch(() => { $('#plan').hidden = true; });
-  }
 
   // ---------- relations: the matrix and its dimensions ----------
   function relations() {
@@ -1329,7 +1415,7 @@
     if (any) requestAnimationFrame(() => treeDecay(Date.now())); else decayOn = false;
   }
   function treeEvent(e) {
-    if (!e || !treeIdx) return;
+    if (!e) return;
     const cls = c => ['read', 'write', 'gate', 'outward', 'destructive'].includes(c) ? c : 'read';
     if (e.type === 'tool' || e.type === 'bodystep') {
       const t = e.tool || {};
@@ -1339,9 +1425,11 @@
       if (Array.isArray(t.wrote)) for (const w of t.wrote) if (typeof w === 'string') paths.add(w);
       if (t.diff && typeof t.diff.path === 'string' && t.diff.path) paths.add(t.diff.path);
       if (!paths.size) return;
+      if (t.status === 'done' || !t.status) for (const p of paths) filesTouch(p, body, cx);
+      if (!treeIdx) return;
       if (!treeDirty) { treeDirty = true; requestAnimationFrame(() => { treeDirty = false; [...paths].forEach(p => treeHeat(p, cx, body)); }); return; }
       [...paths].forEach(p => treeHeat(p, cx, body));
-    } else if (e.type === 'state' && e.tool) {
+    } else if (e.type === 'state' && e.tool && treeIdx) {
       requestAnimationFrame(() => treeHeat(e.tool, 'read', e.agent || ''));
     }
   }
@@ -1350,9 +1438,10 @@
   // the vendored faces arrive after the first layout: the net measures its labels again
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => netDraw());
   header(); setInterval(header, 1500);
-  loadValue().finally(() => { loadTeam(); metrics(); subagentPoll(); treeLoad(); });
+  loadValue().finally(() => { loadTeam().then(() => { ovBoard().finally(ovPlan); ovFiles(); }).catch(() => {}); metrics(); subagentPoll(); treeLoad(); });
   setInterval(subagentPoll, 2000); setInterval(metrics, 15000); setInterval(loadValue, 10000);
-  planMeter(); setInterval(planMeter, 15000);
+  ovFiles(); ovBoard().finally(ovPlan);
+  setInterval(() => { ovBoard().finally(ovPlan); }, 5000); setInterval(ovFiles, 30000);
   stream(); boardEvents();
   if (innerWidth >= 1024) field.focus({ preventScroll: true });
 })();

@@ -1,4 +1,4 @@
-/* @component shell — tokens: --ink, --weight-medium, --accent-hero, --second, --surface, --accent, --space-m, --space-s, --space-l, --space-2xs, --radius-pill, --line, --time, --ease, --surface-2, --shadow, --time-slow, --step--1, --ink-muted, --hairline. The dashboard's frame: header, view tabs, and the panel grid. The overview is a cockpit — the living net is the hero, the console docks beside it (a splitter resizes it, a button folds it to a rail), the timeline of subagents and verdicts sits under the net; narrow, they stack. The workspace's tabs (subagent, memory, toolbox, config, relations, metrics) each take the panel grid whole. The folder tree is a drawer over every view but its own (data-drawer on .shell opens it, a scrim closes it). .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
+/* @component shell — tokens: --ink, --weight-medium, --accent-hero, --second, --surface, --accent, --space-m, --space-s, --space-l, --space-2xs, --radius-pill, --line, --time, --ease, --surface-2, --shadow, --time-slow, --step--1, --ink-muted, --hairline. The dashboard's frame: header, view tabs, and the panel grid. The overview is a cockpit — the living net is the hero, the console docks beside it (a splitter resizes it, a button folds it to a rail), the slices sit under the net (the timeline of subagents and verdicts, the plan, the shared board, the files written), one at a time behind a switch with their counts; narrow, they stack. The workspace's tabs (subagent, memory, toolbox, config, relations, metrics) each take the panel grid whole. The folder tree is a drawer over every view but its own (data-drawer on .shell opens it, a scrim closes it). .shell is the size container, .shell-main the grid it rearranges (an element never queries itself). */
 @layer components {
   .shell {
     container-type: inline-size; display: grid; grid-template-rows: auto auto 1fr; min-block-size: 100vh; color: var(--ink); font-weight: var(--weight-medium);
@@ -20,12 +20,15 @@
     --shell-gap: var(--space-m);
     display: grid; gap: var(--shell-gap); padding: var(--space-s) var(--space-m) var(--space-l);
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "net" "timeline" "console";
+    grid-template-areas: "net" "timeline" "plan" "board" "files" "console";
     align-content: start; min-inline-size: 0;
   }
   .shell-main > [data-panel="console"] { grid-area: console; block-size: clamp(30rem, 78vh, 64rem); }
   .shell-main > [data-panel="net"] { grid-area: net; }
   .shell-main > [data-panel="timeline"] { grid-area: timeline; }
+  .shell-main > [data-panel="plan"] { grid-area: plan; }
+  .shell-main > [data-panel="files"] { grid-area: files; }
+  .shell-main > [data-panel="board"] { grid-area: board; }
   .shell-main > [data-panel="metrics"] { grid-area: metrics; }
   .shell-main > [data-panel="relations"] { grid-area: relations; }
   .shell-main > [data-panel="tree"] { grid-area: tree; }
@@ -34,6 +37,7 @@
   .shell-main > [data-panel="toolbox"] { grid-area: toolbox; }
   .shell-main > [data-panel="config"] { grid-area: config; }
   .shell-split { display: none; }
+  .shell-main > .slice-tabs { display: none; }
   .shell-dock { display: none; }
 
   /* the overview: the cockpit */
@@ -43,21 +47,30 @@
   .shell-main[data-view="overview"] > [data-panel="memory"],
   .shell-main[data-view="overview"] > [data-panel="toolbox"],
   .shell-main[data-view="overview"] > [data-panel="config"] { display: none; }
-  .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body { max-block-size: 22rem; }
+  .shell-main[data-view="overview"] > :is([data-panel="timeline"], [data-panel="plan"], [data-panel="files"], [data-panel="board"]) .panel-body { max-block-size: 22rem; overflow: auto; overscroll-behavior: contain; }
   @container (min-width: 64rem) {
     .shell-main[data-view="overview"] {
       --shell-dock-w: var(--shell-dock, 27rem);
       grid-template-columns: minmax(0, 1fr) auto minmax(0, var(--shell-dock-w));
-      grid-template-rows: minmax(0, 1fr) auto;
-      grid-template-areas: "net split console" "timeline split console";
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      grid-template-areas: "net split console" "slicetabs split console" "slice split console";
       column-gap: var(--space-2xs);
       block-size: calc(100vh - var(--shell-chrome, 7.5rem)); min-block-size: 34rem;
     }
     .shell-main[data-view="overview"] > [data-panel="console"] { block-size: auto; min-block-size: 0; }
     .shell-main[data-view="overview"] > [data-panel="net"] { min-block-size: 0; }
-    .shell-main[data-view="overview"] > [data-panel="timeline"] .panel-body { max-block-size: clamp(9rem, 100vh - 42rem, 18rem); }
-    /* in 3D the stage takes more of the room, the timeline still shows its newest rows */
-    .shell-main[data-view="overview"][data-net="3d"] > [data-panel="timeline"] .panel-body { max-block-size: clamp(8rem, 100vh - 46rem, 13rem); }
+    /* the slices under the net share one band: the switch picks the one shown (data-slice on the
+       grid); each is a short list that scrolls in its own box, its head and agent tightened */
+    .shell-main[data-view="overview"] > .slice-tabs { display: flex; grid-area: slicetabs; margin-block-end: calc(var(--shell-gap) * -0.5); }
+    .shell-main[data-view="overview"] > :is([data-panel="timeline"], [data-panel="plan"], [data-panel="files"], [data-panel="board"]) { grid-area: slice; }
+    .shell-main[data-view="overview"]:not([data-slice="plan"]) > [data-panel="plan"],
+    .shell-main[data-view="overview"]:not([data-slice="files"]) > [data-panel="files"],
+    .shell-main[data-view="overview"]:not([data-slice="board"]) > [data-panel="board"],
+    .shell-main[data-view="overview"]:not([data-slice="timeline"]) > [data-panel="timeline"] { display: none; }
+    .shell-main[data-view="overview"] > :is([data-panel="timeline"], [data-panel="plan"], [data-panel="files"], [data-panel="board"]) .panel-body { flex: none; block-size: clamp(7rem, 100vh - 46rem, 14rem); max-block-size: none; padding: var(--space-2xs) var(--space-s); }
+    .shell-main[data-view="overview"][data-net="3d"] > :is([data-panel="timeline"], [data-panel="plan"], [data-panel="files"], [data-panel="board"]) .panel-body { block-size: clamp(6rem, 100vh - 50rem, 10rem); }
+    .shell-main[data-view="overview"] > :is([data-panel="timeline"], [data-panel="plan"], [data-panel="files"], [data-panel="board"]) .panel-head { flex-wrap: nowrap; padding: var(--space-2xs) var(--space-s); }
+    .shell-main[data-view="overview"] > :is([data-panel="timeline"], [data-panel="plan"], [data-panel="files"], [data-panel="board"]) .panel-note { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shell-main[data-view="overview"] > .shell-split {
       display: block; grid-area: split; inline-size: var(--space-s); cursor: col-resize; position: relative; border-radius: var(--radius-pill); outline: none;
     }

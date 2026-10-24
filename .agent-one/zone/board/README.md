@@ -16,6 +16,7 @@
 - Names maps every word a page shows through the lexicon (DefaultNames); a new page word goes into Names, never literally into a template or dash.js.
 - `board/sources.go` reads the instruments: every figure carries a Reading (lit or silent, why); a silent or missing instrument renders as "silent since …" or "never lit", never as zero. Usage rollups treat a null usd as unpriced.
 - The team reads onto.Cached, so a poll with nothing moved on disk costs a stat walk, not a load.
+- The overview's slices (`web/components/slice`): under the net one band shows one slice at a time behind a switch (`#slice-tabs`, data-slice on the grid, remembered; each tab carries its count) — the timeline, the plan (the session's own deck, else the deck in hand on the shared board; the header's plan meter reads the same deck), the board (`/api/board`, board/shared.go: the shared queue's open briefs, every deck, each agent's last verdict — read-only, nothing sealed or moved) and the files written this session (the stream's tool events, the replay included); narrow, the slices stack. A slice row naming a member is a button that focuses its neuron. /api/plan's deck name is sanitized like the plan tool's file name (deckName).
 
 ## Verify
 - `go test ./board/`

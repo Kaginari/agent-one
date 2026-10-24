@@ -33,6 +33,7 @@ Read-only, and answered only to a loopback Host (a rebound DNS name cannot read 
 | `/api/memory/review` | `memory.Review` — each tier's facts and routed findings |
 | `/api/toolbox` | the registry's entries with their state (loaded · offered · idle), offers and loads; the instrument; the loads journal's newest 40 lines |
 | `/api/config` | the integrator's config tree (`{value, origin}` leaves), credentials redacted, and the off-list |
+| `/api/board` | the shared board: the shared queue's open items (claimed first, by rank; each brief one line, the wire's @-envelope dropped; at most 12) with its held, claimed and closed counts and its reading; every plan deck under `tmp/plans` with its done/total, blocked count and the step in hand (decks in hand first, at most 12; an empty deck is left off); each agent's last journaled verdict (at most 8). Nothing is sealed, moved or written by the read |
 
 ## Feeds
 
@@ -45,6 +46,7 @@ Read-only, and answered only to a loopback Host (a rebound DNS name cannot read 
 | `Config() any` | the effective config; rendered generically as a tree, a `{value, origin}` map is a leaf with its origin badge | silent |
 | `Off() []Off` | policy features disabled by config, with the origin | silent |
 | `Session() Session` | the running session | the last session in the usage journal |
+| `Shared() *SharedView` | the shared board `/api/board` serves | file-backed: `shared/queue.jsonl`, `tmp/plans/*.json`, the loop journal |
 | `Usage`, `Loop`, `Log`, `Team`, `Memory`, `Toolbox`, `Doc` | files: `instruments/usage/*.jsonl`, `instruments/loop/*.jsonl`, `log.md`, packages `onto`, `memory`, `toolbox` | file-backed |
 
 Every figure carries a `Reading` (source, last time, lit or silent, why). A silent or missing
@@ -52,7 +54,7 @@ instrument renders as "silent since …" or "never lit", never as zero.
 
 ## The usage journal
 
-Pairing line (2026-10-06): `/api/plan` reads the query key `agent` (not `deck`); FileSources populates `Plan` from `<workspaceDir>/tmp/plans/<body>.json` — a missing file or an empty `items` list returns `{"agent": name, "empty": true}` with 200, never an error status. dash.js fetches `/api/plan?agent=<id>` inside the net knowledge card to render the plan headlines.
+Pairing line (2026-10-06): `/api/plan` reads the query key `agent` (not `deck`); FileSources populates `Plan` from `<workspaceDir>/tmp/plans/<body>.json` (the name as the plan tool pens it: `/`, `\` and `:` become `-`, so no name climbs out) — a missing file or an empty `items` list returns `{"agent": name, "empty": true}` with 200, never an error status. dash.js fetches `/api/plan?agent=<id>` inside the net knowledge card to render the plan headlines.
 
 `<workspaceDir>/instruments/usage/<session>.jsonl`, one JSON object per provider call:
 
