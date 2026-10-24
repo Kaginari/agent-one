@@ -77,18 +77,18 @@ func TestShots(t *testing.T) {
 	shot("subagent-live", m.Render())
 	// slice 1: the pulse states, frozen mid-frame so the colour shows (the goldens strip it)
 	pulseShots := []string{
-		m.theme.Subagent(SubagentView{Name: "orchestrator", Rank: "orchestrator", Model: "kimi-3-conduit", State: "thinking", Elapsed: 28 * time.Second, Ask: "coordinate the files-panel slices"}, m.width,
+		m.theme.Subagent(SubagentView{Name: "orchestrator", Rank: "orchestrator", Model: "moonshotai/kimi-k3", State: "thinking", Elapsed: 28 * time.Second, Ask: "coordinate the files-panel slices"}, m.width,
 			Pulse{Lane: m.theme.lane("orchestrator"), Phase: 7}),
-		m.theme.Subagent(SubagentView{Name: "coord-agent-one", Rank: "coord", Model: "kimi-3-conduit", State: "thinking", Elapsed: 9 * time.Second, Ask: "weave the witness chain"}, m.width,
+		m.theme.Subagent(SubagentView{Name: "coord-agent-one", Rank: "coord", Model: "moonshotai/kimi-k3", State: "thinking", Elapsed: 9 * time.Second, Ask: "weave the witness chain"}, m.width,
 			Pulse{Lane: m.theme.lane("coord"), Phase: 3}),
 		m.theme.Subagent(SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Model: "glm-latest", State: "tool", Elapsed: 12 * time.Second, Ask: "land the token file"}, m.width,
 			Pulse{Lane: m.theme.lane("zone"), Phase: 3, Tool: "edit", Frames: []string{"⠋", "⠙", "⠹", "⠸"}}),
-		m.theme.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "glm-5-3-conduit", State: "waiting on gate", Elapsed: 31 * time.Second, Ask: "verdict on the import"}, m.width,
+		m.theme.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Role: "judge", Model: "z-ai/glm-5.3", State: "waiting on gate", Elapsed: 31 * time.Second, Ask: "verdict on the import"}, m.width,
 			Pulse{Lane: m.theme.lane("domain"), Phase: 9, Bob: 1.4}),
 		m.theme.Subagent(SubagentView{Name: "zone-auth", Rank: "zone", Model: "glm-latest", State: "done", Elapsed: 24 * time.Second, Ask: "land the token file",
 			Report: &ReportView{Status: "PASS", Findings: []string{"src/auth/token.go:1 token ttl is 15m", "src/auth/login.go:12 the session cookie is httpOnly"}}}, m.width,
 			Pulse{Lane: m.theme.lane("zone"), Flash: 0.9}),
-		m.theme.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Model: "glm-5-3-conduit", State: "done", Elapsed: 41 * time.Second, Failed: true, Exit: "FAIL", Ask: "verdict on the import",
+		m.theme.Subagent(SubagentView{Name: "domain-security", Rank: "domain", Model: "z-ai/glm-5.3", State: "done", Elapsed: 41 * time.Second, Failed: true, Exit: "FAIL", Ask: "verdict on the import",
 			Report: &ReportView{Status: "FAIL — provider: HTTP 503", Holes: []string{"provider: HTTP 503 after 3 retries"}}}, m.width,
 			Pulse{Lane: m.theme.lane("domain"), Flash: 0.6}),
 	}
@@ -101,7 +101,7 @@ func TestShots(t *testing.T) {
 	m2.Update(EvSubagent{Subagent: SubagentView{Name: "zone-auth", Rank: "zone", Role: "analyst", Model: "glm-latest", State: "tool", Ask: "land the token file"}})
 	m2.pulses["coord-agent-one"].active = time.Now()
 	m2.pulses["zone-auth"].active = time.Now()
-	m2.footer = FooterView{Model: "kimi-3-conduit", Ctx: "ctx 42%", Cost: "$0.0123", Workspace: "/w", CtxPct: 42, CtxKnown: true, Zone: "NEAR", Tokens: 15420}
+	m2.footer = FooterView{Model: "moonshotai/kimi-k3", Ctx: "ctx 42%", Cost: "$0.0123", Workspace: "/w", CtxPct: 42, CtxKnown: true, Zone: "NEAR", Tokens: 15420}
 	shot("panes", m2.Render())
 	m.openAgents()
 	shot("agents", m.Render())

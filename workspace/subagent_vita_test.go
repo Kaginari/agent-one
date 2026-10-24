@@ -9,11 +9,12 @@ import (
 // climbs, an out-of-ladder or topmost lane holds (no silent mutation, no invention).
 func TestLaneUp(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
-		{"openai/muse-glimmer-30b", "openai/kimi-3-conduit"},
-		{"openai/kimi-3-conduit", "openai/glm-5-3-conduit"},
-		{"openai/glm-5-3-conduit", ""},                       // peak: split, don't mutate past it
-		{"openai/some-future-model", ""},                     // off-ladder: advice belongs to config, not to the ladder
-		{"litellm/kimi-3-conduit", "openai/glm-5-3-conduit"}, // machine-config naming resolves
+		{"openai/meta/muse-glimmer-30b", "openai/moonshotai/kimi-k3"},
+		{"openai/moonshotai/kimi-k3", "openai/z-ai/glm-5.3"},
+		{"openai/z-ai/glm-5.3", ""},                              // peak: split, don't mutate past it
+		{"openai/some-future-model", ""},                         // off-ladder: advice belongs to config, not to the ladder
+		{"openrouter/moonshotai/kimi-k3", "openai/z-ai/glm-5.3"}, // machine-config naming resolves
+		{"moonshotai/kimi-k3", ""},                               // a bare vendor/model is no lane: the provider part is missing
 	} {
 		if got := laneUp(c.in); got != c.want {
 			t.Errorf("laneUp(%q) = %q, want %q", c.in, got, c.want)

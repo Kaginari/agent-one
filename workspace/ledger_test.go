@@ -22,7 +22,7 @@ func TestLedgersSurviveRestarts(t *testing.T) {
 	}
 	// death memo + write attribution: noted the same way the real mutations do
 	w.mu.Lock()
-	w.ledgerNote(ledgerRow{Kind: "death", Agent: "zone-auth", Lane: "glm-5-3-conduit"})
+	w.ledgerNote(ledgerRow{Kind: "death", Agent: "zone-auth", Lane: "openai/z-ai/glm-5.3"})
 	w.ledgerNote(ledgerRow{Kind: "subagentWrite", Agent: "zone-auth", Path: ".agent-one/zone/auth/README.md", Writer: "zone-auth"})
 	w.mu.Unlock()
 
@@ -34,7 +34,7 @@ func TestLedgersSurviveRestarts(t *testing.T) {
 		if w2.stress["domain-security"] == 0 || w2.consults["domain-security"] == 0 {
 			t.Fatalf("strain/consults did not replay: %+v %+v", w2.stress, w2.consults)
 		}
-		if w2.stressDeaths["zone-auth"].Lane != "glm-5-3-conduit" {
+		if w2.stressDeaths["zone-auth"].Lane != "openai/z-ai/glm-5.3" {
 			t.Fatalf("the death memo did not replay: %+v", w2.stressDeaths)
 		}
 		if cw := w2.subagentWrites["zone-auth"][normRel(".agent-one/zone/auth/README.md")]; cw.Writer != "zone-auth" {

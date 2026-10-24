@@ -27,18 +27,22 @@ type stressEnd struct {
 // allocation as the hole instead. Tuned by hand, kept short on purpose — the harness only
 // nags within the ladder, never invents a lane.
 // Lane names on the wire are provider-prefixed the way Provider.n stamps them
-// ("openai/muse-glimmer-30b"): the ladder lives in the same form the journal sees it.
+// ("openai/meta/muse-glimmer-30b"): the ladder lives in the same form the journal sees it.
+// The rungs are OpenRouter model ids; the model part keeps its own vendor slash.
 var laneLadder = []string{
-	"openai/muse-glimmer-30b",
-	"openai/kimi-3-conduit",
-	"openai/glm-5-3-conduit",
+	"openai/meta/muse-glimmer-30b",
+	"openai/moonshotai/kimi-k3",
+	"openai/z-ai/glm-5.3",
 }
 
 // laneIndex is ladder position; -1 when the lane is unknown (the policy then leaves the
-// mutation to the workspace config as pinned).
+// mutation to the workspace config as pinned). Lanes match on the model part, after the first
+// slash: the engine-cased form ("openai/x") and the machine-config form ("openrouter/x")
+// name the same rung.
 func laneIndex(l string) int {
+	_, m, _ := strings.Cut(l, "/")
 	for i, v := range laneLadder {
-		if v == l {
+		if _, vm, _ := strings.Cut(v, "/"); vm == m {
 			return i
 		}
 	}
@@ -47,11 +51,9 @@ func laneIndex(l string) int {
 
 // laneUp gives the preferred next lane, or "" when the dying lane is out-of-ladder or
 // already at its ceiling (then the advice is to split the ask, not to mutate).
-// Both engine-cased forms ("openai/x") and machine-config forms ("litellm/x") ladder match:
-// provider/mount differences don't deny the policy.
+// Provider/mount differences don't deny the policy (laneIndex matches the model part).
 func laneUp(l string) string {
-	norm := strings.Replace(l, "litellm/", "openai/", 1)
-	i := laneIndex(norm)
+	i := laneIndex(l)
 	if i < 0 || i+1 >= len(laneLadder) {
 		return ""
 	}

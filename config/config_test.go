@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -241,8 +242,12 @@ func TestExampleJSONYAMLEquivalent(t *testing.T) {
 		if lo := c.Loosenings(); len(lo) != 1 || !strings.Contains(lo[0], "allow bash:git push*") {
 			t.Errorf("loosenings: %v", lo)
 		}
-		if p, ok := c.PriceFor("litellm/kimi-3-conduit"); !ok || p.Cost(1000000, 100000, 0, 0) != 1.4 {
+		if p, ok := c.PriceFor("openrouter/z-ai/glm-5.3"); !ok || math.Abs(p.Cost(1000000, 100000, 0, 0)-0.22) > 1e-9 {
 			t.Errorf("price: %v %v", p, ok)
+		}
+		// an OpenRouter ref carries the vendor's slash inside the model: the provider is the first segment only
+		if m, _ := c.ResolveModel("", "", "", ""); m.Provider != "openrouter" || m.ID != "z-ai/glm-5.3" || m.Entry == nil || m.Entry.Type != "openai" {
+			t.Errorf("default model: %+v", m)
 		}
 		if _, ok := c.PriceFor("vllm/meta-llama/Llama-3.1-70B-Instruct"); ok {
 			t.Error("unpriced model priced")

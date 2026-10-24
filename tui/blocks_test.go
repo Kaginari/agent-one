@@ -116,7 +116,7 @@ func TestBlocksGolden(t *testing.T) {
 		// tripwire and rendering pinned here)
 		// the right rail's cards (third-of-window proportioning; the fixture rides 36 wide)
 		{"rail", func(w int) string {
-			return th.Rail(RailView{Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 42, CtxKnown: true, CtxMax: "128k", Tokens: 15420, Cost: "$0.0123",
+			return th.Rail(RailView{Workspace: "agent-one", Model: "moonshotai/kimi-k3", CtxPct: 42, CtxKnown: true, CtxMax: "128k", Tokens: 15420, Cost: "$0.0123",
 				Layers: []RailLayer{{Rank: "orchestrator", Tokens: 8210, Lane: th.lane("orchestrator")}, {Rank: "coord", Tokens: 2301, Lane: th.lane("coord")}, {Rank: "domain", Tokens: 3302, Lane: th.lane("domain")}, {Rank: "zone", Tokens: 1607, Lane: th.lane("zone")}},
 				Files:  []RailFile{{Path: "tui/blocks.go", Agent: "zone-tui", Lane: th.lane("zone")}, {Path: "tui/model.go", Agent: "orchestrator", Lane: th.lane("orchestrator")}, {Path: "tui/legacy.go", Agent: "mystery"}},
 				Subagents: []RailSubagent{
@@ -126,7 +126,7 @@ func TestBlocksGolden(t *testing.T) {
 				}}, 36)
 		}},
 		{"rail-plan", func(w int) string {
-			return th.Rail(RailView{Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 42, CtxKnown: true, Tokens: 15420, Cost: "$0.0123",
+			return th.Rail(RailView{Workspace: "agent-one", Model: "moonshotai/kimi-k3", CtxPct: 42, CtxKnown: true, Tokens: 15420, Cost: "$0.0123",
 				Plan: &RailPlan{Agent: "coord-agent-one", Rank: "coord", Lane: th.lane("coord"), Items: []RailPlanItem{
 					{Text: "Coordinate the files-panel slices", Status: "in_progress"},
 					{Text: "Land the token file", Status: "done"},
@@ -139,7 +139,7 @@ func TestBlocksGolden(t *testing.T) {
 		}},
 		{"rail-mascot", func(w int) string {
 			art, _ := Mascot("agent-one")
-			return th.Rail(RailView{Mascot: art, Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 87, CtxKnown: true, Stress: true, Zone: "NEAR", Tokens: 15420,
+			return th.Rail(RailView{Mascot: art, Workspace: "agent-one", Model: "moonshotai/kimi-k3", CtxPct: 87, CtxKnown: true, Stress: true, Zone: "NEAR", Tokens: 15420,
 				Files:     []RailFile{{Path: "tui/blocks.go", Lane: th.lane("zone")}},
 				Subagents: []RailSubagent{{Name: "coord-agent-one", State: "thinking", Aged: "1m12s", Lane: th.lane("coord")}, {Name: "zone-auth", State: "done", Done: true, Lane: th.lane("zone")}},
 			}, 36)
@@ -218,7 +218,7 @@ func TestBlocksGolden(t *testing.T) {
 				Options: []string{"Yes", "Yes, and don't ask again for bash:git push*", "No, and tell the model why"}, Cursor: 0}, w)
 		}},
 		{"depth-rail", func(w int) string {
-			return thD.Rail(RailView{Workspace: "agent-one", Model: "kimi-3-conduit", CtxPct: 42, CtxKnown: true, CtxMax: "128k", Tokens: 15420, Cost: "$0.0123",
+			return thD.Rail(RailView{Workspace: "agent-one", Model: "moonshotai/kimi-k3", CtxPct: 42, CtxKnown: true, CtxMax: "128k", Tokens: 15420, Cost: "$0.0123",
 				Plan:      &RailPlan{Agent: "coord-agent-one", Rank: "coord", Lane: thD.lane("coord"), Items: []RailPlanItem{{Text: "Coordinate the files-panel slices", Status: "in_progress"}, {Text: "Land the token file", Status: "done"}}},
 				Files:     []RailFile{{Path: "tui/blocks.go", Lane: thD.lane("zone")}},
 				Subagents: []RailSubagent{{Name: "coord-agent-one", State: "thinking", Aged: "1m12s", Lane: thD.lane("coord")}, {Name: "zone-auth", State: "done", Done: true, Lane: thD.lane("zone")}}}, 36)

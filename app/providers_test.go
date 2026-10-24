@@ -278,7 +278,7 @@ func TestFinishReasonErrorFallsBack(t *testing.T) {
 	}
 	// a missing model group on the gateway (HTTP 404) IS the fallback's purpose: availability —
 	// the secondary rides on (2026-09-28: the bench workspace ran domain owner verdicts on a 404ing group)
-	if !retryable(fmt.Errorf("openai: HTTP 404: model group glm-5-conduit not found")) {
+	if !retryable(fmt.Errorf("openai: HTTP 404: model group z-ai/glm-5 not found")) {
 		t.Fatal("a gateway 404 on the primary must move the call to the fallback")
 	}
 }

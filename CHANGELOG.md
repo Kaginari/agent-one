@@ -109,6 +109,12 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **The example config and the subagent's model ladder name OpenRouter models.** The full example
+  (`config/testdata/example.yaml` and `.json`) routes through an `openrouter` provider
+  (`https://openrouter.ai/api/v1`, key in `OPENROUTER_API_KEY`) with real model ids such as
+  `openrouter/z-ai/glm-5.3`, and the next-fit ladder a subagent climbs after a clock death is
+  `meta/muse-glimmer-30b` → `moonshotai/kimi-k3` → `z-ai/glm-5.3`, matched whatever provider
+  name a lane carries.
 - **The policy says whose a member's seat is.** `AGENT-ONE.md`'s review gate now states what the
   harness already does: a member's own directory stays its own under a broader ownership claim, an
   edit there owes no other member's doc, and the parent that provisions a member may write its

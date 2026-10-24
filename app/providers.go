@@ -168,7 +168,7 @@ func (p *Providers) build(name, id, effort string) (provider.Provider, error) {
 	case "openai":
 		// ProviderKey honors the literal when the env var is unset or undeclared —
 		// the machine-local/headless escape. Reaching for it only under APIKeyEnv
-		// sent an empty Bearer whenever the literal was the only key (conduit 401).
+		// sent an empty Bearer whenever the literal was the only key (a gateway 401).
 		key, err := e.ProviderKey(p.Env)
 		if err != nil {
 			return nil, err

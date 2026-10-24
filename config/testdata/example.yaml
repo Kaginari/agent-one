@@ -1,32 +1,31 @@
 # .agent-one/config.yaml — a full project file. The same document in JSON is example.json.
 #
-# The mounts live on the conduit proxy (litellm-docker.config.yaml :4000): glm-5-3-conduit,
-# kimi-3-conduit, nemotron-3-super-120b-conduit. Every lane pinned two deep; no gemma.
+# The lanes ride OpenRouter, an OpenAI-compatible gateway; every lane is pinned two deep.
 models:
-  default: litellm/glm-5-3-conduit             # the mount: the human's choice, never routed
+  default: openrouter/z-ai/glm-5.3              # the mount: the human's choice, never routed
   roles:                                      # the subagent triad; tiers must not descend
-    analyst: litellm/nemotron-3-super-120b-conduit  # analyst:
-    judge: litellm/kimi-3-conduit                    # judge:
-    drafter: {model: litellm/kimi-3-conduit, effort: high, fallback: litellm/glm-5-3-conduit} # drafter:
+    analyst: openrouter/nvidia/nemotron-3-super-120b-a12b  # analyst:
+    judge: openrouter/moonshotai/kimi-k3                   # judge:
+    drafter: {model: openrouter/moonshotai/kimi-k3, effort: high, fallback: openrouter/z-ai/glm-5.3} # drafter:
   members:
-    zone-changelog: litellm/nemotron-3-super-120b-conduit  # a genuinely mechanical zone
+    zone-changelog: openrouter/nvidia/nemotron-3-super-120b-a12b  # a genuinely mechanical zone
   tasks:
-    log: litellm/nemotron-3-super-120b-conduit
+    log: openrouter/nvidia/nemotron-3-super-120b-a12b
     bench: vllm/meta-llama/Llama-3.1-70B-Instruct
 smallModel: ollama/qwen2.5:7b
 
 providers:
-  litellm:
+  openrouter:
+    enabled: true
     type: openai
-    baseURL: http://127.0.0.1:4000/v1
-    apiKeyEnv: LITELLM_API_KEY
+    baseURL: https://openrouter.ai/api/v1
+    apiKeyEnv: OPENROUTER_API_KEY              # the key lives in the environment, never here
     timeout: 10m
     toolCalls: native
-    contextWindow: auto                        # read from /v1/models max_model_len
     models:                                     # price: USD per 1M tokens; absent = unpriced
-      nemotron-3-super-120b-conduit: {tier: 1, contextWindow: 131072, price: {input: 0.2, output: 1}}
-      kimi-3-conduit: {tier: 2, contextWindow: 262144, price: {input: 1, output: 4}}
-      glm-5-3-conduit: {tier: 3, contextWindow: 262144, price: {input: 2, output: 8}}
+      nvidia/nemotron-3-super-120b-a12b: {tier: 1, contextWindow: 262144, price: {input: 0.3, output: 2.4}}
+      moonshotai/kimi-k3: {tier: 2, contextWindow: 1048576, price: {input: 0.24, output: 10.8}}
+      z-ai/glm-5.3: {tier: 3, contextWindow: 1048576, price: {input: 0.08, output: 1.4}}
   ollama: {enabled: true}
   vllm:                                         # a hosted vLLM is an openai-compatible endpoint
     type: openai

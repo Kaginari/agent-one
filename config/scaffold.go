@@ -82,7 +82,7 @@ func init() {
 # providers — where the models are (the VALUE of the providers section: no wrapper key).
 # Keys are named, never written: apiKeyEnv holds a variable's NAME, never the secret.
 #   anthropic: { enabled: false }
-#   gateway:                        # the conduit front-door — any OpenAI-compatible endpoint is type: openai
+#   gateway:                        # a front door — any OpenAI-compatible endpoint is type: openai
 #     enabled: true
 #     type: openai
 #     baseURL: https://gateway.example.com/v1/

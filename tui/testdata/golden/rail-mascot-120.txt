@@ -1,5 +1,5 @@
         ▀▀         agent-one        
-    █▀▀▀▀▀▀▀▀█     kimi-3-conduit   
+    █▀▀▀▀▀▀▀▀█     moonshotai/kimi… 
     ██▀▀██▀▀██     ○ idle           
     ▀▀█▀▀▀▀█▀▀                      
 ─ vitals ───────────────────────────
