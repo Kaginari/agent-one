@@ -258,12 +258,13 @@ func (w *Workspace) Close(e *loop.Engine) {
 // audit — the "orchestrator flails 3 refused hops" shape).
 func (w *Workspace) stratTargets(parent *loop.Engine, opt SubagentOptions) string {
 	var ok []string
-	for _, c := range append(append([]Member{}, w.Members...), w.Foreign...) {
+	for _, c := range w.roster() {
 		c := c
 		if c.Name == parent.As {
 			continue
 		}
-		if w.mayDispatch(parent.As, &c, opt) == nil {
+		// faithful: exactly what preflight would accept — the dispatch policy and the coded verdict
+		if w.mayOrder(parent.As, &c, opt) == nil {
 			ok = append(ok, c.Name)
 		}
 	}
@@ -273,19 +274,96 @@ func (w *Workspace) stratTargets(parent *loop.Engine, opt SubagentOptions) strin
 	return strings.Join(ok, ", ")
 }
 
-// lineOf is a member's Reports-to chain, nearest first, ending at orchestrator (or where the chain
-// breaks: a parent off the roster, a doc naming none).
+// roster is a copy of the roster (the docs' members and the foreign agents, once each), taken
+// under the lock: a self-heal may swap the roster while a refusal is being written.
+func (w *Workspace) roster() []Member {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]Member(nil), w.Members...)
+}
+
+// lineOf is a member's Reports-to chain on the living roster, nearest first, ending at orchestrator
+// or where the chain breaks: a doc naming none, or a hop no living member holds (lineBreak).
 func (w *Workspace) lineOf(name string) []string {
-	var line []string
+	line, _ := w.lineage(name)
+	return line
+}
+
+// lineage is lineOf and the hop the chain broke at ("" when it reached orchestrator or a doc named
+// none): a Reports-to hop resolves against the living chain — a retired seat through its heir
+// (the roster resolves it), and a name nothing living holds ends the line there, unnamed in it.
+func (w *Workspace) lineage(name string) (line []string, broken string) {
 	seen := map[string]bool{name: true}
-	for cur := w.Member(name); cur != nil && cur.Parent != "" && !seen[cur.Parent]; cur = w.Member(cur.Parent) {
-		seen[cur.Parent] = true
-		line = append(line, cur.Parent)
-		if cur.Parent == Orchestrator {
-			break
+	for cur := w.Member(name); cur != nil && cur.Parent != "" && !seen[cur.Parent]; {
+		up := cur.Parent
+		seen[up] = true
+		if up == Orchestrator {
+			return append(line, up), ""
+		}
+		next := w.Member(up)
+		if next == nil || next.Name != up {
+			return line, up
+		}
+		line = append(line, up)
+		cur = next
+	}
+	return line, ""
+}
+
+// routeTo is the lawful dispatch path from `from` to cr, verified hop by hop against the
+// dispatch policy — never a guess. The nearest member of cr's line that `from` may order itself
+// is commissioned and orders down; else the need is carried up with @? to where the two lines
+// meet and ordered down from there. A hop the policy refuses, or a line that breaks before the
+// lines meet, is said as it is.
+func (w *Workspace) routeTo(from string, cr *Member, opt SubagentOptions) string {
+	line, broken := w.lineage(cr.Name)
+	chain := append([]string{cr.Name}, line...) // target first, up to orchestrator
+	// down proves chain[i] ordering down, hop by hop, to the target
+	down := func(i int) (string, error) {
+		hops := []string{}
+		for j := i; j >= 0; j-- {
+			hops = append(hops, chain[j])
+		}
+		for j := 0; j+1 < len(hops); j++ {
+			next := w.Member(hops[j+1])
+			if next == nil {
+				return "", fmt.Errorf("%s is off the roster", hops[j+1])
+			}
+			if err := w.mayDispatch(hops[j], next, opt); err != nil {
+				return "", fmt.Errorf("%s may not order %s: %v", hops[j], hops[j+1], err)
+			}
+		}
+		return strings.Join(hops, " → "), nil
+	}
+	for i := 1; i < len(chain); i++ {
+		if c := w.Member(chain[i]); c != nil && chain[i] != from && w.mayDispatch(from, c, opt) == nil {
+			if path, err := down(i); err == nil {
+				return "lawful route: commission " + chain[i] + ", which orders down (" + path + ")"
+			}
 		}
 	}
-	return line
+	mine, myBreak := w.lineage(from)
+	up := append([]string{from}, mine...)
+	for k, u := range up {
+		for i, c := range chain {
+			if c != u {
+				continue
+			}
+			path, err := down(i)
+			if err != nil {
+				return "no lawful route verified: " + err.Error() + " — escalate with @? and let the human route it"
+			}
+			return "lawful route: carry it up with @? (" + strings.Join(up[:k+1], " → ") + "), then " + path
+		}
+	}
+	why := "the two lines never meet"
+	switch {
+	case broken != "":
+		why = cr.Name + "'s line breaks at " + broken
+	case myBreak != "":
+		why = "your own line breaks at " + myBreak
+	}
+	return "no lawful route verified: " + why + " — escalate with @? and let the human route it"
 }
 
 // mayDispatch is the dispatch policy for one commission, nil when `from` may order `cr`:
@@ -318,7 +396,7 @@ func (w *Workspace) mayDispatch(from string, cr *Member, opt SubagentOptions) er
 	if opt.OpenLineage {
 		return nil
 	}
-	line := w.lineOf(cr.Name)
+	line, broken := w.lineage(cr.Name)
 	at := -1
 	for i, p := range line {
 		if p == from {
@@ -326,11 +404,14 @@ func (w *Workspace) mayDispatch(from string, cr *Member, opt SubagentOptions) er
 			break
 		}
 	}
+	if len(line) == 0 && broken != "" {
+		return fmt.Errorf("%s may not dispatch %s: its line breaks at %s, which no living member holds (retired with no heir, or never provisioned) — only orchestrator may commission it until its doc (%s) names a live one hop up", from, cr.Name, broken, or(cr.Doc, "none"))
+	}
 	if len(line) == 0 {
 		return fmt.Errorf("%s may not dispatch %s: its doc (%s) names no Reports to, so its line is unknown — only orchestrator may commission it until its doc names its one hop up", from, cr.Name, or(cr.Doc, "none"))
 	}
 	if at < 0 {
-		return fmt.Errorf("%s is not in your line: it reports to %s (%s → %s) — %s commissions it; carry the need up with @? so the line above routes it there (tools.dispatch.lineage)", cr.Name, line[0], cr.Name, strings.Join(line, " → "), line[0])
+		return fmt.Errorf("%s is not in your line: it reports to %s (%s → %s) — %s commissions it; %s (tools.dispatch.lineage)", cr.Name, line[0], cr.Name, strings.Join(line, " → "), line[0], w.routeTo(from, cr, opt))
 	}
 	if opt.StrictFlow && at > 0 {
 		return fmt.Errorf("%s reports to %s, not to you: strict flow crosses one layer at a time — commission %s and let it order %s", cr.Name, line[0], line[0], cr.Name)
@@ -369,16 +450,33 @@ func (w *Workspace) preflight(parent *loop.Engine, b Build, name string) (*Membe
 	if err := w.mayDispatch(parent.As, cr, b.Subagent); err != nil {
 		return nil, fmt.Errorf("%v. Dispatchable from you: %s", err, w.stratTargets(parent, b.Subagent))
 	}
-	// Domain owner TDD as code (Policy 3 + Operator decree 2026-09-30): a gate holder dispatching an
-	// authoring zone worker must first have coded that zone worker's verify lines on its README — the
-	// verdict the gate will run exists BEFORE the work is ordered, never written in the same
-	// breath. Fires when the dispatcher's rank HoldsGate and the target's rank Authors.
-	targetRank, _ := w.Ranks.Get(cr.Rank)
-	meRank, _ := w.Ranks.Get(w.RankOf(parent.As).Name)
-	if targetRank.Authors && meRank.HoldsGate && !w.verifyCodedNow(cr) {
-		return nil, fmt.Errorf("%s (%s) has no Verify line coded — the domain owner writes the zone worker's verdict BEFORE the order (TDD per Policy 3, the operator's decision of 2026-09-30). Add a non-trivial line in %s (front-matter verify:, or a `- `<cmd>`` bullet under ## Verify), then dispatch again", cr.Name, cr.Rank, cr.Doc)
+	if err := w.verdictCoded(parent.As, cr); err != nil {
+		return nil, err
 	}
 	return cr, nil
+}
+
+// mayOrder is all the policy preflight holds an order to once the agent is on the roster: the
+// dispatch policy and the coded verdict. The refusal's list of lawful targets reads it, so it
+// never names an agent the order would then be refused for.
+func (w *Workspace) mayOrder(from string, cr *Member, opt SubagentOptions) error {
+	if err := w.mayDispatch(from, cr, opt); err != nil {
+		return err
+	}
+	return w.verdictCoded(from, cr)
+}
+
+// verdictCoded is Domain owner TDD as code (Policy 3 + Operator decree 2026-09-30): a gate holder dispatching
+// an authoring zone worker must first have coded that zone worker's verify lines on its README — the verdict
+// the gate will run exists BEFORE the work is ordered, never written in the same breath. Fires
+// when the dispatcher's rank HoldsGate and the target's rank Authors.
+func (w *Workspace) verdictCoded(from string, cr *Member) error {
+	targetRank, _ := w.Ranks.Get(cr.Rank)
+	meRank, _ := w.Ranks.Get(w.RankOf(from).Name)
+	if targetRank.Authors && meRank.HoldsGate && !w.verifyCodedNow(cr) {
+		return fmt.Errorf("%s (%s) has no Verify line coded — the domain owner writes the zone worker's verdict BEFORE the order (TDD per Policy 3, the operator's decision of 2026-09-30). Add a non-trivial line in %s (front-matter verify:, or a `- `<cmd>`` bullet under ## Verify), then dispatch again", cr.Name, cr.Rank, cr.Doc)
+	}
+	return nil
 }
 
 // MayOrder is the dispatch policy `from` would meet ordering agent — the same preflight its
@@ -394,7 +492,7 @@ func (w *Workspace) MayOrder(from, agent string, opt SubagentOptions) error {
 // The zone alone (`auth` for zone-auth) is no ghost: Member already resolves it.
 func (w *Workspace) nearMiss(ghost string) string {
 	best, bestD, tie := "", 3, false
-	for _, c := range append(append([]Member{}, w.Members...), w.Foreign...) {
+	for _, c := range w.roster() {
 		switch d := edits(ghost, c.Name); {
 		case d < bestD:
 			best, bestD, tie = c.Name, d, false

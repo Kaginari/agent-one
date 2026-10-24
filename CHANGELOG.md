@@ -97,6 +97,13 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **A refused order says how to get there.** When an agent may not order a member outside its
+  own line, the refusal now names a route that is checked step by step: the nearest member in
+  that line the agent may order itself, or up through its own managers to where the two lines
+  meet and back down. If no step-by-step route holds, it says so and hands the question to the
+  human instead of guessing. A member whose manager no longer exists is reported as such,
+  never named as the one to ask, and the list of members an agent may order leaves out anything
+  the order would then be refused for, and names each one once.
 - **The workspace notices docs that changed under it.** When another session, a checkout or a person
   edited a member's README, the running session kept its old picture until the next gate: it
   could still send work to a member that had been retired, or refuse a write the member had
