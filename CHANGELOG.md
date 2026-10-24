@@ -93,6 +93,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **An idle terminal stays idle.** With nothing running, the terminal now wakes only for the
+  sidebar mascot's blink instead of five times a second, and each redraw reuses every row that
+  did not change, so a session left open costs a small fraction of the CPU it did. Anything that
+  starts to move — a turn, a subagent, a toast, a question waiting on you — brings the full frame
+  rate back at once.
 - **Recall spreads its seats.** The memories handed to a model at each turn (and by the `recall`
   tool) now take at most two from any one file, so a long chronicle whose every entry matches no
   longer fills all five places and hides the one doc that answers. The `memory recall` command

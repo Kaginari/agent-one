@@ -97,5 +97,11 @@ type evSlashDone struct {
 	quit  bool
 }
 
-// evTick refreshes the footer and the spinner's elapsed reading.
-type evTick struct{ at time.Time }
+// evTick refreshes the footer and the spinner's elapsed reading. gen names the tick chain it
+// belongs to (0, a hand-sent tick, always counts); steps is how many 200ms frames it stands for
+// — one while the session moves, more when an idle chain sleeps to the zone worker's next blink.
+type evTick struct {
+	at    time.Time
+	gen   int
+	steps int
+}

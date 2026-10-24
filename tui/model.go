@@ -133,6 +133,9 @@ type Model struct {
 	shimmer   int         // the spinner verb's highlight, advanced with the spinner
 	railTick  int         // the sidebar's animation counter: the zone worker blinks on it (closed one tick in twelve)
 	blinkOn   bool
+	tickGen   int           // the live tick chain; a tick of an older chain dies where it lands
+	tickIdle  bool          // the chain sleeps: nothing moves, so it wakes only for the blink
+	nextTick  time.Duration // the delay the chain last asked for (the tests read it)
 	palette   *paletteState
 	pick      *themePick // the theme picker, open over the frame
 	// the cast (cast.go): the session's thinking as it arrives, every agent's log, the agent view
@@ -166,6 +169,7 @@ type Model struct {
 		first  bool
 		out    string
 	}
+	rowPaint rowMemo // the frame's painted rows by content (memo.go)
 	// the chat pane's viewport: transcript scrollback lives here while the panes own the
 	// window (pane_vp.go)
 	vp      viewport.Model
@@ -313,7 +317,8 @@ func (m *Model) Attach(send func(tea.Msg)) {
 // Init starts the ticks and the printer and asks the terminal for its background; the welcome
 // waits for the terminal's width, and briefly for that answer, so it is drawn in the right theme.
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textarea.Blink, tick(), m.printer}
+	m.tickGen = 1
+	cmds := []tea.Cmd{textarea.Blink, m.tickIn(1), m.printer}
 	if m.intro != nil {
 		cmds = append(cmds, introTick())
 	}
@@ -400,12 +405,54 @@ func (m *Model) printer() tea.Msg {
 	return nil
 }
 
-func tick() tea.Cmd {
-	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg { return evTick{at: t} })
+// tickStep is one frame of the tick: the cadence motion rides while anything moves.
+const tickStep = 200 * time.Millisecond
+
+// tickIn arms the chain's next tick steps frames away.
+func (m *Model) tickIn(steps int) tea.Cmd {
+	gen := m.tickGen
+	m.nextTick = time.Duration(steps) * tickStep
+	return tea.Tick(m.nextTick, func(t time.Time) tea.Msg { return evTick{at: t, gen: gen, steps: steps} })
 }
 
-// Update is the event loop.
+// lively reports whether anything on screen moves with the clock: a turn, a card waiting on
+// the human, a Subagent's row, a toast, a burst, a timed message, the board or the agents view.
+// An idle session has none, and its tick sleeps.
+func (m *Model) lively() bool {
+	return m.busy || m.choice != nil || len(m.subagentSeq) > 0 || len(m.toasts) > 0 || m.burstOn ||
+		m.message != "" || m.board != nil || m.bview != nil
+}
+
+// nextIdle is the sleeping chain's next wake, in frames: the zone worker's blink (closed one frame in
+// twelve) keeps its exact rhythm, so an idle session wakes twice a blink, not twelve times.
+func (m *Model) nextIdle() int {
+	if r := m.railTick % 12; r != 11 {
+		return 11 - r
+	}
+	return 1
+}
+
+// wake re-arms a sleeping chain at the frame rate the moment something starts to move: the
+// sleeping tick is orphaned (a new generation), never waited out.
+func (m *Model) wake() tea.Cmd {
+	if !m.tickIdle || !m.lively() {
+		return nil
+	}
+	m.tickIdle = false
+	m.tickGen++
+	return m.tickIn(1)
+}
+
+// Update is the event loop. Whatever the message set moving wakes a sleeping tick.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	mm, cmd := m.dispatch(msg)
+	if w := m.wake(); w != nil {
+		cmd = tea.Batch(cmd, w)
+	}
+	return mm, cmd
+}
+
+func (m *Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.settings != nil && m.board == nil && m.bview == nil {
 		cmd, handled := m.settingsUpdate(msg)
 		if handled {
@@ -491,12 +538,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case evTick:
+		if msg.gen != 0 && msg.gen != m.tickGen {
+			return m, nil // an orphaned chain: a wake armed a newer one
+		}
 		if len(m.toasts) > 0 {
 			m.stepToasts()
 		}
 		m.stepPulses(time.Now())
 		// the zone worker's blink: closed one tick in twelve
-		m.railTick++
+		m.railTick += max(msg.steps, 1)
 		m.blinkOn = m.railTick%12 == 11
 		// the flash sweep: a landed Subagent's row flashes in the live area for flashHold, then owes
 		// the scrollback exactly one tombstone — the tick that sees the flash spent prints it
@@ -524,7 +574,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.message != "" && time.Now().After(m.msgUntil) {
 			m.message = ""
 		}
-		return m, tea.Batch(append([]tea.Cmd{tick(), load}, lands...)...)
+		// the next frame: at the frame rate while anything moves, else asleep until the blink
+		next := 1
+		if m.tickIdle = !m.lively() && len(lands) == 0; m.tickIdle {
+			next = m.nextIdle()
+		}
+		return m, tea.Batch(append([]tea.Cmd{m.tickIn(next), load}, lands...)...)
 	case evPlans:
 		m.plansBusy = false
 		m.setPlans(msg.plans)
@@ -1040,7 +1095,7 @@ func (m *Model) railView(rw int) RailView {
 		v.MaxFiles = 5
 		v.MaxSubagents = 4
 	}
-	if art, _ := mascotArt(m.words.Dist, m.blinkOn); len(art) > 0 {
+	if art, _ := mascotArtMemo(m.words.Dist, m.blinkOn); len(art) > 0 {
 		// the sprite rides beside the vitals where the column is wide enough (no rows spent),
 		// above them on tall windows, not at all otherwise
 		if rw >= mascotWidth+2+18 || m.height >= 30 && rw >= mascotWidth {

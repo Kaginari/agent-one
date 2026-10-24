@@ -214,13 +214,15 @@ type railRow struct {
 func (m *Model) frame(l layout, header string, chat, input []string, rail []railRow, convAside, askTitle, askAside, status string) []string {
 	t := m.theme
 	b := t.border
-	g := func(s string) string { return b.Render(s) }
+	g := func(s string) string { return m.memoRow('g', 0, s, func() string { return b.Render(s) }) }
 	// the planes: identity when the depth is off
 	plane, sideP, headP := func(s string) string { return s }, func(s string) string { return s }, func(s string) string { return s }
 	if t.Depth {
 		d := t.dep
 		ground := d.ground.col()
-		g = func(s string) string { return gl(s, b.GetForeground(), ground) }
+		g = func(s string) string {
+			return m.memoRow('g', 0, s, func() string { return gl(s, b.GetForeground(), ground) })
+		}
 		pc, sc := d.plane.col(), d.side.col()
 		plane = func(s string) string { return paintBg(s, pc) }
 		sideP = func(s string) string { return paintBg(s, sc) }
@@ -234,11 +236,13 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 		headP = func(s string) string { return paint(s, func(x int) color.Color { return ramp[min(x, hw-1)] }) }
 	}
 	rule := func(w int, title, aside string) string {
-		r := t.rule(w, title, aside)
-		if t.Depth {
-			return paintBg(r, t.dep.ground.col())
-		}
-		return r
+		return m.memoRow('h', w, title+"\x00"+aside, func() string {
+			r := t.rule(w, title, aside)
+			if t.Depth {
+				return paintBg(r, t.dep.ground.col())
+			}
+			return r
+		})
 	}
 	rows := make([]string, 0, l.H-l.topY)
 	rows = append(rows, g("╭")+rule(l.W-2, "", "")+g("╮"))
@@ -294,16 +298,16 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 			if right == g("│") {
 				right = g("┤")
 			}
-			return g(div) + ruleText(t, row.text, l.rc) + right
+			return g(div) + m.memoRow('r', l.rc, row.text, func() string { return ruleText(t, row.text, l.rc) }) + right
 		}
 		div := "│"
 		if mainArm {
 			div = "┤"
 		}
 		if t.Depth {
-			return g(div) + sideP(" "+fit(row.text, l.rc-1)) + right
+			return g(div) + m.memoRow('s', l.rc, row.text, func() string { return sideP(" " + fit(row.text, l.rc-1)) }) + right
 		}
-		return g(div) + sideP(" "+fit(row.text, l.rc-2)+" ") + right
+		return g(div) + m.memoRow('s', l.rc, row.text, func() string { return sideP(" " + fit(row.text, l.rc-2) + " ") }) + right
 	}
 	for i := 0; i < l.chat.H; i++ {
 		c := ""
@@ -314,7 +318,7 @@ func (m *Model) frame(l layout, header string, chat, input []string, rail []rail
 		if i < len(chatBar) {
 			pad = t.scrollGlyph(chatBar[i], planeBg)
 		}
-		rows = append(rows, g("│")+plane(" "+fit(c, l.chat.W))+pad+side(l.chat.Y+i, false))
+		rows = append(rows, g("│")+m.memoRow('c', l.chat.W, c, func() string { return plane(" " + fit(c, l.chat.W)) })+pad+side(l.chat.Y+i, false))
 	}
 	rows = append(rows, g("├")+rule(l.mc, askTitle, askAside)+side(l.inputSepY, true))
 	if l.well > 0 {
