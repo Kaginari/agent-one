@@ -671,6 +671,7 @@ func TestTUINestedDispatchStepsLandTheirSubagents(t *testing.T) {
 
 	subagents, _ := c.views()
 	var opens, reports int
+	var ups []string
 	for _, v := range subagents {
 		if v.Name != "domain-x" {
 			continue
@@ -683,6 +684,7 @@ func TestTUINestedDispatchStepsLandTheirSubagents(t *testing.T) {
 		}
 		if v.State == "done" && v.Report != nil {
 			reports++
+			ups = append(ups, v.Up)
 			if v.Exit != "PASSED" {
 				t.Fatalf("a DONE journal verdict must read PASSED on the card face, got %q", v.Exit)
 			}
@@ -690,6 +692,9 @@ func TestTUINestedDispatchStepsLandTheirSubagents(t *testing.T) {
 	}
 	if opens != 1 || reports != 2 {
 		t.Fatalf("opens %d, landed reports %d — want 1 open, 2 reports (parent's + session's): %+v", opens, reports, subagents)
+	}
+	if len(ups) != 2 || ups[0] != "coord-team" || ups[1] != workspace.Orchestrator {
+		t.Fatalf("a landed report names the agent one hop up (its dispatcher), got %q", ups)
 	}
 	var parentLogs, toolBlocks int
 	for _, m := range c.events() {

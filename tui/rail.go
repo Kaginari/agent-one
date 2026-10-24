@@ -216,6 +216,8 @@ func (t Theme) railRows(v RailView, rw int) []railRow {
 			}
 			var chip string
 			switch {
+			case c.Done && c.Hop:
+				chip = t.pillChip(t.warn.GetForeground(), "▲ "+word)
 			case c.Done && c.Failed:
 				chip = t.pillChip(t.bad.GetForeground(), "✗ "+word)
 			case c.Done:

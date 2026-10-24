@@ -491,6 +491,7 @@ type SubagentView struct {
 	Report   *ReportView
 	Failed   bool
 	Word     string // "subagent" | "subagent"
+	Up       string // the agent one hop up: the one that dispatched it ("" when unknown)
 	Expanded bool
 	started  time.Time
 }
@@ -839,6 +840,7 @@ type RailSubagent struct {
 	Lane   color.Color
 	Done   bool
 	Failed bool
+	Hop    bool // landed ESCALATE: the warn chip, not the bad one
 	Value  *RailValue
 }
 
@@ -1296,7 +1298,10 @@ func (t Theme) Footer(f FooterView, width int) string {
 			ctx += " " + t.bad.Render("stress")
 		}
 	}
-	parts = append(parts, t.accent.Render(f.Model), ctx, f.Cost)
+	parts = append(parts, t.accent.Render(f.Model), ctx)
+	if f.Cost != "" {
+		parts = append(parts, f.Cost) // no cost reading yet: no empty cell between the dots
+	}
 	if f.Live > 0 {
 		word := f.Subagents
 		if word == "" {

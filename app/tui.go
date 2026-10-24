@@ -746,7 +746,7 @@ func (h *tuiHost) observe(s *loop.Session, st *loop.StepRecord, phase string) {
 				if rep, ok := wire.ParseReport(st.Result.Output); ok {
 					var in struct{ Agent string }
 					_ = json.Unmarshal(st.Input, &in)
-					h.subagentReport(strings.ToLower(in.Agent), rep, st.Result.Err, st.Result.Output)
+					h.subagentReport(strings.ToLower(in.Agent), agent, rep, st.Result.Err, st.Result.Output)
 					if agent == workspace.Orchestrator {
 						// the session's dispatch step has no tool block of its own: the Subagent's card is it
 						return
@@ -873,14 +873,15 @@ func (h *tuiHost) state(agent, state string) {
 	h.send(tui.EvState{Agent: agent, State: state})
 }
 
-// subagentReport lands a Subagent's report as its block (foreground dispatch).
-func (h *tuiHost) subagentReport(agent string, rep wire.Report, failed bool, raw string) {
+// subagentReport lands a Subagent's report as its block (foreground dispatch); up is the agent that
+// dispatched it, the one hop up a loud verdict is addressed to.
+func (h *tuiHost) subagentReport(agent, up string, rep wire.Report, failed bool, raw string) {
 	h.mu.Lock()
 	started := h.subagentStart[agent]
 	delete(h.subagentSeen, agent)
 	delete(h.subagentStart, agent)
 	h.mu.Unlock()
-	v := tui.SubagentView{Name: agent, State: "done", Exit: exitVerdict(rep), Failed: failed, Word: h.words.Subagent, Report: reportView(rep)}
+	v := tui.SubagentView{Name: agent, State: "done", Exit: exitVerdict(rep), Failed: failed, Word: h.words.Subagent, Report: reportView(rep), Up: up}
 	if !started.IsZero() {
 		v.Elapsed = time.Since(started)
 	}
@@ -902,7 +903,7 @@ func (h *tuiHost) subagentFinished(name, report string) {
 	if !ok {
 		rep = wire.Report{Status: "DONE", Other: strings.Split(strings.TrimSpace(report), "\n")}
 	}
-	h.subagentReport(name, rep, strings.HasPrefix(rep.Status, "FAIL"), report)
+	h.subagentReport(name, "", rep, strings.HasPrefix(rep.Status, "FAIL"), report)
 }
 
 func reportView(rep wire.Report) *tui.ReportView {

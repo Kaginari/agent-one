@@ -8,6 +8,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **A subagent that escalates, fails or is denied says so loudly.** In the terminal, a subagent landing
+  ESCALATE, FAIL or DENIED now prints one bright line under its card naming the verdict, who sent
+  it and to whom (the member that dispatched it), and why — the first hole in its report. The
+  sidebar's subagent list shows that verdict instead of a green DONE.
 - **Traces for your observability stack.** Set `instruments.otlp` in your global config or
   `.agent-one/config.local.yaml` and every turn, subagent and tool call is sent as OpenTelemetry spans
   to the collector you name (OTLP over HTTP, so Jaeger, Grafana Tempo and any other OpenTelemetry

@@ -17,6 +17,7 @@
 - Value meters (`tui/rail.go`): FooterView carries Meters (cfg.Meters), Ranks, Values, Score and Promote; gauges band by meterDef/meterHue (never numbers of their own); the ranks tile shows value meters when any rank has a record, else each rank's token share; rankHue falls back to the family's lane for a custom rank.
 - Goldens live in `tui/testdata/golden` at 80 and 120 columns with escapes stripped; `go test ./tui/ -run TestBlocksGolden -args -goldens` rewrites them and the diff is looked at, not only accepted. TestShots writes ANSI frames only when TUI_SHOTS names a directory. A visual change refreshes the PNGs in `docs/screens/`.
 - The relay hold is visible: EvHeld{N} sets the model's held count (never reset by a turn's begin, unlike queued) and both footers (Footer, StatusBar) read "N held" beside "N queued" while it is above zero.
+- Loud one-hop-up line (`tui/hopup.go`): a Subagent landing ESCALATE, FAIL or DENIED (hopVerdict: its Exit, else its report's first @S word) prints HopUp under its card — the verdict on a filled chip (warn for ESCALATE, bad for the others), `name → Up` (SubagentView.Up, the dispatcher app.subagentReport names; empty for a background Subagent), the first hole or the status's why — one row; the toast says the same, and the sidebar's landed row holds the verdict (agentLog.exit, RailSubagent.Hop), never a bare DONE.
 
 ## Verify
 - `go test ./tui/`
