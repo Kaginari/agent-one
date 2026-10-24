@@ -633,7 +633,8 @@
   // net's stack (the legend, and the gaps between); 0 when the cockpit is not laid out (narrow,
   // or another view), and the net then takes the height it wants
   const netFit = () => {
-    if (main.dataset.view !== 'overview' || getComputedStyle($('#dock-split')).display === 'none') return 0;
+    const full = document.fullscreenElement && document.fullscreenElement.contains(netBox);
+    if (!full && (main.dataset.view !== 'overview' || getComputedStyle($('#dock-split')).display === 'none')) return 0;
     const cs = getComputedStyle(netAgent);
     const stack = netBox.parentElement;
     const others = stack.getBoundingClientRect().height - netBox.getBoundingClientRect().height;
@@ -722,6 +723,19 @@
     closeCard();
   }, true);
   $('#net-clear').addEventListener('click', () => setFocus(''));
+  // the net full screen: the panel takes the screen (the browser's Escape gives it back), the
+  // stage fits it, the card still opens over it
+  const fullBtn = $('#net-full');
+  if (document.fullscreenEnabled && netPanel.requestFullscreen) {
+    fullBtn.hidden = false;
+    fullBtn.addEventListener('click', () => { if (document.fullscreenElement) document.exitFullscreen(); else netPanel.requestFullscreen().catch(() => {}); });
+    document.addEventListener('fullscreenchange', () => {
+      const on = document.fullscreenElement === netPanel;
+      fullBtn.setAttribute('aria-pressed', String(on));
+      fullBtn.textContent = on ? 'Exit full screen' : 'Full screen';
+      requestAnimationFrame(() => { netDraw(); placeCard(); });
+    });
+  }
   $('#net-card').addEventListener('click', () => openCard(focus));
   // a short, stable code for a neuron's ID block: its kind, then four hex of its id's hash
   const idCode = n => {

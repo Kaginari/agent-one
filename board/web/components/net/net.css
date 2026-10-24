@@ -59,7 +59,18 @@
   /* the key: each rank's solid as a flat glyph in its colour, in the lexicon's words */
   .net-3d-key { position: absolute; z-index: 1; inset-block-start: var(--space-xs); inset-inline-start: var(--space-s); display: grid; gap: var(--space-3xs); pointer-events: none;
     font: var(--weight-medium) var(--step--2) var(--font-body); color: var(--ink-muted); text-transform: lowercase; }
-  .net-3d-key span { display: flex; align-items: center; gap: var(--space-2xs); }
+  .net-3d-key span, .net-3d-key button { display: flex; align-items: center; gap: var(--space-2xs); }
+  /* a rank's row is a plate: it takes the pointer though the key around it does not */
+  .net-3d-key button { pointer-events: auto; appearance: none; text-transform: inherit; border: var(--hairline) solid transparent; border-radius: var(--radius-pill); background: transparent; color: inherit; font: inherit; padding: 0 var(--space-2xs); margin-inline-start: calc(var(--space-2xs) * -1); cursor: pointer; text-align: start; }
+  .net-3d-key button:hover { border-color: color-mix(in oklch, var(--net-node) 45%, transparent); }
+  .net-3d-key button[aria-pressed="true"] { border-color: var(--net-node); background: color-mix(in oklch, var(--net-node) 16%, transparent); }
+  .net-3d-key button:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: 1px; }
+  /* a 2D column's head is its rank's plate */
+  .net-col-plate { cursor: pointer; outline: none; }
+  .net-col-plate rect { fill: transparent; stroke: transparent; stroke-width: 1.5; transition: fill var(--time) var(--ease); }
+  .net-col-plate:hover rect { fill: color-mix(in oklch, var(--net-node) 8%, transparent); }
+  .net-col-plate[aria-pressed="true"] rect { fill: color-mix(in oklch, var(--net-node) 14%, transparent); stroke: var(--net-node); }
+  .net-col-plate:focus-visible rect { stroke: var(--focus); stroke-width: 2; }
   .net-3d-key svg { inline-size: 1.1em; block-size: 1.1em; color: var(--net-node); fill: color-mix(in oklch, var(--net-node) 55%, transparent); stroke: var(--net-node); stroke-width: 1.4; }
   .net-3d-key ellipse { fill: none; }
   .net-3d-key svg use { fill: none; stroke-width: 2; }

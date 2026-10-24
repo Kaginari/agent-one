@@ -8,6 +8,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Light a whole rank on the dashboard's net, and take the net full screen.** Each rank's
+  heading in the 2D net, and each rank in the 3D net's key, is now a button: press it to light
+  every member of that rank and dim the rest; press again to let go. A Full screen button gives
+  the net the whole screen in either view; Escape brings it back.
 - **The dashboard's overview shows the plan, the shared board and the files written.** Under the
   neural net, a switch picks one of four slices: the timeline, the plan (your session's deck, step
   by step, or the one in hand), the board — the work waiting on the shared queue, every member's

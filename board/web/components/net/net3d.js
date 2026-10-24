@@ -463,7 +463,7 @@
     const RB = fbuf(14 * 4096), SB = fbuf(10 * 2048), SB2 = fbuf(10 * 2048);
 
     const st = {
-      m: null, nodes: new Map(), edges: [], holds: [], relates: [], regions: [], crown: null, focus: '', shown: '', lit: null, live: new Set(), hover: '',
+      m: null, nodes: new Map(), edges: [], holds: [], relates: [], regions: [], crown: null, focus: '', shown: '', rank: '', lit: null, live: new Set(), hover: '',
       yaw: 0.62, pitch: 0.26, dist: 10, dist0: 10, target: [0, 0, 0], goal: { target: [0, 0, 0], dist: 10 },
       run: false, raf: 0, last: 0, t: 0, spinT: 0, idleAt: performance.now(), pulses: [], flashes: new Map(), lights: new Map(), pal: null, dark: true, W: 1, H: 1, dpr: 1, VP: null,
       slow: 0, busy: new Set(), S: 4, A: [4, 3, 4], font: null, stars: null, dendrites: [], settle: 1, settleAt: 0, sig: '',
@@ -704,9 +704,18 @@
         else seenForms.push({ k, label, rank: q.d === -1 ? 'skill:shared' : q.n.rank || 'plain', crown: q.form[1], d: q.d, n: 1 });
       }
       seenForms.sort((a, b) => (a.d < 0 ? 99 : a.d) - (b.d < 0 ? 99 : b.d));
+      // a rank's row is its plate: one press lights every member of the rank (skills are no rank)
       key.replaceChildren(...seenForms.map(s => {
-        const sp = el('span');
+        const rank = s.k !== 'skill' && s.rank !== 'orchestrator' && opts.onRank;
+        const sp = el(rank ? 'button' : 'span');
         sp.dataset.rank = s.rank;
+        if (rank) {
+          sp.type = 'button';
+          sp.dataset.rank = s.rank;
+          sp.setAttribute('aria-pressed', 'false');
+          sp.setAttribute('aria-label', 'light every ' + s.label.replace(' ◌', '') + ' (' + s.n + ')');
+          sp.addEventListener('click', () => opts.onRank(s.rank));
+        }
         // a skill's key is the board's brain (Lucide brain-circuit, the sprite); a rank's its solid
         sp.innerHTML = s.k === 'skill' ? '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="web/icons/icons.svg#skill"/></svg>'
           : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${GLYPH[s.k] || GLYPH.cube}"/>${s.crown ? '<ellipse cx="12" cy="6" rx="8" ry="2.2"/>' : ''}</svg>`;
@@ -886,7 +895,9 @@
     function render(now, reduced) {
       if (!st.pal || !st.m) return;
       camera();
-      const pal = st.pal, dark = st.dark, lit = st.lit, focus = st.shown || '';
+      // a rank's plate lights its rank with no neuron in focus: a focus no neuron is, so the
+      // rest dims as it does around a focused one
+      const pal = st.pal, dark = st.dark, lit = st.lit, focus = st.shown || (st.rank && lit ? ' rank' : '');
       const cw = Math.round(st.W * st.dpr), ch = Math.round(st.H * st.dpr);
       gl.viewport(0, 0, cw, ch);
       gl.clearColor(0, 0, 0, 0);
@@ -1460,6 +1471,10 @@
     return {
       elements: [canvas, overlay, tools, legend, key, bar, hint],
       model(m) { scene(m); resize(); },
+      raced(rank) {
+        if ((rank || '') !== st.rank) { st.rank = rank || ''; kick(); }
+        for (const b of key.querySelectorAll('button[data-race]')) b.setAttribute('aria-pressed', String(b.dataset.rank === st.rank));
+      },
       focus(id, lit, pinned) {
         st.lit = lit; st.shown = id || '';
         // the camera eases to a pinned neuron; a hover only lights

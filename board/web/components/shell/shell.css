@@ -95,6 +95,10 @@
     .shell-main[data-view="overview"] { --shell-dock-w: var(--shell-dock, 36rem); }
   }
 
+  /* the net full screen: the panel is the screen, its agent the stage's box */
+  .shell-main > [data-panel="net"]:fullscreen { inline-size: 100vw; block-size: 100vh; border-radius: 0; background: var(--surface); }
+  .shell-main > [data-panel="net"]:fullscreen .panel-body { flex: 1; min-block-size: 0; }
+
   /* one panel, full size */
   .shell-main:not([data-view="overview"]) { grid-template-areas: none; }
   .shell-main:not([data-view="overview"]) > [data-panel] { display: none; grid-area: auto; }

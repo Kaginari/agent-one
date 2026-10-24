@@ -126,6 +126,17 @@
     for (const w of m.holds) if (w.from === id) { nodes.add(w.to); holds.add(w.from + '>' + w.to); }
     return { nodes, tree, holds };
   }
+  // a rank's plate lit: every member of those ranks, and the bond each hangs from
+  function rankSet(m, ranks) {
+    const nodes = new Set(), tree = new Set(), holds = new Set();
+    for (const n of m.members || []) {
+      if (!ranks.includes(n.rank || '')) continue;
+      nodes.add(n.id);
+      const p = m.parent.get(n.id);
+      if (p) tree.add(p + '>' + n.id);
+    }
+    return { nodes, tree, holds };
+  }
   // the hops a dispatch travels: from the nearest running ancestor (else the orchestrator) down to id
   function route(m, id, live) {
     const { up } = lineage(m, id);
@@ -321,7 +332,7 @@
       const ranks = [];
       for (const id of ids) { const r = m.byId.get(id).rank || ''; if (!ranks.includes(r)) ranks.push(r); }
       const title = ranks.map(r => m.word('rank.' + r, r)).join(' · ');
-      cols.push({ kind: 'rank', x: colX[d] - 6, y: 8, w: widths[d] + 12, h: bandH, title, count: ids.length, rank: ranks[0] || '' });
+      cols.push({ kind: 'rank', x: colX[d] - 6, y: 8, w: widths[d] + 12, h: bandH, title, count: ids.length, rank: ranks[0] || '', ranks });
       const wrapped = k > 1 && d === D - 1;
       // an upper layer's tiles shrink when the layer is crowded; the layer is centred in its column
       const crowd = wrapped ? T : clamp(Math.floor(room / Math.max(1, ids.length)) - 8, 14, 26);
@@ -494,6 +505,15 @@
         g.append(s('g', { 'data-rank': c.rank },
           s('rect', { class: 'net-col', x: c.x, y: c.y, width: c.w, height: c.h, rx: 12 }),
           s('text', { class: 'net-col-label', x: c.x + 10, y: c.y + 20 }, c.title + ' ', s('tspan', { class: 'net-col-count' }, String(c.count)))));
+        // the column's head is its rank's plate: one press lights every member of the rank
+        if (c.ranks && c.ranks.length && !c.ranks.includes('orchestrator')) {
+          const key = c.ranks.join('|');
+          const plate = s('g', { class: 'net-col-plate', 'data-rank': c.rank, role: 'button', tabindex: '0', 'data-race': key, 'aria-pressed': String(st.rank === key), 'aria-label': 'light every ' + c.title.toLowerCase() + ' (' + c.count + ')' },
+            s('rect', { x: c.x, y: c.y, width: c.w, height: 32, rx: 12 }));
+          plate.addEventListener('click', () => rank(c.ranks));
+          plate.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); rank(c.ranks); } });
+          g.append(plate);
+        }
       }
       for (const ln of L.lanes || []) g.append(s('rect', { class: 'net-lane', 'data-lane': ln.i % 2 ? 'b' : 'a', x: ln.x, y: ln.y, width: ln.w, height: ln.h, rx: 10 }));
       const edges = s('g', { 'data-layer': 'edges' }), sparks = s('g', { 'data-layer': 'sparks' }), nodes = s('g', { 'data-layer': 'nodes' });
@@ -626,7 +646,15 @@
     }
 
     // ---------- focus: hover previews, click or Enter pins ----------
-    function pin(id) { st.focus = st.focus === id ? '' : id; if (id) st.current = id; applyFocus(); opts.onFocus && opts.onFocus(st.focus); }
+    function pin(id) { st.focus = st.focus === id ? '' : id; if (id) { st.current = id; st.rank = ''; } applyFocus(); opts.onFocus && opts.onFocus(st.focus); }
+    // a rank's plate (a 2D column's head, a 3D key row) lights the rank while nothing is focused;
+    // pressed again it lets go
+    function rank(ranks) {
+      const key = (ranks || []).join('|');
+      st.rank = st.rank === key ? '' : key;
+      if (st.rank && st.focus) { st.focus = ''; opts.onFocus && opts.onFocus(''); }
+      applyFocus();
+    }
     // a double-click selects the neuron (whatever its two clicks toggled) and opens its card
     function openCardAt(id) {
       if (!id) return;
@@ -637,8 +665,11 @@
     function preview(id) { st.hover = id; applyFocus(); }
     function applyFocus() {
       const id = st.hover || st.focus;
-      host.toggleAttribute('data-focus', !!id);
-      const lit = id && st.m ? litSet(st.m, id) : null;
+      const raced = !id && st.rank && st.m ? st.rank.split('|') : null;
+      host.toggleAttribute('data-focus', !!id || !!raced);
+      const lit = id && st.m ? litSet(st.m, id) : raced ? rankSet(st.m, raced) : null;
+      for (const el of host.querySelectorAll('.net-col-plate')) el.setAttribute('aria-pressed', String(el.dataset.rank === st.rank));
+      if (st.three) st.three.raced(st.rank);
       for (const [nid, el] of st.nodeEls) {
         el.toggleAttribute('data-near', !!lit && lit.nodes.has(nid));
         el.toggleAttribute('data-self', nid === id);
@@ -833,7 +864,7 @@
       st.mode = v;
       if (v === '3d') {
         if (!st.three) {
-          st.three = window.agentOneNet3D.create(stage, { probes, word, meters: () => (opts.meters ? opts.meters() : {}), onPick: id => pin(id || st.focus), onCard: id => openCardAt(id), onHover: id => preview(id), onKey: keys3d, onBlur: () => preview(''), reduced: () => reducedQ.matches });
+          st.three = window.agentOneNet3D.create(stage, { probes, word, meters: () => (opts.meters ? opts.meters() : {}), onPick: id => pin(id || st.focus), onCard: id => openCardAt(id), onRank: rank => rank([rank]), onHover: id => preview(id), onKey: keys3d, onBlur: () => preview(''), reduced: () => reducedQ.matches });
           if (!st.three) { st.mode = '2d'; return mode('2d'); }
         }
         stage.dataset.mode = '3d';
