@@ -135,6 +135,7 @@ func (b Build) providerFor(r Route) provider.Provider {
 // Engine builds a full engine for an agent: tools cut to its rank and ownership (plus dispatch
 // when its rank and depth allow), the ownership policy, the workspace's hooks, the lexicon.
 func (w *Workspace) Engine(as string, b Build) *loop.Engine {
+	w.SelfHeal() // an agent is built from its docs as they stand, never from a stale roster
 	base := b.Tools
 	var closer func()
 	if b.Shelf != nil {
@@ -355,6 +356,7 @@ func (w *Workspace) verifyCodedNow(cr *Member) bool {
 // names who may lawfully be ordered from here. The dispatch tool asks it before a background
 // Subagent is acked; the Dispatcher asks it again, so a direct call is held to the same policy.
 func (w *Workspace) preflight(parent *loop.Engine, b Build, name string) (*Member, error) {
+	w.SelfHeal() // the order is judged on the docs as they stand (workspace/selfheal.go)
 	agent := strings.ToLower(strings.TrimSpace(name))
 	cr := w.Member(agent)
 	if cr == nil {

@@ -89,6 +89,7 @@ func (w *Workspace) ToolPolicy(agent string, opt OwnershipOptions) tool.Policy {
 			}
 			return nil
 		}
+		w.SelfHeal() // a claim granted since the roster was read counts (workspace/selfheal.go)
 		c := w.Member(agent)
 		if c == nil || !opt.held(w, c) || (len(c.Ownership) == 0 && c.Dir == "") {
 			return nil

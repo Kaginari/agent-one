@@ -109,6 +109,10 @@ type Workspace struct {
 	receipts *loop.Receipts
 	// evo is policy.evolution: the armed options, this session's evolutions (workspace/evolve.go)
 	evo evoState
+	// stamp is the fingerprint of the docs the roster was derived from; verifyBase is each
+	// agent's verify lines as the gate trusts them (workspace/selfheal.go)
+	stamp      uint64
+	verifyBase map[string][]string
 }
 
 // Discover walks up from dir for the workspace dir.
@@ -181,22 +185,20 @@ func (w *Workspace) Rel(abs string) string {
 	return abs
 }
 
-// Reload re-derives the roster from the docs (they change during a session).
+// Reload re-derives the roster from the docs (they change during a session) and takes their
+// verify lines as the gate's base (selfheal.go).
 func (w *Workspace) Reload() error {
+	st := w.docStamp() // before the read: a doc moved during it re-heals on the next ask
 	ow, err := onto.LoadLayout(w.Root, w.Ranks.Layout(w.Lex))
 	if err != nil {
 		return err
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.Onto = ow
 	w.Notes = append(w.Notes, ow.Notes...)
-	w.Members = membersOf(w.Root, ow, w.Ranks)
-	for _, f := range w.Foreign {
-		if w.memberLocked(f.Name) == nil {
-			w.Members = append(w.Members, f)
-		}
-	}
+	w.verifyBase = nil
+	w.mergeFreshLocked(ow)
+	w.stamp = st
 	return nil
 }
 
@@ -208,6 +210,10 @@ func (w *Workspace) AddForeign(c Member) {
 	exists := w.memberLocked(c.Name) != nil
 	if !exists {
 		w.Members = append(w.Members, c)
+		if w.verifyBase == nil {
+			w.verifyBase = map[string][]string{}
+		}
+		w.verifyBase[c.Name] = append([]string(nil), c.Verify...)
 	}
 	w.mu.Unlock()
 }
@@ -359,8 +365,8 @@ func VerifyOf(doc string) []string {
 }
 
 // Member finds an agent by id (or by its unprefixed name when unambiguous). A seat registered
-// mid-session is not on the in-memory roster: on a miss, the roster is re-derived from the
-// docs once before giving up, so a dispatch for an agent provisioned after Open still lands.
+// mid-session is not on the in-memory roster: on a miss, the roster self-heals from the docs
+// (SelfHeal) before giving up, so a dispatch for an agent provisioned after Open still lands.
 func (w *Workspace) Member(name string) *Member {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -374,16 +380,8 @@ func (w *Workspace) member(name string) *Member {
 	if c := w.memberByName(name); c != nil {
 		return c
 	}
-	ow, err := onto.LoadLayout(w.Root, w.Ranks.Layout(w.Lex))
-	if err != nil {
+	if !w.selfHealLocked() {
 		return nil
-	}
-	fresh := membersOf(w.Root, ow, w.Ranks)
-	w.Onto = ow
-	for _, c := range fresh {
-		if w.memberLocked(c.Name) == nil {
-			w.Members = append(w.Members, c)
-		}
 	}
 	return w.memberByName(name)
 }

@@ -90,6 +90,12 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The workspace notices docs that changed under it.** When another session, a checkout or a person
+  edited a member's README, the running session kept its old picture until the next gate: it
+  could still send work to a member that had been retired, or refuse a write the member had
+  just been granted. Sending work, building an agent and checking a write now re-read the docs
+  when they changed. What an agent's own verify lines are trusted to be still changes only at the
+  gate, so an agent cannot pass by rewriting its own check.
 - **One answer to "whose file is this?"** The gate, the write rules and `agent-one onto owner` now
   read ownership the same way. A member's own folder is always its own, even when another
   member's claim covers the whole `.agent-one/` tree, so editing your own README no longer owes

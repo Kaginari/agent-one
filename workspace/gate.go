@@ -587,13 +587,14 @@ func (w *Workspace) VerifyLines() map[string][]string {
 	return w.verifyLines()
 }
 
-// verifyLines is each member's verify commands as the roster holds them now.
+// verifyLines is each member's verify commands as the gate trusts them: as the last Reload
+// read them (a self-heal never moves a known agent's lines — workspace/selfheal.go).
 func (w *Workspace) verifyLines() map[string][]string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	out := map[string][]string{}
-	for _, c := range w.Members {
-		out[c.Name] = append([]string(nil), c.Verify...)
+	for n, v := range w.verifyBase {
+		out[n] = append([]string(nil), v...)
 	}
 	return out
 }
