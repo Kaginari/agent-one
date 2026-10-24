@@ -58,13 +58,37 @@ sandboxed shell has no network unless an `outward` act was approved.
 
 ## Quick start
 
+Agent-One runs on any OpenAI-compatible endpoint, and a model you serve yourself with vLLM is the
+shortest road. Serve one with tool calling on, tell the workspace where it is, then found
+the workspace:
+
 ```sh
-cd your-project
-export ANTHROPIC_API_KEY=…        # or any OpenAI-compatible endpoint (vLLM, Ollama, OpenRouter)
+vllm serve <model> --enable-auto-tool-choice --tool-call-parser <parser>   # http://localhost:8000/v1
+cd your-project && mkdir -p .agent-one
+```
+
+```yaml
+# .agent-one/config.local.yaml — this machine's word, never committed
+providers:
+  vllm:                              # a known name: type openai; a local server needs no key
+    baseURL: http://localhost:8000/v1
+    toolCalls: native                # "text" when the server's tool-call parser is unreliable
+    contextWindow: auto              # read from /v1/models, so budgets fit the model
+models:
+  default: vllm/<model>              # <provider>/<model>: the id /v1/models lists
+```
+
+```sh
+agent-one status                    # the resolved model and the file it came from
 agent-one init --level complex      # found a workspace here — light: the policy only · medium: a team read from the tree, no model · complex: the model reads all the code and hires the team
 agent-one                           # the live session — the dashboard opens at http://127.0.0.1:7411/
 agent-one run "add a health check endpoint and its test"
 ```
+
+A hosted model works the same way: `export ANTHROPIC_API_KEY=…` for Anthropic, or any other
+OpenAI-compatible endpoint (Ollama, OpenRouter, a gateway) under `providers`; `--model
+<provider>/<model>` picks one for a single run. A gateway in front of several models, with the
+configuration split one file per part, is laid out in [`examples/gateway/`](examples/gateway/).
 
 ## Inside Claude Code
 
@@ -273,6 +297,30 @@ A run that walked a path worth repeating can leave it behind as a skill or a too
    (`bash -c`, `python -c`, `node -e`, `eval`) is refused unless `--force`. An outward or
    destructive tool needs your yes (`--yes` headless). The YAML is printed before it is written,
    with its provenance under `crafted:`.
+
+## Learning from runs
+
+A run is not over when it answers. Each one leaves evidence behind, and the workspace turns that
+evidence into what the next run starts from — in files you can read, not in a model's weights:
+
+1. **The journal.** Every act of every run is read by the guts and journaled under
+   `.agent-one/instruments/loop/`. `agent-one lessons` ranks the classes that keep costing ground
+   (a failed act, a thrash, an echo, a repeat), most frequent first; point it at a bench run's
+   directory to autopsy a grid instead.
+2. **Memory.** Recall before each step, remember after; what the agent knew but never wrote down
+   is routed to the doc or note it belongs in, so the next session reads it back.
+3. **Value.** Each run's verdict is one row of `.agent-one/shared/value.jsonl`; the scores,
+   meters and promotions above are read from it.
+4. **The forge.** A path worth repeating is drafted on the report and registered from the forge's
+   working notes (`/forge`) as a skill or a tool (above).
+5. **Evolution.** A member that keeps failing heals itself from that evidence — split, mutate or
+   rebirth — proven before it lands (above).
+6. **Rules.** A lesson that keeps coming back becomes a rule every member reads (`rules.yaml`),
+   checked at the gate when it carries a check.
+   [`examples/workspace-rules.yaml`](examples/workspace-rules.yaml) holds the ones the bench earned.
+
+Nothing here rewrites the policy: `lessons` aggregates, it does not decide; a skill evolution
+registers waits at `trial` until you promote it, and the policy's own text changes only on your word.
 
 ## The terminal
 
