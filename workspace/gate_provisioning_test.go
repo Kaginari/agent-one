@@ -78,3 +78,24 @@ func TestGateProvisioningExemption(t *testing.T) {
 		t.Errorf("provisioning outlived its commit window: %s", v)
 	}
 }
+
+// Without git, "new" is read against the roster the turn opened with — and a heal between the
+// README's write and the gate (a dispatch preflight, a policy check, a roster miss) does not
+// make the child "known" before its provisioning.
+func TestGateProvisioningNoGitSurvivesAHeal(t *testing.T) {
+	dir := fixture(t)
+	w := open(t, dir)
+	os.MkdirAll(filepath.Join(dir, "src/pay"), 0o755)
+	rel := ".agent-one/zone/pay/README.md"
+	full := filepath.Join(dir, rel)
+	os.MkdirAll(filepath.Dir(full), 0o755)
+	if err := os.WriteFile(full, []byte("# zone-pay\n\n- **Rank:** Zone worker\n- **Owns:** `src/pay/`\n- **Reports to:** domain-security\n- **Verify:** `true`\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !w.SelfHeal() || w.Member("zone-pay") == nil {
+		t.Fatal("the heal did not read the new seat")
+	}
+	if v := w.Gate(context.Background(), nil, DefaultHooks().Gate, "domain-security", []string{rel}, &wire.Report{Status: "DONE"}, true, "x"); v.Word != "pass" || len(v.Born) != 1 {
+		t.Fatalf("a heal before the gate broke a no-git provisioning: %s", v)
+	}
+}

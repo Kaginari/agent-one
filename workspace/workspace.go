@@ -207,8 +207,11 @@ func (w *Workspace) reload(registered bool) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.Notes = append(w.Notes, ow.Notes...)
-	w.verifyBase = nil
 	w.mergeFreshLocked(ow)
+	w.verifyBase = map[string][]string{}
+	for _, c := range w.Members {
+		w.verifyBase[c.Name] = append([]string(nil), c.Verify...)
+	}
 	w.rebaseClaimsLocked(registered)
 	w.stamp = st
 	return nil

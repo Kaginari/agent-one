@@ -20,9 +20,9 @@ import (
 // an engine's build, a write's ownership policy, and a roster miss.
 //
 // Healing never moves trust. The verify lines the gate runs as "before the turn" (verifyBase)
-// change only at an explicit Reload (Open, the gate, the harness's own registers); a heal adds the
-// lines of an agent it had never seen and leaves every known agent's lines as they were — an agent
-// cannot pass its gate by rewriting its check and waiting for a heal.
+// change only at an explicit Reload (Open, the gate, the harness's own registers); a heal leaves
+// them as they were, a never-seen agent's included — an agent cannot pass its gate by rewriting its
+// check and waiting for a heal, and a child registered this turn is not "known" before its provisioning.
 
 // docStamp fingerprints the member docs on disk.
 func (w *Workspace) docStamp() uint64 {
@@ -78,22 +78,15 @@ func (w *Workspace) selfHealLocked() bool {
 }
 
 // mergeFreshLocked puts a fresh derivation on the roster: the docs' members, then the foreign
-// agents the docs do not name. An agent the roster never held brings its verify lines into the
-// gate's base; a known agent's lines stay as the last Reload read them.
+// agents the docs do not name. The gate's base is not touched: an agent the heal brings in is not
+// on it until the next explicit Reload — its lines are new to the gate (never run unconfirmed),
+// and a no-git provisioning still reads the child as new (gate_provisioning.go).
 func (w *Workspace) mergeFreshLocked(ow *onto.Workspace) {
 	w.Onto = ow
 	w.Members = membersOf(w.Root, ow, w.Ranks)
 	for _, f := range w.Foreign {
 		if w.memberLocked(f.Name) == nil {
 			w.Members = append(w.Members, f)
-		}
-	}
-	if w.verifyBase == nil {
-		w.verifyBase = map[string][]string{}
-	}
-	for _, c := range w.Members {
-		if _, known := w.verifyBase[c.Name]; !known {
-			w.verifyBase[c.Name] = append([]string(nil), c.Verify...)
 		}
 	}
 }
