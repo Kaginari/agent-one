@@ -43,12 +43,14 @@ ao:knownBy a ao:Property ; ao:inverseOf ao:knows .
 ao:about a ao:Property ; ao:domain ao:Fact .
 ao:doc a ao:Property ; ao:range ao:Doc .
 ao:shared a ao:Property ; ao:domain ao:Skill .
+ao:heir a ao:Property ; ao:domain ao:Member ; ao:range ao:Member .
 
 # ---- attributes (literal-valued)
 ao:name a ao:Property .
 ao:path a ao:Property ; ao:domain ao:Doc .
 ao:text a ao:Property ; ao:domain ao:Fact .
 ao:said a ao:Property ; ao:domain ao:Fact .
+ao:retired a ao:Property ; ao:domain ao:Member .
 
 # ---- shapes: what check enforces (ao:unless names a boolean property that exempts an instance)
 ao:unless a ao:Property ; ao:domain ao:Shape .

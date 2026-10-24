@@ -8,6 +8,13 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Retiring a member looks after the ones below it.** When the council splits or retires a
+  member that others report to, each of them is moved to the right new manager — the half of
+  the split that holds its files, or the retired member's own manager — and the retired
+  member's README names who took its place. A member that still names the retired one is
+  routed to that successor, and `onto check` reports any member left reporting to a retired
+  one with no successor. The files the council rewrote no longer count against the agent whose
+  turn it happened in.
 - **A parent can write its new child's README.** A domain owner founding a zone worker for part of its zone, or
   the orchestrator founding a coordinator, used to fail the end-of-turn gate as if it had written another
   member's file. The gate now lets it through while the README is new (not yet committed), the

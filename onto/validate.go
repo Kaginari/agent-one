@@ -81,8 +81,42 @@ func (w *Workspace) Validate() []Finding {
 			}
 		}
 	}
+	out = append(out, w.orphans()...)
 	sortFindings(out)
 	return out
+}
+
+// orphans is the HeirLive check: a living member whose one hop up is a retired seat that names
+// no live heir has a line that ends nowhere — its doc must name a new one hop up.
+func (w *Workspace) orphans() []Finding {
+	g := w.Graph
+	var out []Finding
+	for _, x := range g.Instances(cMember) {
+		if g.Has(Triple{x, pRetired, Bool(true)}) {
+			continue
+		}
+		seen := map[Term]bool{}
+		for _, p := range bondsByHop {
+			for _, o := range g.Objects(x, p) {
+				if seen[o] || !g.Has(Triple{o, pRetired, Bool(true)}) || !OneHop(g, x, o) || w.HeirOf(o.Local()) != "" {
+					continue
+				}
+				seen[o] = true
+				out = append(out, w.finding("HeirLive", x, p.Local(), fmt.Sprintf("%s reports to %s, a retired seat that names no live heir — name its new one hop up", x.Local(), o.Local())))
+			}
+		}
+	}
+	return out
+}
+
+// OneHop is true when no third member sits between s and o on the above chain.
+func OneHop(g *Graph, s, o Term) bool {
+	for _, mid := range g.Objects(s, pAbove) {
+		if mid != o && g.Has(Triple{mid, pAbove, o}) {
+			return false
+		}
+	}
+	return true
 }
 
 func (w *Workspace) finding(shape string, x Term, field, msg string) Finding {

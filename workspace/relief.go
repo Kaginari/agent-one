@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -23,61 +24,148 @@ import (
 // one marker line), never in a side file — the next Reload re-derives truth, and derived
 // ownerships of the retiree vanish from Owner() the moment the roster re-reads.
 
-// reliefResult is what the warrant says happened to the member.
-type reliefResult struct {
-	Act      string   // split | retire
-	Children []string // split young names
-	SpareDoc string   // retiree's marker line in its own doc
-}
-
 // relieve acts on agent when its strain crossed the act threshold. One fire per agent per
-// streak (the ledger stamps the act; a later landing wakes a fresh ledger clean).
-func (w *Workspace) relieve(agent string) (string, bool) {
+// streak (the ledger stamps the act; a later landing wakes a fresh ledger clean). wrote is every
+// doc the act wrote — the young, the retiree's marker, its children re-seated — the harness's
+// writes, which the dispatcher's end gate leaves alone.
+//
+// The cascade: a retirement walks the retiree's children. Each one's Reports-to line is
+// re-seated onto the heir — the young whose half covers its claims (a split), or the retiree's
+// own one hop up (a retirement) — and the retiree's marker names its heir (`- **Heir:**`), so a
+// child the cascade could not reach still resolves through it (onto.HeirOf).
+func (w *Workspace) relieve(agent string) (msg string, wrote []string, ok bool) {
 	c := w.Member(agent)
 	if c == nil {
-		return "", false
+		return "", nil, false
 	}
-	msg := ""
+	kids := w.childrenOf(c.Name)
 	terr := cleanPrefixes(c.Ownership)
 	now := time.Now().UTC().Format("2006-01-02")
+	note := ""
 	// split wins: zone breadth provisioned to cut, not to kill
+	halves := [][]string{}
+	lane := ""
 	if len(terr) >= 2 {
 		mid := (len(terr) + 1) / 2
-		young, err := w.splitZone(c, terr[:mid], terr[mid:], now)
-		if err != nil {
-			msg = "(split failed: " + err.Error() + ") — falling back to retire"
-		} else {
-			w.mu.Lock()
-			w.ledgerNote(ledgerRow{Kind: "relief", Agent: agent, Lane: "split", Path: strings.Join(young, ",")})
-			w.mu.Unlock()
-			w.Reload()
-			return fmt.Sprintf("split into %s + %s (zone divided at the count's middle)", young[0], young[1]), true
+		halves, lane = [][]string{terr[:mid], terr[mid:]}, "split"
+	} else if len(terr) == 1 {
+		// single-prefix split by tree (the 2026-10-09 zone-sizing policy): a zone holding one wide
+		// dir narrows by what actually lives under it — sub-dirs and direct files halved into
+		// two same-race young. A one-prefix zone with nothing under it to divide still retires.
+		if a, b, ok := w.splitByTree(terr[0]); ok {
+			halves, lane = [][]string{a, b}, "split-tree"
 		}
 	}
-	// single-prefix split by tree (the 2026-10-09 zone-sizing policy): a zone holding one wide
-	// dir narrows by what actually lives under it — sub-dirs and direct files halved into
-	// two same-race young. A one-prefix zone with nothing under it to divide still retires.
-	if len(terr) == 1 {
-		if a, b, ok := w.splitByTree(terr[0]); ok {
-			if young, err := w.splitZone(c, a, b, now); err == nil {
-				w.mu.Lock()
-				w.ledgerNote(ledgerRow{Kind: "relief", Agent: agent, Lane: "split-tree", Path: strings.Join(young, ",")})
-				w.mu.Unlock()
-				w.Reload()
-				return fmt.Sprintf("split into %s + %s (one wide zone divided by the tree under %s)", young[0], young[1], terr[0]), true
+	if lane != "" {
+		young, docs, err := w.splitZone(c, halves[0], halves[1], now)
+		if err == nil {
+			wrote = append(docs, w.cascadeReSeat(c.Name, kids, func(k Member) string { return heirByClaims(k, young, halves) }, now)...)
+			w.mu.Lock()
+			w.ledgerNote(ledgerRow{Kind: "relief", Agent: agent, Lane: lane, Path: strings.Join(young, ",")})
+			w.mu.Unlock()
+			w.Reload()
+			how := "zone divided at the count's middle"
+			if lane == "split-tree" {
+				how = "one wide zone divided by the tree under " + terr[0]
 			}
+			return fmt.Sprintf("split into %s + %s (%s)%s", young[0], young[1], how, reSeated(kids)), wrote, true
+		}
+		if lane == "split" {
+			note = "(split failed: " + err.Error() + ") — falling back to retire"
 		}
 	}
 	// retire: narrow zone or split failed — the seat stays in the graph with its memory,
-	// claims no soil; the workspace's instruments record the cut
-	if err := w.retireDoc(c, now); err != nil {
-		return "(retire failed: " + err.Error() + ")", false
+	// claims no soil, and its children report to its own one hop up
+	heir := c.Parent
+	if err := w.retireSeat(c, "council relief "+now+": the zone relents (its strain kept landing)", heir); err != nil {
+		return "(retire failed: " + err.Error() + ")", nil, false
 	}
+	wrote = append([]string{c.Doc}, w.cascadeReSeat(c.Name, kids, func(Member) string { return heir }, now)...)
 	w.mu.Lock()
 	w.ledgerNote(ledgerRow{Kind: "relief", Agent: agent, Lane: "retire", Path: c.Doc})
 	w.mu.Unlock()
 	w.Reload()
-	return "retired " + agent + " " + strings.TrimSpace(msg) + "; zone open for future dispatches", true
+	return "retired " + agent + " " + strings.TrimSpace(note) + "; zone open for future dispatches" + reSeated(kids), wrote, true
+}
+
+// childrenOf is the living members whose one hop up is name, as the roster reads them now.
+func (w *Workspace) childrenOf(name string) []Member {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []Member
+	for _, c := range w.Members {
+		if c.Parent == name && c.Name != name {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// reSeated renders the cascade for the warrant line.
+func reSeated(kids []Member) string {
+	if len(kids) == 0 {
+		return ""
+	}
+	names := make([]string, len(kids))
+	for i, k := range kids {
+		names[i] = k.Name
+	}
+	return "; re-seated " + strings.Join(names, ", ")
+}
+
+// heirByClaims picks the young whose half holds the most of a child's claims (a claim under a
+// half's prefix, or a half's prefix under the claim); the first young on a tie or no overlap.
+func heirByClaims(k Member, young []string, halves [][]string) string {
+	best, bestN := 0, 0
+	for i, half := range halves {
+		n := 0
+		for _, t := range k.Ownership {
+			for _, p := range half {
+				if under(normRel(t), p) || under(normRel(p), t) {
+					n++
+				}
+			}
+		}
+		if n > bestN {
+			best, bestN = i, n
+		}
+	}
+	return young[best]
+}
+
+// reParentLine is a doc's declared one-hop-up line, the field onto's derivation reads first.
+var reParentLine = regexp.MustCompile(`(?mi)^([ \t]*[-*][ \t]*\*\*(?:reports to|parent|domain owner|coordinator):?\*\*:?[ \t]*).*$`)
+
+// cascadeReSeat rewrites each child's Reports-to line onto its heir (a doc naming none gains
+// one) and returns the docs it wrote. A child whose doc cannot be read or written keeps its
+// line; it still resolves through the retiree's Heir mark.
+func (w *Workspace) cascadeReSeat(retiree string, kids []Member, heirOf func(Member) string, date string) []string {
+	var wrote []string
+	for _, k := range kids {
+		heir := heirOf(k)
+		if k.Doc == "" || heir == "" {
+			continue
+		}
+		p := filepath.Join(w.Root, filepath.FromSlash(k.Doc))
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		line := heir + " — re-seated " + date + ": " + retiree + " retired"
+		doc := string(b)
+		if loc := reParentLine.FindStringSubmatchIndex(doc); loc != nil {
+			doc = doc[:loc[3]] + line + doc[loc[1]:]
+		} else {
+			if !strings.HasSuffix(doc, "\n") {
+				doc += "\n"
+			}
+			doc += "- **Reports to:** " + line + "\n"
+		}
+		if os.WriteFile(p, []byte(doc), 0o644) == nil {
+			wrote = append(wrote, k.Doc)
+		}
+	}
+	return wrote
 }
 
 // cleanPrefixes folds ownership entries: backticks/quotes carried, only real path prefixes.
@@ -96,13 +184,13 @@ func cleanPrefixes(in []string) []string {
 // the marker line a retired seat carries in its own doc: the roster parser's skip-key
 const retiredMark = "- **Retired:** true"
 
-// retireDoc lands the council's marker; a second call is a no-op (idempotent policy).
-func (w *Workspace) retireDoc(c *Member, date string) error {
-	return w.retireDocWhy(c, "council relief "+date+": the zone relents (its strain kept landing)")
-}
+// retireDocWhy lands the marker with its reason (promotion: the promoted's `Promoted from` line
+// names the heir); idempotent.
+func (w *Workspace) retireDocWhy(c *Member, why string) error { return w.retireSeat(c, why, "") }
 
-// retireDocWhy lands the marker with its reason (relief, promotion); idempotent.
-func (w *Workspace) retireDocWhy(c *Member, why string) error {
+// retireSeat lands the marker with its reason and, when the line has one, the heir that holds
+// it now (`- **Heir:** <name>`, read by onto.HeirOf); idempotent.
+func (w *Workspace) retireSeat(c *Member, why, heir string) error {
 	if c.Doc == "" {
 		return fmt.Errorf("member %s carries no doc — it never parsed a README", c.Name)
 	}
@@ -119,36 +207,41 @@ func (w *Workspace) retireDocWhy(c *Member, why string) error {
 		s += "\n"
 	}
 	s += retiredMark + " — " + why + "\n"
+	if heir != "" && heir != c.Name {
+		s += "- **Heir:** " + heir + "\n"
+	}
 	return os.WriteFile(p, []byte(s), 0o644)
 }
 
 // splitZone births two same-race young members at <dir>-a / <dir>-b, each with its half
 // of the parent's prefixes + the parent's doc content so memory/traditions ride along;
-// the parent retires (its doc marker lands LAST, only once both young stand, so a failed
-// provisioning never orphans the zone).
-func (w *Workspace) splitZone(c *Member, a, b []string, date string) ([]string, error) {
+// the parent retires naming the first young its heir (its doc marker lands LAST, only once both
+// young stand, so a failed provisioning never orphans the zone). docs is every doc it wrote.
+func (w *Workspace) splitZone(c *Member, a, b []string, date string) (names, docs []string, err error) {
 	src := filepath.Join(w.Root, filepath.FromSlash(c.Doc))
 	agent, err := os.ReadFile(src)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	text := string(agent)
-	names := []string{c.Name + "-a", c.Name + "-b"}
+	names = []string{c.Name + "-a", c.Name + "-b"}
 	halves := [][]string{a, b}
 	for i, name := range names {
-		dir := filepath.Join(w.Root, filepath.FromSlash(c.Dir+"-"+string(rune('a'+i))))
+		rel := c.Dir + "-" + string(rune('a'+i))
+		dir := filepath.Join(w.Root, filepath.FromSlash(rel))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		doc := rebuildChildDoc(text, name, halves[i], names[(i+1)%2], date)
 		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(doc), 0o644); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		docs = append(docs, rel+"/README.md")
 	}
-	if err := w.retireDoc(c, date); err != nil {
-		return nil, err
+	if err := w.retireSeat(c, "council relief "+date+": the zone relents (its strain kept landing)", names[0]); err != nil {
+		return nil, nil, err
 	}
-	return names, nil
+	return names, append(docs, c.Doc), nil
 }
 
 // splitByTree halves a single-prefix zone by what lives under it: sub-directories and

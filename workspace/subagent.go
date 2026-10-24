@@ -633,8 +633,9 @@ func (w *Workspace) Dispatcher(parent *loop.Engine, b Build) tool.Dispatcher {
 			strainNow := w.stress[agent]
 			w.mu.Unlock()
 			if strainNow >= rel && w.Member(agent) != nil {
-				if act, ok := w.relieve(agent); ok {
+				if act, wrote, ok := w.relieve(agent); ok {
 					rep.Text += "\n@? council relief — " + agent + " crosses relieveAt: " + act
+					w.subagentGated(parent, agent, wrote) // the harness's writes, never the dispatcher's
 				}
 			}
 		}

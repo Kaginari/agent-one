@@ -19,7 +19,7 @@ func endSite(w *Workspace, agent string, verdict string, r *loop.Result, subagen
 		strainNow := w.stress[agent]
 		w.mu.Unlock()
 		if strainNow >= rel {
-			if act, ok := w.relieve(agent); ok {
+			if act, _, ok := w.relieve(agent); ok {
 				relieved = "council relief — " + agent + " crosses relieveAt: " + act
 			}
 		}

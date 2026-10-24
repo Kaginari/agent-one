@@ -600,3 +600,43 @@ func TestRetiredSeatClaimsNoSoil(t *testing.T) {
 		}
 	}
 }
+
+// A retired seat names its live heir: its Heir line, walked through an heir that retired in
+// turn, or the agent that promoted from it; a living child of a seat with no live heir is a
+// finding.
+func TestHeirOf(t *testing.T) {
+	dir := t.TempDir()
+	for p, s := range map[string]string{
+		".agent-one/domain/old/README.md":     "# domain-old\n\n- **Reports to:** coord-e\n- **Retired:** true — relief\n- **Heir:** domain-mid\n",
+		".agent-one/domain/mid/README.md":     "# domain-mid\n\n- **Reports to:** coord-e\n- **Retired:** true — relief\n- **Heir:** domain-new\n",
+		".agent-one/domain/new/README.md":     "# domain-new\n\n- **Reports to:** coord-e\n",
+		".agent-one/domain/base/README.md":    "# domain-base\n\n- **Reports to:** coord-e\n- **Retired:** true — promoted\n",
+		".agent-one/domain/risen/README.md":   "# domain-risen\n\n- **Promoted from:** `domain-base` — promoted\n- **Reports to:** coord-e\n",
+		".agent-one/domain/gone/README.md":    "# domain-gone\n\n- **Reports to:** coord-e\n- **Retired:** true — relief\n",
+		".agent-one/coord/e/README.md":        "# coord-e\n\n- **Reports to:** orchestrator\n",
+		".agent-one/zone/orphan/README.md":    "# zone-orphan\n\n- **Reports to:** domain-gone\n",
+		".agent-one/zone/sheltered/README.md": "# zone-sheltered\n\n- **Reports to:** domain-old\n",
+	} {
+		full := filepath.Join(dir, filepath.FromSlash(p))
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		os.WriteFile(full, []byte(s), 0o644)
+	}
+	w, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"domain-old": "domain-new", "domain-mid": "domain-new", "domain-base": "domain-risen", "domain-gone": "", "domain-new": ""} {
+		if got := w.HeirOf(name); got != want {
+			t.Errorf("HeirOf(%s) = %q, want %q", name, got, want)
+		}
+	}
+	var heirLive []string
+	for _, f := range w.Validate() {
+		if f.Shape == "HeirLive" {
+			heirLive = append(heirLive, f.String())
+		}
+	}
+	if len(heirLive) != 1 || !strings.Contains(heirLive[0], "zone-orphan reports to domain-gone") {
+		t.Errorf("HeirLive findings: %v", heirLive)
+	}
+}

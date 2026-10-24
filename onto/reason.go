@@ -31,6 +31,8 @@ var (
 	pKnows        = Ao("knows")
 	pAbout        = Ao("about")
 	pShared       = Ao("shared")
+	pHeir         = Ao("heir")
+	pRetired      = Ao("retired")
 	pUnless       = Ao("unless")
 	cMember       = Ao("Member")
 	cOrchestrator = Ao("Orchestrator")
