@@ -603,6 +603,18 @@ type Instruments struct {
 	Loop    DirFeature  `json:"loop"`
 	Toolbox DirFeature  `json:"toolbox"`
 	Status  StatusKnobs `json:"status"`
+	OTLP    OTLP        `json:"otlp"`
+}
+
+// OTLP exports the loop's spans to an OpenTelemetry collector over OTLP/HTTP (JSON): a CHAIN per
+// turn, an AGENT per subagent, a TOOL per executed call. It is outward (Principle 7): off unless the
+// machine's own config turns it on and names the endpoint; credentials ride headers read from env
+// vars named in HeadersEnv, never written here.
+type OTLP struct {
+	Enabled    bool              `json:"enabled"`
+	Endpoint   string            `json:"endpoint"`   // the collector's traces URL, as-is (…/v1/traces)
+	HeadersEnv map[string]string `json:"headersEnv"` // header → env var holding its value
+	Service    string            `json:"service"`    // service.name; "" = the distribution's name
 }
 
 type DirFeature struct {

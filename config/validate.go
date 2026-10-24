@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"reflect"
 	"sort"
 	"strings"
@@ -14,7 +15,7 @@ var fileLayers = map[string]bool{"global": true, "project": true, "local": true}
 func (c *Config) finish() error {
 	steps := []func() error{
 		c.checkScalars, c.checkProviders, c.checkTools, c.checkMCP, c.checkPermissions,
-		c.resolveRules, c.mergeRegistry, c.buildRanks, c.resolveValues, c.checkModels, c.checkGate, c.checkCompaction, c.checkGuts, c.checkEvolution, c.checkTheme,
+		c.resolveRules, c.mergeRegistry, c.buildRanks, c.resolveValues, c.checkModels, c.checkGate, c.checkCompaction, c.checkGuts, c.checkEvolution, c.checkTheme, c.checkOTLP,
 	}
 	for _, s := range steps {
 		if err := s(); err != nil {
@@ -102,6 +103,36 @@ func (c *Config) checkGate() error {
 // fromClone is the refusal for a loosening of the human gate in the tracked project layer.
 const fromClone = "is refused from the project config: it travels with the repository, so anyone who clones it " +
 	"would run with the gate loosened — put it in .agent-one/config.local.yaml or the global config, which are the machine's own"
+
+// checkOTLP keeps trace export outward by policy (Principle 7): header values are env var names, and an
+// enabled export runs only on the machine's own written word — every instruments.otlp key from
+// the default, global or local layer, never the tracked project config (a clone would ship its
+// sessions to the repository's collector), env or a flag — with an http(s) endpoint named.
+func (c *Config) checkOTLP() error {
+	o := c.Instruments.OTLP
+	for _, h := range sortedKeys(o.HeadersEnv) {
+		if !isEnvName(o.HeadersEnv[h]) {
+			return fmt.Errorf("%s: instruments.otlp.headersEnv.%s must name an environment variable, not hold its value", c.Where("instruments.otlp.headersEnv."+h), h)
+		}
+	}
+	if !o.Enabled {
+		return nil
+	}
+	keys := make([]string, 0, len(c.Origins))
+	for k := range c.Origins {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if l := c.Origins[k].Layer; strings.HasPrefix(k, "instruments.otlp.") && l != "default" && l != "global" && l != "local" {
+			return fmt.Errorf("%s: %s: trace export is outward (Principle 7) — honored only from the machine's own config (global or .agent-one/config.local.yaml), never the project config, env or a flag", c.Origins[k], k)
+		}
+	}
+	if u, err := url.Parse(o.Endpoint); o.Endpoint == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%s: instruments.otlp.endpoint: an enabled export needs the collector's http(s) traces URL, got %q", c.Where("instruments.otlp.endpoint"), o.Endpoint)
+	}
+	return nil
+}
 
 func (c *Config) checkCompaction() error {
 	if c.Compaction.Enabled && c.Compaction.Trigger.Tokens >= c.Policy.Budget.ContextTokens {

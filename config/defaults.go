@@ -89,7 +89,8 @@ const defaultsJSON = `{
     "context": { "enabled": true },
     "loop":    { "enabled": true, "journalDir": "[dist-dir]/instruments/loop" },
     "toolbox": { "enabled": true, "journalDir": "[dist-dir]/instruments/toolbox" },
-    "status":  { "showOff": true }
+    "status":  { "showOff": true },
+    "otlp":    { "enabled": false, "endpoint": "", "headersEnv": {}, "service": "" }
   },
   "permissions": {
     "enabled": true,

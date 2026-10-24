@@ -348,6 +348,13 @@ func secretKey(u unknownKey) error {
 			return fmt.Errorf("%s: %s: a credential never lives in a config file — name the env var in apiKeyEnv (or headersEnv)", u.node.Where(), u.path)
 		}
 	}
+	// trace export has no literal-credential field at all: its headers come from env by name
+	if strings.HasPrefix(u.path, "instruments.otlp.") && strings.Count(u.path, ".") == 2 {
+		switch strings.ToLower(last) {
+		case "apikey", "api_key", "key", "token", "secret", "password", "auth", "headers":
+			return fmt.Errorf("%s: %s: a credential never lives in a config file — name the env var under instruments.otlp.headersEnv", u.node.Where(), u.path)
+		}
+	}
 	return nil
 }
 

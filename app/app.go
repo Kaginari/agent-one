@@ -88,6 +88,7 @@ type App struct {
 	SessionID string
 	Sessions  *SessionStore
 	Subagent  *Subagent
+	Tracer    *Tracer // instruments.otlp's span export; nil = off
 
 	// OnState receives an agent's state changes (the live subagent); nil is quiet.
 	OnState func(agent, state string)
@@ -174,6 +175,7 @@ func New(opt Options) (*App, error) {
 		return nil, err
 	}
 	a.Workspace = w
+	a.Tracer = NewTracer(cfg.Instruments.OTLP, cfg.Dist.Name, opt.Env, func(agent string) string { return w.RankOf(agent).Name }, a.notice)
 	for _, t := range cfg.Registry.Tools {
 		if b, err := json.Marshal(t); err == nil {
 			w.ToolboxExtra = append(w.ToolboxExtra, b)
@@ -384,6 +386,7 @@ func (a *App) Build() workspace.Build {
 		Note:     a.ontoNote(),
 		Budget:   budgetHook,
 		State: func(s *loop.Session, st string) {
+			a.Tracer.State(s, st)
 			if a.Subagent != nil {
 				a.Subagent.observe(s, st)
 			}
@@ -416,10 +419,14 @@ func (a *App) Build() workspace.Build {
 					a.settleHeld(in.Agent, st.Result.Output)
 				}
 			}
+			a.Tracer.Observe(s, st, phase)
 			if a.OnStep != nil {
 				a.OnStep(s, st, phase)
 			}
 		},
+	}
+	if a.Tracer != nil {
+		mine.Ended = a.Tracer.Ended
 	}
 	b.Extra = workspace.MergeHooks(a.drainHooks(), mine)
 	return b
@@ -501,6 +508,17 @@ func (a *App) Close() {
 	if a.Hooks != nil {
 		a.Hooks.Stop(context.Background())
 	}
+	a.Tracer.Close()
+}
+
+// notice is one line for the human on the session's notice path — the terminal's and the
+// board's notice line — or, with no live surface, a hole on the session's report; never stderr.
+func (a *App) notice(text string) {
+	if a.Notify != nil {
+		a.Notify(text)
+		return
+	}
+	a.hole(text)
 }
 
 func agentName(s *loop.Session) string {

@@ -1,7 +1,7 @@
 # zone-config
 
 - **Rank:** Zone worker
-- **Owns:** `config/cli.go`, `config/config_test.go`, `config/decode.go`, `config/defaults.go`, `config/dist.go`, `config/explain.go`, `config/load.go`, `config/models.go`, `config/patch.go`, `config/patch_test.go`, `config/permissions.go`, `config/permissions_test.go`, `config/ranks.go`, `config/rules.go`, `config/schema.go`, `config/tools.go`, `config/tools_models_test.go`, `config/validate.go`
+- **Owns:** `config/cli.go`, `config/config_test.go`, `config/decode.go`, `config/defaults.go`, `config/dist.go`, `config/explain.go`, `config/load.go`, `config/models.go`, `config/patch.go`, `config/patch_test.go`, `config/permissions.go`, `config/permissions_test.go`, `config/ranks.go`, `config/rules.go`, `config/schema.go`, `config/tools.go`, `config/tools_models_test.go`, `config/validate.go`, `config/otlp_test.go`
 - **Reports to:** domain-config
 - **Skills:** zone-go-package
 - **Purpose:** the ground truth of the switchboard's own files: the schema, the layers, the origins, the refusals, models, permissions, ranks, rules and the registry.
@@ -18,6 +18,7 @@
 - Off() names policy.forge.demandAtSteps when a layer sets it to 0 (the forge question switched off); tools.custom.<name>.crafted {by, run, at, draft} is a registered tool's provenance (the forge writes it).
 - rules.go: injected rules with scopes all | rank:<rank> | member:<name>; RunCheck runs a check under sandbox.Contain. examples/gateway is the vLLM gateway workspace README's Configuration section cites — it must pass `config check`; examples/workspace-rules.yaml is the annotated config.local.yaml example. config.SelftestIn is the instrument that says whether docs/canon/config.md and the code still agree.
 - policy.guts.repin (3) and policy.guts.actBudget (40) arm the loop's stall guards; 0 takes the default, negative = off; repin 1 is refused (the first read repeats nothing).
+- instruments.otlp (checkOTLP): trace export is outward — headersEnv values must be env var names; enabled needs an http(s) endpoint and every instruments.otlp key from the default, global or local layer (never project, env or flag); secretKey refuses apiKey/token/…/`headers` under instruments.otlp.
 
 ## Verify
 - `go test ./config/`

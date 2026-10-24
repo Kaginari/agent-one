@@ -558,6 +558,7 @@ rules:
 | `sessions` · `undo` | where sessions and undo snapshots live, how long | `sessions: { keepDays: 30 }` |
 
 | `toolbox` · `ontology` · `instruments` | the searchable tool registry, the ownership graph, the journals | `toolbox: { budgetTokens: 1500 }` |
+| `instruments.otlp` | OpenTelemetry trace export over OTLP/HTTP — a span per turn, subagent and tool call; off until your own config (global or local, never the project's) names the collector | `otlp: { enabled: true, endpoint: https://collector.example/v1/traces, headersEnv: { api_key: TRACE_API_KEY } }` |
 | `mode` · `smallModel` · `logLevel` | `build` or `plan` (plan writes nothing); a small model for small tasks | `mode: plan` |
 | `tools.profile` · `tools.missing` | the toolset shape (`max`, `anthropic`, `openai`, `minimal`); what happens when a tool is missing | `profile: minimal` |
 | `permissions.import` · `mcp.import` | take Claude Code's and OpenCode's permissions and MCP servers | `import: { claudeCode: { enabled: false } }` |
