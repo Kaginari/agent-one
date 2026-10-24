@@ -103,6 +103,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **The dashboard's ID card opens when you ask for it.** On the overview a click on a neuron now
+  only selects it and lights its path; double-click it (in 2D or 3D) or press Card to open its ID
+  card. The card sits above everything on the page — the console and the files drawer included —
+  stays open and follows whatever you select next, and closes with ✕, Escape or a click outside
+  it, leaving the neuron selected. On a phone it opens as a sheet at the bottom of the screen.
 - **An idle terminal stays idle.** With nothing running, the terminal now wakes only for the
   sidebar mascot's blink instead of five times a second, and each redraw reuses every row that
   did not change, so a session left open costs a small fraction of the CPU it did. Anything that

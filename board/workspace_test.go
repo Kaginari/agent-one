@@ -64,6 +64,15 @@ func TestRootIsTheDashboard(t *testing.T) {
 			t.Errorf("the overview has no %s slice behind the switch", sl)
 		}
 	}
+	// the ID card floats in the top layer, a manual popover the page opens on a double-click
+	if !strings.Contains(html, `id="net-float" role="dialog"`) || !strings.Contains(html, `popover="manual"`) {
+		t.Error("the overview's ID card is a manual popover in the top layer")
+	}
+	for _, f := range []string{"web/components/net/net.js", "web/components/net/net3d.js"} {
+		if src, _ := content.ReadFile(f); !strings.Contains(string(src), "'dblclick'") || !strings.Contains(string(src), "onCard") {
+			t.Errorf("%s: a double-click on a neuron opens its card", f)
+		}
+	}
 	for _, gone := range []string{"board pages", `href="./"`, "bootstrap"} {
 		if strings.Contains(html, gone) {
 			t.Errorf("the dashboard still links the old pages: %q", gone)

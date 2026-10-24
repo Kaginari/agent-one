@@ -137,7 +137,7 @@
     if (nw) nw.hidden = v !== 'overview';
     const nn = document.getElementById('net-note');
     if (nn) nn.hidden = v === 'overview';
-    if (kc && slot && side) { (v === 'overview' ? slot : side).append(kc); if (v !== 'overview') slot.hidden = true; try { if (team) knowledge(focus); } catch (_) { /* booting: the net's state is not declared yet */ } }
+    if (kc && slot && side) { (v === 'overview' ? slot : side).append(kc); if (v !== 'overview') floatCard(false); try { if (team) knowledge(focus); } catch (_) { /* booting: the net's state is not declared yet */ } }
     if (v === 'tree' && document.querySelector('.shell[data-drawer]')) document.querySelector('.shell').removeAttribute('data-drawer');
     requestAnimationFrame(() => netDraw());
     try { leaderboard(); } catch (_) { /* booting: the board's state is not declared yet */ }
@@ -639,7 +639,7 @@
     const others = stack.getBoundingClientRect().height - netBox.getBoundingClientRect().height;
     return Math.floor(netAgent.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - others);
   };
-  const net = window.agentOneNet.create(netBox, { word, onFocus: id => setFocus(id, true), fit: netFit, meters: () => meters.session });
+  const net = window.agentOneNet.create(netBox, { word, onFocus: id => setFocus(id, true), onCard: id => openCard(id), fit: netFit, meters: () => meters.session });
   let fitT = 0, fitH = 0;
   new ResizeObserver(() => { const h = netAgent.clientHeight; if (Math.abs(h - fitH) < 8) return; fitH = h; clearTimeout(fitT); fitT = setTimeout(netDraw, 120); }).observe(netAgent);
   function netDraw() { if (team) net.redraw(); }
@@ -661,18 +661,68 @@
     box.replaceChildren(...(items.length ? [el('h3', { class: 'panel-note', text: team.findings.length + ' findings · ' + team.notes.length + ' notes — what the ontology says is missing' }),
       el('ul', { class: 'findings' }, items.map(i => el('li', { 'data-tone': i.tone || false, text: i.t })))] : []));
   }
-  // the card over the net can be put away (✕) while its neuron stays selected; picking another
-  // neuron, or the card button in the net's tools, brings it back
-  let cardHidden = false;
+  // the ID card: in the cockpit a click selects a neuron (its path lights, the card stays shut);
+  // a double-click, or the Card button, opens its card in the top layer over the net's corner.
+  // Open, the card is persistent — it follows the selection — until ✕, Escape or a click
+  // outside it and the net closes it; the neuron stays selected. On the net's own page the card
+  // is the side column's, always shown.
+  let cardOpen = false;
   function setFocus(id, fromNet) {
-    if (id !== focus) cardHidden = false;
     focus = id;
+    if (!id) cardOpen = false;
     if (!fromNet) net.focus(id);
     for (const th of document.querySelectorAll('#matrix th[data-id]')) th.toggleAttribute('data-hot', !!focus && th.dataset.id === focus);
     knowledge(id);
   }
+  function openCard(id) {
+    if (id && id !== focus) setFocus(id, true);
+    if (!focus) return;
+    cardOpen = true;
+    knowledge(focus);
+    const x = $('#net-float .kcard-x');
+    if (x && main.dataset.view === 'overview') x.focus({ preventScroll: true });
+  }
+  function closeCard() { if (!cardOpen) return; cardOpen = false; knowledge(focus); }
+  // the top layer: a manual popover pinned to the net panel's top-right corner (a phone's sheet
+  // is css's); a browser without popovers keeps the card floating inside the panel
+  const netPanel = netBox.closest('.panel');
+  function placeCard() {
+    const slot = $('#net-float');
+    if (!slot.matches(':popover-open')) return;
+    const r = netPanel.getBoundingClientRect(), rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const top = Math.max(r.top + (main.dataset.net === '3d' ? 8.75 : 4.75) * rem, rem * 0.5);
+    slot.style.setProperty('--net-card-top', top + 'px');
+    slot.style.setProperty('--net-card-right', Math.max(innerWidth - r.right + 0.75 * rem, 0.5 * rem) + 'px');
+    slot.style.setProperty('--net-card-max', Math.max(Math.min(r.bottom, innerHeight) - top - 0.75 * rem, 12 * rem) + 'px');
+  }
+  function floatCard(on) {
+    const slot = $('#net-float');
+    slot.hidden = !on;
+    if (!slot.showPopover) return;
+    const open = slot.matches(':popover-open');
+    if (on && !open) slot.showPopover(); else if (!on && open) slot.hidePopover();
+    if (on) placeCard();
+  }
+  addEventListener('resize', () => placeCard(), { passive: true });
+  addEventListener('scroll', () => placeCard(), { passive: true, capture: true });
+  new ResizeObserver(() => placeCard()).observe(netPanel);
+  // Escape closes the card before anything else hears it (the net's Escape clears the focus, the
+  // console's interrupts); a press outside the card and the net closes it
+  addEventListener('keydown', ev => {
+    if (ev.key !== 'Escape' || !cardOpen || main.dataset.view !== 'overview') return;
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    const fromCard = $('#net-float').contains(document.activeElement);
+    closeCard();
+    if (fromCard) { const b = $('#net-card'); if (b && !b.hidden) b.focus({ preventScroll: true }); }
+  }, true);
+  addEventListener('pointerdown', ev => {
+    if (!cardOpen || main.dataset.view !== 'overview') return;
+    const t = ev.target;
+    if (!(t instanceof Element) || t.closest('#net-float, #net, #net-card, .net-mode, .now')) return;
+    closeCard();
+  }, true);
   $('#net-clear').addEventListener('click', () => setFocus(''));
-  $('#net-card').addEventListener('click', () => { cardHidden = false; knowledge(focus); });
+  $('#net-card').addEventListener('click', () => openCard(focus));
   // a short, stable code for a neuron's ID block: its kind, then four hex of its id's hash
   const idCode = n => {
     let h = 2166136261;
@@ -684,10 +734,10 @@
     const box = $('#kcard');
     box.replaceChildren();
     const slot = box.parentElement && box.parentElement.id === 'net-float' ? box.parentElement : null;
-    if (slot) slot.hidden = !id || cardHidden;
+    if (slot) floatCard(!!id && cardOpen);
     const reopen = $('#net-card');
-    if (reopen) reopen.hidden = !(slot && id && cardHidden);
-    if (!id || !team) { if (main.dataset.view === 'overview') return; box.append(el('p', { class: 'net-hint', text: 'Hover a neuron to light its path to the ' + word('rank.orchestrator', 'orchestrator') + ' and everything below it; click (or Enter) pins it here. Each tile is four weeks of that ' + word('agent', 'agent') + "'s work, a cell a day — blank where no instrument saw any." })); return; }
+    if (reopen) reopen.hidden = !(slot && id && !cardOpen);
+    if (!id || !team) { if (main.dataset.view === 'overview') return; box.append(el('p', { class: 'net-hint', text: 'Hover a neuron to light its path to the ' + word('rank.orchestrator', 'orchestrator') + ' and everything below it; click (or Enter) pins it here; on the overview a double-click opens its card. Each tile is four weeks of that ' + word('agent', 'agent') + "'s work, a cell a day — blank where no instrument saw any." })); return; }
     const n = team.nodes.find(x => x.id === id);
     if (!n) return;
     const m = net.model();
@@ -730,8 +780,8 @@
       el('span', { class: 'kcard-id-tag', text: 'ID //' }), el('span', { class: 'kcard-id-code', text: idCode(n) }),
       el('span', { class: 'kcard-id-state', 'data-live': liveNames.has(n.name), text: liveNames.has(n.name) ? 'live' : 'idle' }),
       el('span', { class: 'kcard-id-bars', 'aria-hidden': 'true' })) : null;
-    const hide = floating ? el('button', { class: 'kcard-x', type: 'button', text: '✕', title: 'hide the card — the neuron stays selected',
-      'aria-label': 'hide the card; the neuron stays selected', onclick: () => { cardHidden = true; knowledge(focus); } }) : null;
+    const hide = floating ? el('button', { class: 'kcard-x', type: 'button', text: '✕', title: 'close the card (Esc) — the neuron stays selected',
+      'aria-label': 'close the card; the neuron stays selected', onclick: closeCard }) : null;
     box.append(el('article', { class: 'kcard', 'data-float': floating, 'data-rank': n.orchestrator ? 'orchestrator' : (isSkill(n) ? false : n.rank || false), 'data-family': n.family || false },
       hide, idBlock,
       face,

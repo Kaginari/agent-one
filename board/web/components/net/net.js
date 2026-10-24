@@ -591,6 +591,7 @@
         if (n.workingNotes && skill && n.workingNotes.notes && !p.hide) node.append(s('text', { class: 'net-sub', x: p.out + 2, y: p.y }, n.workingNotes.notes + '/' + n.workingNotes.limit));
         node.append(s('title', {}, n.name));
         node.addEventListener('click', () => pin(id));
+        node.addEventListener('dblclick', ev => { ev.preventDefault(); openCardAt(id); });
         node.addEventListener('pointerenter', () => preview(id));
         node.addEventListener('pointerleave', () => preview(''));
         node.addEventListener('focus', () => { st.current = id; preview(id); });
@@ -626,6 +627,13 @@
 
     // ---------- focus: hover previews, click or Enter pins ----------
     function pin(id) { st.focus = st.focus === id ? '' : id; if (id) st.current = id; applyFocus(); opts.onFocus && opts.onFocus(st.focus); }
+    // a double-click selects the neuron (whatever its two clicks toggled) and opens its card
+    function openCardAt(id) {
+      if (!id) return;
+      st.focus = id; st.current = id; applyFocus();
+      opts.onFocus && opts.onFocus(st.focus);
+      opts.onCard && opts.onCard(st.focus);
+    }
     function preview(id) { st.hover = id; applyFocus(); }
     function applyFocus() {
       const id = st.hover || st.focus;
@@ -825,7 +833,7 @@
       st.mode = v;
       if (v === '3d') {
         if (!st.three) {
-          st.three = window.agentOneNet3D.create(stage, { probes, word, meters: () => (opts.meters ? opts.meters() : {}), onPick: id => pin(id || st.focus), onHover: id => preview(id), onKey: keys3d, onBlur: () => preview(''), reduced: () => reducedQ.matches });
+          st.three = window.agentOneNet3D.create(stage, { probes, word, meters: () => (opts.meters ? opts.meters() : {}), onPick: id => pin(id || st.focus), onCard: id => openCardAt(id), onHover: id => preview(id), onKey: keys3d, onBlur: () => preview(''), reduced: () => reducedQ.matches });
           if (!st.three) { st.mode = '2d'; return mode('2d'); }
         }
         stage.dataset.mode = '3d';

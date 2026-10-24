@@ -363,7 +363,7 @@
     canvas.className = 'net-canvas';
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', 'the net in 3D, a brain: the orchestrator at the centre, each rank a shell further out, each lane a region, the skills a crown above — drag to orbit, wheel to zoom, click a neuron to focus it; arrow keys walk the tree and the camera follows, Enter pins, Shift and the arrows turn it, + and - zoom');
+    canvas.setAttribute('aria-label', 'the net in 3D, a brain: the orchestrator at the centre, each rank a shell further out, each lane a region, the skills a crown above — drag to orbit, wheel to zoom, click a neuron to focus it, double-click it for its card; arrow keys walk the tree and the camera follows, Enter pins, Shift and the arrows turn it, + and - zoom');
     canvas.setAttribute('aria-describedby', 'net-keys');
     const overlay = document.createElement('canvas');
     overlay.className = 'net-overlay';
@@ -404,7 +404,7 @@
     bar.append(playBtn, scrub, clock, closeBtn);
     const key = el('div', 'net-3d-key');
     key.setAttribute('aria-hidden', 'true');
-    const hint = el('p', 'net-3d-hint', 'drag to orbit · wheel or pinch to zoom · click a neuron to focus · arrows walk the tree');
+    const hint = el('p', 'net-3d-hint', 'drag to orbit · wheel or pinch to zoom · click a neuron to focus, double-click for its card · arrows walk the tree');
     let seen = false;
     try { seen = localStorage.getItem('dash.net3d.seen') === '1'; } catch (_) { /* private mode */ }
     hint.hidden = seen;
@@ -1356,6 +1356,8 @@
       st.idleAt = performance.now();
     };
     canvas.addEventListener('pointerup', end);
+    // a double-click on a neuron opens its card (the two clicks before it selected it)
+    canvas.addEventListener('dblclick', ev => { const id = pick(...local(ev)); if (id && opts.onCard) { ev.preventDefault(); opts.onCard(id); } });
     canvas.addEventListener('pointercancel', end);
     canvas.addEventListener('pointerleave', () => { if (st.hover) { st.hover = ''; opts.onHover(''); } if (st.hoverRel) { st.hoverRel = null; kick(); still(); } canvas.removeAttribute('data-hot'); });
     canvas.addEventListener('wheel', ev => {

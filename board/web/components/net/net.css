@@ -9,6 +9,19 @@
     inline-size: min(22rem, calc(100% - 2 * var(--space-s))); max-block-size: calc(100% - 4.75rem - var(--space-s)); overflow: auto; overscroll-behavior: contain;
     border-radius: var(--radius-m); animation: net-float-in var(--time-slow) var(--ease); }
   .net-float[hidden] { display: none; }
+  /* in the top layer (a manual popover): over every panel, the console and the drawer, pinned to
+     the net panel's top-right corner (dash.js places it); on a phone a sheet at the bottom */
+  .net-float[popover] { margin: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow: auto; }
+  .net-float[popover]:popover-open {
+    position: fixed; inset: var(--net-card-top, 5rem) var(--net-card-right, var(--space-s)) auto auto;
+    inline-size: min(22rem, calc(100vw - 2 * var(--space-s))); max-block-size: var(--net-card-max, calc(100vh - 6rem));
+    box-shadow: 0 1rem 3rem color-mix(in oklch, var(--ink) 22%, transparent);
+    /* the top layer is its own backdrop root: the frost the card holds is the slot's */
+    border-radius: var(--radius-m); background: color-mix(in oklch, var(--surface) 55%, transparent); backdrop-filter: blur(0.8rem) saturate(1.4);
+  }
+  @media (max-width: 40rem) {
+    .net-float[popover]:popover-open { inset: auto var(--space-s) var(--space-s) var(--space-s); inline-size: auto; max-block-size: 70vh; }
+  }
   .panel-tools .button[hidden] { display: none; }
   /* in 3D the stage's own switches hold the corner: the card sits under them */
   [data-net="3d"] .net-float { inset-block-start: 8.75rem; max-block-size: calc(100% - 8.75rem - var(--space-s)); }
