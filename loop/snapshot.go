@@ -19,7 +19,8 @@ import (
 // more at the turn's end (a write a read-classified command slipped in). What differs is a write.
 //
 // The workspace dir's own instruments and records are not the model's writes and are not stamped:
-// instruments/, shared/ (the shared shelf: the work queue the harness moves), tmp/, memory/
+// instruments/, shared/ (the shared shelf: the work queue the harness moves), attic/ (old docs and
+// the births ledger the harness keeps), tmp/, memory/
 // (the tiers the binary maintains), toolbox/registry.json (derived),
 // ontology/graph/unsaid.ttl (where a report's @U lines land) and log.md (the gate's own
 // record). `.git` and the dependency/build dirs of heavyDirs are never walked.
@@ -65,7 +66,7 @@ func (e *Engine) unwatched(rel string) bool {
 		return true
 	}
 	wd := e.Lexicon.workspaceDir()
-	for _, p := range []string{"instruments", "shared", "tmp", "memory", "toolbox/registry.json", "ontology/graph/unsaid.ttl", "log.md"} {
+	for _, p := range []string{"instruments", "shared", "attic", "tmp", "memory", "toolbox/registry.json", "ontology/graph/unsaid.ttl", "log.md"} {
 		if rel == wd+"/"+p {
 			return true
 		}

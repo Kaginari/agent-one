@@ -8,6 +8,12 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Added
 
+- **Every member has a provisioning record.** Each time a member is provisioned — written by its parent,
+  split off by the council, risen by promotion or remade by evolution — one line is added to
+  `.agent-one/attic/births/<member>.jsonl` saying when, how and from whom. A new `tenure` value
+  reads how many days a member has existed, so a promotion rule can ask for experience over
+  time (`tenure >= 14`). Members provisioned before this record existed count from the commit that
+  added their README.
 - **Retiring a member looks after the ones below it.** When the council splits or retires a
   member that others report to, each of them is moved to the right new manager — the half of
   the split that holds its files, or the retired member's own manager — and the retired

@@ -59,6 +59,9 @@ func (w *Workspace) relieve(agent string) (msg string, wrote []string, ok bool) 
 	if lane != "" {
 		young, docs, err := w.splitZone(c, halves[0], halves[1], now)
 		if err == nil {
+			for i, y := range young {
+				w.logBirth(birthRecord{Agent: y, Kind: "split", From: c.Name, Doc: docs[i]})
+			}
 			wrote = append(docs, w.cascadeReSeat(c.Name, kids, func(k Member) string { return heirByClaims(k, young, halves) }, now)...)
 			w.mu.Lock()
 			w.ledgerNote(ledgerRow{Kind: "relief", Agent: agent, Lane: lane, Path: strings.Join(young, ",")})

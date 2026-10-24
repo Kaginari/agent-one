@@ -346,7 +346,12 @@ func (w *Workspace) AllSignals() map[string]value.Signals {
 		return map[string]value.Signals{}
 	}
 	out := value.Fold(w.Ledger(), w.ValueOpts())
+	now := time.Now()
 	for agent, s := range out {
+		s["tenure"] = 0
+		if born, ok := w.bornAt(agent); ok {
+			s["tenure"] = value.TenureDays(born, now)
+		}
 		s["score"] = value.Clamp(w.scoreExpr(w.RankOf(agent).Name).Eval(s))
 	}
 	return out

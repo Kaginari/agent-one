@@ -628,6 +628,14 @@ func (w *Workspace) applyPlan(ctx context.Context, p *EvolvePlan) EvolveEvent {
 		w.val.mu.Unlock()
 	}
 	_ = w.Reload()
+	switch {
+	case p.Arm == "split":
+		for _, y := range p.Into {
+			w.logBirth(birthRecord{Agent: y, Kind: "evolve-split", From: p.Agent, Doc: w.docOf(y)})
+		}
+	case p.Rebirth:
+		w.logBirth(birthRecord{Agent: p.Agent, Kind: "rebirth", From: p.Agent, Doc: w.docOf(p.Agent)})
+	}
 	ev := p.event("applied")
 	var files []string
 	for _, f := range p.Files {

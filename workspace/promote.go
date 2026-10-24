@@ -112,6 +112,7 @@ func (w *Workspace) promoteMaybe(agent string) {
 		w.promoteHole(agent, watcher, fmt.Sprintf("promote %s: %v", agent, err))
 		return
 	}
+	w.logBirth(birthRecord{At: ev.At, Agent: ev.New, Kind: "promote", From: agent, Doc: ev.Doc})
 	w.promote.mu.Lock()
 	w.promote.Events = append(w.promote.Events, ev)
 	w.promote.news = append(w.promote.news, ev)

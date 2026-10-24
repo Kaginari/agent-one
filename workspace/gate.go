@@ -59,6 +59,9 @@ type Verdict struct {
 	// VerifyRun and VerifyRed count the verify lines the gate ran and those that came back red —
 	// the value ledger's verifyGreenRate reads them.
 	VerifyRun, VerifyRed int
+	// Provisioned are the members a provisioning write registered this turn (gate_provisioning.go): a pass logs
+	// their provisioning.
+	Born []*Member
 }
 
 func (v Verdict) String() string {
@@ -155,6 +158,7 @@ func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, 
 				// provisioning (gate_provisioning.go): the zone-parent registers its own child's README — new
 				// since the last commit, reporting to the writer, claiming only live soil the
 				// writer holds or nobody does
+				v.Born = append(v.Born, owner)
 			case orchestratorSeat && orchestratorAuthored:
 				// the orchestrator's own work, on its own seat — no agent's authorship to check
 			case memberDoc && as == owner.Name:
@@ -389,6 +393,12 @@ func (w *Workspace) EndGate(opt GateOptions) func(ctx context.Context, s *loop.S
 			return v.String(), holes, fmt.Errorf("gate cancelled — %w", ctx.Err())
 		}
 		if v.Word == "pass" {
+			// a provisioning that passed is a provisioning — logged once, at the agent's first
+			for _, c := range v.Born {
+				if len(w.Births(c.Name)) == 0 {
+					w.logBirth(birthRecord{Agent: c.Name, Kind: "provisioning", From: or(as, Orchestrator), By: or(as, Orchestrator), Doc: c.Doc})
+				}
+			}
 			// pair policy (freeze review 2026-10-07): a doc that moved and PASSED policy marks the
 			// pairing window — later waves that touch the ownership without re-moving the doc pair
 			// against the mark, once (the gate spends marks after its wrote loop). Failures never

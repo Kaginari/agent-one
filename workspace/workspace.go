@@ -113,6 +113,8 @@ type Workspace struct {
 	// agent's verify lines as the gate trusts them (workspace/selfheal.go)
 	stamp      uint64
 	verifyBase map[string][]string
+	// provisioned caches each agent's first provisioning (workspace/births.go); zero: none known
+	born map[string]time.Time
 }
 
 // Discover walks up from dir for the workspace dir.
@@ -136,7 +138,7 @@ func Open(root string, lex Lexicon, opt Options) (*Workspace, error) {
 	if st, err := os.Stat(filepath.Join(abs, lex.WorkspaceDir)); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("no %s/ under %s", lex.WorkspaceDir, abs)
 	}
-	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, valOpt: opt.Value, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]subagentWrite{}, subagentWrites: map[string]map[string]subagentWrite{}, stress: map[string]int{}, consults: map[string]int{}, stressDeaths: map[string]stressEnd{}, pairMarks: map[string]time.Time{}, gateStreaks: map[string]*gateStreak{}, receipts: loop.NewReceipts()}
+	w := &Workspace{Root: abs, Lex: lex, Ranks: opt.Ranks, valOpt: opt.Value, sessions: map[*loop.Engine]*loop.Session{}, closers: map[*loop.Engine]func(){}, subagentWrote: map[*loop.Engine]map[string]subagentWrite{}, subagentWrites: map[string]map[string]subagentWrite{}, stress: map[string]int{}, consults: map[string]int{}, stressDeaths: map[string]stressEnd{}, pairMarks: map[string]time.Time{}, gateStreaks: map[string]*gateStreak{}, receipts: loop.NewReceipts(), born: map[string]time.Time{}}
 	if w.Ranks == nil {
 		w.Ranks = DefaultRanks(lex)
 	}

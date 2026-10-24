@@ -17,8 +17,8 @@ const (
 	// SoilSeat is a member's own seat: its directory under <workspaceDir>/<rank>/, where its doc
 	// lives. The seat is the member's, whatever another member's broad claim covers.
 	SoilSeat
-	// SoilHarness is the harness's own bookkeeping — the shared shelf (queue, ledgers, value)
-	// and the instruments shelf (journals, reports, usage). It lands from the harness only and
+	// SoilHarness is the harness's own bookkeeping — the shared shelf (queue, ledgers, value),
+	// the instruments shelf (journals, reports, usage) and the attic (old docs, births). It lands from the harness only and
 	// never bills an agent: no member owns it, so no doc is owed for it.
 	SoilHarness
 	// SoilScratch is the workspace's scratch (<workspaceDir>/tmp/): an agent's own nest — its redirected
@@ -37,8 +37,8 @@ type Zone struct {
 }
 
 // harnessShelves and scratchShelf are the workspace-dir children ZoneOfPath reads as harness soil
-// and scratch.
-var harnessShelves = []string{sharedShelf, "instruments"}
+// and scratch. The attic keeps what the harness set aside: old docs, the births ledger.
+var harnessShelves = []string{sharedShelf, "instruments", "attic"}
 
 const scratchShelf = "tmp"
 
