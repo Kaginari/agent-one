@@ -545,11 +545,13 @@ No change lands without its domain owner's pass. The domain owner checks:
 4. **Doc truthful** — the owning doc changed in the same change (Docs-as-code).
 
 Two seats sit outside authorship policing, checked differently: a member's own doc
-(`<dir>/README.md`) — the orchestrator authors the skeleton at provisioning, the member edits it
-after — and the orchestrator's own seat files (the system manifest `.agent-one/system.yaml` and
-the policy file), which are the orchestrator's own work product, not any member's ownership. When
-the orchestrator or an orchestrator-rank runtime writes a seat file, neither *right zone worker
-authored* nor *doc truthful* fires; any other agent on the same file still fails right-author.
+(`<dir>/README.md`) — the orchestrator or the provisioning parent authors the skeleton, the member
+edits it after — and the orchestrator's own seat files (the system manifest
+`.agent-one/system.yaml` and the policy file), which are the orchestrator's own work product, not
+any member's ownership. When the orchestrator or an orchestrator-rank runtime writes a seat file,
+neither *right zone worker authored* nor *doc truthful* fires; any other agent on the same file
+still fails right-author. A member's seat stays its own inside any broader ownership claim: an edit
+there owes no other member's doc.
 
 The verdict (pass / fail + reason) is recorded in `log.md`.
 

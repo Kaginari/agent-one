@@ -107,6 +107,11 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **The policy says whose a member's seat is.** `AGENT-ONE.md`'s review gate now states what the
+  harness already does: a member's own directory stays its own under a broader ownership claim, an
+  edit there owes no other member's doc, and the parent that provisions a member may write its
+  first README.
+
 - **The policy gains its negative half.** `AGENT-ONE.md` now says, one line per rank, what each
   never does — each line a restatement of a rule already there, in the form a member checks before
   it acts.
