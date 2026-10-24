@@ -555,7 +555,7 @@
   function header() {
     getJSON('api/live').then(s => {
       live = s;
-      $('#world').textContent = s.workspace || '—';
+      $('#workspace').textContent = s.workspace || '—';
       $('#model').textContent = s.model || '—';
       const st = s.session ? (s.running ? 'running' : 'idle') : 'no session';
       const p = pill(st); p.id = 'state';
@@ -1280,7 +1280,7 @@
   }
   const tokens = s => (s.input || 0) + (s.output || 0) + (s.cacheRead || 0) + (s.cacheWrite || 0);
   const priced = s => !s.usd && s.unpriced ? 'unpriced' : s.unpriced ? usd(s.usd) + '+' : usd(s.usd);
-  let court = [];
+  let subagent = [];
   function metrics() {
     const range = $('#range').value;
     getJSON('api/usage?range=' + encodeURIComponent(range)).then(u => {
