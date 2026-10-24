@@ -46,7 +46,10 @@ const scratchShelf = "tmp"
 // shelves and the scratch (nobody's), a member's seat (the seat's, even under a broader
 // claim — a member's README is never another agent's pairing debt), then the longest
 // ownership claim of an authoring member, then of a gate holder. Owner is its member.
-func (w *Workspace) ZoneOfPath(rel string) Zone {
+func (w *Workspace) ZoneOfPath(rel string) Zone { return w.zoneAmong(w.Members, rel) }
+
+// zoneAmong is ZoneOfPath over a given roster (the trusted one: workspace/claims.go).
+func (w *Workspace) zoneAmong(cs []Member, rel string) Zone {
 	rel = normRel(rel)
 	wd := normRel(w.Lex.WorkspaceDir)
 	for _, s := range harnessShelves {
@@ -58,8 +61,8 @@ func (w *Workspace) ZoneOfPath(rel string) Zone {
 		return Zone{Soil: SoilScratch}
 	}
 	var seat *Member
-	for i := range w.Members {
-		c := &w.Members[i]
+	for i := range cs {
+		c := &cs[i]
 		// a foreign agent (another harness's agent file) has a doc and no dir: its doc is its seat
 		in := (c.Dir != "" && under(rel, c.Dir)) || (c.Doc != "" && normRel(c.Doc) == rel)
 		if in && (seat == nil || len(c.Dir) > len(seat.Dir)) {
@@ -72,8 +75,8 @@ func (w *Workspace) ZoneOfPath(rel string) Zone {
 	for _, pick := range []func(Rank) bool{func(r Rank) bool { return r.Authors }, func(r Rank) bool { return r.HoldsGate && !r.Authors }} {
 		var best *Member
 		bestLen := -1
-		for i := range w.Members {
-			c := &w.Members[i]
+		for i := range cs {
+			c := &cs[i]
 			if r, ok := w.Ranks.Get(c.Rank); !ok || !pick(r) {
 				continue
 			}

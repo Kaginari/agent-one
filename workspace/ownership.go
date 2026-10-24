@@ -89,14 +89,17 @@ func (w *Workspace) ToolPolicy(agent string, opt OwnershipOptions) tool.Policy {
 			}
 			return nil
 		}
-		w.SelfHeal() // a claim granted since the roster was read counts (workspace/selfheal.go)
+		w.SelfHeal() // a claim granted since the roster was read counts (workspace/selfheal.go) — on open ground at once, on a living agent's soil once its parent's gate passed it (workspace/claims.go)
 		c := w.Member(agent)
 		if c == nil || !opt.held(w, c) || (len(c.Ownership) == 0 && c.Dir == "") {
 			return nil
 		}
 		for _, p := range a.Paths {
 			rel := w.Rel(p)
-			if c.InOwnership(rel) {
+			// judged by the claims the gate trusts: an agent's own fresh claim on another living
+			// agent's soil admits nothing until its parent's gate has passed it (workspace/claims.go)
+			tz, tc := w.trustedZone(rel, c.Name)
+			if tc != nil && tc.InOwnership(rel) {
 				continue
 			}
 			if w.ZoneOfPath(rel).Soil == SoilScratch {
@@ -105,7 +108,7 @@ func (w *Workspace) ToolPolicy(agent string, opt OwnershipOptions) tool.Policy {
 				}
 				continue // the scratch is every agent's own nest
 			}
-			owner := w.Owner(rel)
+			owner := tz.Member
 			if owner != nil && owner.Name != c.Name && owner.Rank == c.Rank {
 				// sideways soil of the same rank IS licensed — dispatch the owner directly.
 				myRank, _ := w.Ranks.Get(c.Rank)

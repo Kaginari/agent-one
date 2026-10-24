@@ -132,7 +132,7 @@ func (w *Workspace) promoteMaybe(agent string) {
 	}
 	// the promoted agent must be dispatchable on the next commission and the base must leave
 	// the roster: re-derive it from the docs
-	if err := w.Reload(); err != nil {
+	if err := w.reloadRegistered(); err != nil {
 		w.promoteHole(agent, watcher, fmt.Sprintf("reload after %s: %v", ev.New, err))
 	}
 }

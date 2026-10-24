@@ -113,6 +113,8 @@ type Workspace struct {
 	// agent's verify lines as the gate trusts them (workspace/selfheal.go)
 	stamp      uint64
 	verifyBase map[string][]string
+	// claimBase is each agent's ownership claims as the gate trusts them (workspace/claims.go)
+	claimBase map[string][]string
 	// provisioned caches each agent's first provisioning (workspace/births.go); zero: none known
 	born map[string]time.Time
 }
@@ -188,8 +190,15 @@ func (w *Workspace) Rel(abs string) string {
 }
 
 // Reload re-derives the roster from the docs (they change during a session) and takes their
-// verify lines as the gate's base (selfheal.go).
-func (w *Workspace) Reload() error {
+// verify lines as the gate's base (selfheal.go) and the claims it trusts (claims.go): a claim
+// that takes another living agent's soil stays held back.
+func (w *Workspace) Reload() error { return w.reload(false) }
+
+// reloadRegistered is Reload after the harness's own register (relief, promotion, evolution): every
+// claim on disk is the harness's, and trusted.
+func (w *Workspace) reloadRegistered() error { return w.reload(true) }
+
+func (w *Workspace) reload(registered bool) error {
 	st := w.docStamp() // before the read: a doc moved during it re-heals on the next ask
 	ow, err := onto.LoadLayout(w.Root, w.Ranks.Layout(w.Lex))
 	if err != nil {
@@ -200,6 +209,7 @@ func (w *Workspace) Reload() error {
 	w.Notes = append(w.Notes, ow.Notes...)
 	w.verifyBase = nil
 	w.mergeFreshLocked(ow)
+	w.rebaseClaimsLocked(registered)
 	w.stamp = st
 	return nil
 }

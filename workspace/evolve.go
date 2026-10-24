@@ -627,7 +627,7 @@ func (w *Workspace) applyPlan(ctx context.Context, p *EvolvePlan) EvolveEvent {
 		w.appendValue(value.Row{Kind: value.KindRebirth, Agent: p.Agent, Rank: w.RankOf(p.Agent).Name, Arm: "rebirth", Reason: p.Reason})
 		w.val.mu.Unlock()
 	}
-	_ = w.Reload()
+	_ = w.reloadRegistered()
 	switch {
 	case p.Arm == "split":
 		for _, y := range p.Into {

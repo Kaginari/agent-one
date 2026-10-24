@@ -66,7 +66,7 @@ func (w *Workspace) relieve(agent string) (msg string, wrote []string, ok bool) 
 			w.mu.Lock()
 			w.ledgerNote(ledgerRow{Kind: "relief", Agent: agent, Lane: lane, Path: strings.Join(young, ",")})
 			w.mu.Unlock()
-			w.Reload()
+			w.reloadRegistered()
 			how := "zone divided at the count's middle"
 			if lane == "split-tree" {
 				how = "one wide zone divided by the tree under " + terr[0]
@@ -87,7 +87,7 @@ func (w *Workspace) relieve(agent string) (msg string, wrote []string, ok bool) 
 	w.mu.Lock()
 	w.ledgerNote(ledgerRow{Kind: "relief", Agent: agent, Lane: "retire", Path: c.Doc})
 	w.mu.Unlock()
-	w.Reload()
+	w.reloadRegistered()
 	return "retired " + agent + " " + strings.TrimSpace(note) + "; zone open for future dispatches" + reSeated(kids), wrote, true
 }
 
