@@ -76,7 +76,11 @@ func (w *Workspace) Validate() []Finding {
 					if owners[i] == owners[j] || !w.overlap(paths[i], paths[j]) {
 						continue
 					}
-					out = append(out, w.finding(name, owners[i], "ownership", fmt.Sprintf("%s owns %s, overlapping %s of %s", owners[i].Local(), paths[i], paths[j], owners[j].Local())))
+					f := w.finding(name, owners[i], "ownership", fmt.Sprintf("%s owns %s%s, overlapping %s of %s%s", owners[i].Local(), paths[i], w.claimNote(owners[i], paths[i]), paths[j], owners[j].Local(), w.claimNote(owners[j], paths[j])))
+					if cl, ok := w.ClaimOf(owners[i], paths[i]); ok {
+						f.Doc = fmt.Sprintf("%s:%d", w.Docs[owners[i]].Path, cl.Line)
+					}
+					out = append(out, f)
 				}
 			}
 		}
@@ -117,6 +121,23 @@ func OneHop(g *Graph, s, o Term) bool {
 		}
 	}
 	return true
+}
+
+// ClaimOf is the provenance of x's owns edge on path: the lane that registered it and its line.
+func (w *Workspace) ClaimOf(x Term, path string) (Claim, bool) {
+	if d, ok := w.Docs[x]; ok && d.Claims != nil {
+		c, ok := d.Claims[path]
+		return c, ok
+	}
+	return Claim{}, false
+}
+
+// claimNote renders a claim's provenance for a message: ` (prose, line 12)`, "" when unknown.
+func (w *Workspace) claimNote(x Term, path string) string {
+	if c, ok := w.ClaimOf(x, path); ok {
+		return " (" + c.String() + ")"
+	}
+	return ""
 }
 
 func (w *Workspace) finding(shape string, x Term, field, msg string) Finding {

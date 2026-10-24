@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -113,7 +114,7 @@ func TestValidateBroken(t *testing.T) {
 	}
 	want := []string{
 		".claude/skills/zone-lonely/SKILL.md:1: skill-zone-lonely has 0 heldBy edges, wants at least 1 (SkillHeld)",
-		".agent-one/zone/auth/README.md:4: zone-auth owns src/auth, overlapping src/auth/login of zone-orphan (ZoneOwnership)",
+		".agent-one/zone/auth/README.md:4: zone-auth owns src/auth (structured, line 4), overlapping src/auth/login of zone-orphan (structured, line 4) (ZoneOwnership)",
 		".agent-one/zone/orphan/README.md:1: zone-orphan has 0 truth edges, wants exactly 1 (ZoneTruth)",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -638,5 +639,37 @@ func TestHeirOf(t *testing.T) {
 	}
 	if len(heirLive) != 1 || !strings.Contains(heirLive[0], "zone-orphan reports to domain-gone") {
 		t.Errorf("HeirLive findings: %v", heirLive)
+	}
+}
+
+// Every owns edge names its lane and line, and an ownership finding points at the line that made
+// the claim; prose never registers a whole tree — a bare segment or a glob is a region, not a claim.
+func TestClaimProvenanceAndProseAdjacency(t *testing.T) {
+	dir := t.TempDir()
+	for p, s := range map[string]string{
+		".agent-one/zone/auth/README.md": "# zone-auth\n\n- **Owns:** `src/auth/`\n- **Reports to:** domain-x\n\n## Working notes\n\nI read `src/` and `docs/` often, and `**/` and `*/*`.\nzone-auth keeps `auth/handlers` too.\n",
+		".agent-one/zone/b/README.md":    "# zone-b\n\n- **Owns:** `.agent-one`\n- **Reports to:** domain-x\n",
+	} {
+		full := filepath.Join(dir, filepath.FromSlash(p))
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		os.WriteFile(full, []byte(s), 0o644)
+	}
+	w, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var owns []string
+	for _, o := range w.Graph.Objects(Ao("zone-auth"), pOwns) {
+		owns = append(owns, o.Value)
+	}
+	sort.Strings(owns)
+	if strings.Join(owns, ",") != "auth/handlers,src/auth" {
+		t.Fatalf("zone-auth owns %v", owns)
+	}
+	if c, ok := w.ClaimOf(Ao("zone-auth"), "src/auth"); !ok || c != (Claim{"structured", 3}) {
+		t.Errorf("structured claim: %+v %v", c, ok)
+	}
+	if c, ok := w.ClaimOf(Ao("zone-auth"), "auth/handlers"); !ok || c != (Claim{"prose", 9}) {
+		t.Errorf("prose claim: %+v %v", c, ok)
 	}
 }
