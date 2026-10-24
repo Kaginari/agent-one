@@ -335,7 +335,7 @@ func looksSecret(v string) bool {
 }
 
 // secretKey refuses an unknown key that would hold a credential in a file — except providers' own
-// designated fields: apiKey holds a literal key because the estates run headless containers with
+// designated fields: apiKey holds a literal key because a headless container may have
 // no env to name. Everywhere else the env-name rule stands.
 func secretKey(u unknownKey) error {
 	last := u.path[strings.LastIndex(u.path, ".")+1:]

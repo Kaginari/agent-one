@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// boardReservedPorts are the estate/machine ports init never offers to a new board: the local
-// the machine.local LLM proxy (4000), this binary's own current board default (7411), the conduit gateway pair
-// (8080/8081) and the fake-ai bench gateway (8090); 8091 stays clear as its known sibling.
+// boardReservedPorts are the ports init never offers to a new board: a local LLM proxy's usual
+// port (4000), this binary's own current board default (7411), a local gateway pair (8080/8081)
+// and the fake-ai bench gateway (8090); 8091 stays clear as its known sibling.
 var boardReservedPorts = map[int]bool{4000: true, 7411: true, 8080: true, 8081: true, 8090: true, 8091: true}
 
 // boardDefaultPort mirrors config/defaults.go's ui.board.port.

@@ -177,7 +177,7 @@ func TestTmpGuardProbeMarker(t *testing.T) {
 	a.Cfg.Tools.TmpRedirect.Enabled = true
 	a.Cfg.Tools.TmpRedirect.Mode = "rewrite"
 	g := a.tmpGuardHook()
-	in, _ := json.Marshal(map[string]string{"command": "ls /Users/ap00000/sdk/go1.26.0"})
+	in, _ := json.Marshal(map[string]string{"command": "ls /Users/x/sdk/go1.26.0"})
 	out := g(nil, "bash", in)
 	if !strings.Contains(out, "probe-redirect") {
 		t.Fatalf("read probe must carry the marker: %q", out)

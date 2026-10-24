@@ -74,7 +74,7 @@ type Provider struct {
 	Type      string `json:"type"` // anthropic | openai | mock
 	BaseURL   string `json:"baseURL"`
 	APIKeyEnv string `json:"apiKeyEnv"`
-	// APIKey: the key literal, when no env var is possible (the estate's container runs). Env stays
+	// APIKey: the key literal, when no env var is possible (a headless container's runs). Env stays
 	// the preferred route: `apiKeyEnv` wins when it resolves. Never commit this value anywhere.
 	APIKey          string                 `json:"apiKey"`
 	Headers         map[string]string      `json:"headers"`
