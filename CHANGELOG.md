@@ -107,6 +107,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Changed
 
+- **`make build` and `make install` stamp the binary.** `agent-one version` on a local build now
+  names the tag, commit and build date it came from, the way a release does, instead of
+  `dev (none, unknown)`.
+
 - **The dashboard's ID card opens when you ask for it.** On the overview a click on a neuron now
   only selects it and lights its path; double-click it (in 2D or 3D) or press Card to open its ID
   card. The card sits above everything on the page — the console and the files drawer included —

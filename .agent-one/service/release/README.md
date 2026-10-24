@@ -1,7 +1,7 @@
 # service-release
 
 - **Rank:** Service owner
-- **Owns:** `.github/`, `.goreleaser.yaml`, `Dockerfile.release`, `install.sh`, `RELEASING.md`, `CHANGELOG.md`, `bench/`, `.gitignore`
+- **Owns:** `.github/`, `.goreleaser.yaml`, `Dockerfile.release`, `install.sh`, `Makefile`, `RELEASING.md`, `CHANGELOG.md`, `bench/`, `.gitignore`
 - **Reports to:** orchestrator
 - **Skills:** service-release-flow
 - **Purpose:** owns CI, releases and the benchmark harness end to end, across sessions; anything that tags, publishes, pushes an image or spends on a gateway waits for the operator.
@@ -13,6 +13,7 @@
 - bench: `runs.jsonl` is append-only and `RESULTS.md` is generated from it by `record.py` ("do not edit"); `record.py --expect` asserts a mean reward; `harbor.sh` runs real models on a gateway (cost) and forwards the key by NAME only — never run without the operator. `jobs/`, `.smoke-config.yaml`, `.fakevllm-*.log` and `__pycache__/` are gitignored. `bench/fakevllm` is its own Go module, built with `go build -C bench/fakevllm`.
 - The Harbor adapter (`harbor_agent.py`) installs the static binary into the task container and seeds `.<dist>/config.local.yaml` from BENCH_CONFIG; `configs/fake-vllm.yaml` switches the human gate and the bash sandbox off because nobody answers inside a task container — that file is never a template for a real workspace.
 - `bench/harbor/__pycache__/` and `bench/__pycache__/` are left behind by runs — the first is root-owned, written by Harbor's Docker runner — so `python3 -m py_compile` fails on this tree; syntax is checked with `ast.parse` instead, which writes nothing.
+- `Makefile`: build writes .agent-one/tmp/agent-one (the sandbox, Policy 5), install writes $(PREFIX)/bin (default ~/.local/bin), both stamping main.version/commit/date by -ldflags (VERSION=`git describe --tags --always --dirty`, COMMIT=short HEAD, DATE=UTC now; each overridable), so `agent-one version` names a local build as GoReleaser names a release.
 - On this machine: docker, python3, bwrap and chromium are present; goreleaser and the harbor CLI are not, so `goreleaser check` and a smoke run are CI's readings, not local ones.
 
 ## Verify
