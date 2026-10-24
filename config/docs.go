@@ -278,10 +278,11 @@ var keyDocs = map[string]string{
 	"instruments.status":             "the status board",
 	"instruments.status.showOff":     "on/off — list every switched-off feature (off is itself listed)",
 	"instruments.otlp":               "OpenTelemetry trace export over OTLP/HTTP — a CHAIN span per turn, an AGENT per subagent, a TOOL per executed call (outward: honored only from the global or local config)",
-	"instruments.otlp.enabled":       "on/off — export spans (off by default; the collector sees each tool's input and output, cut at 4 KB)",
+	"instruments.otlp.enabled":       "on/off — export spans (off by default; the collector sees each tool's input and output as instruments.otlp.content says, cut at 4 KB)",
 	"instruments.otlp.endpoint":      "the collector's OTLP/HTTP traces URL, used as-is (e.g. https://collector.example/v1/traces); required when enabled",
 	"instruments.otlp.headersEnv":    "header → the NAME of the environment variable holding its value (an API key, a project id); never the value",
 	"instruments.otlp.service":       "service.name on every span (empty: the distribution's name)",
+	"instruments.otlp.content":       "what a span carries of tool input/output and a turn's answer: redacted (default — secret-looking values masked), full (as they are) or none (left off)",
 
 	// permissions, rules, hooks
 	"permissions":                           "ask / allow / deny per command or path",

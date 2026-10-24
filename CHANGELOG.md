@@ -27,7 +27,9 @@ All notable changes to Agent-One are recorded here. The format follows
   to the collector you name (OTLP over HTTP, so Jaeger, Grafana Tempo and any other OpenTelemetry
   backend read it). A turn is named after the member's rank and name, a subagent's work nests
   under the dispatch that started it, and each tool call that actually ran gets its own span,
-  carrying its input and output (cut at 4 KB) — the collector sees what the model sees.
+  carrying its input and output (cut at 4 KB). Anything that looks like a secret — API keys,
+  bearer tokens, `password=…` and the like — is masked before it leaves; set
+  `instruments.otlp.content` to `full` to send the text as it is, or `none` to send no content.
   It is off by default; it never switches on from a repository's own config file, environment
   variables or flags; API keys are named by environment variable, never written in the file. If
   the collector is down or refuses the key, you get one notice in the terminal or on the board —
@@ -157,6 +159,10 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The policy agrees with itself about the scratch.** Its list of what each rank never does said a
+  Zone worker never writes outside its zone, while the gate lets every member write in the workspace's
+  scratch (`.agent-one/tmp/`) and its own seat. The line now names both, and the gate section says
+  what the scratch is.
 - **A parent can found its child in a workspace without git, even when the roster refreshed
   first.** If anything re-read the member docs between the parent writing the child's README and
   the turn's check — a dispatch, a write check — the child already looked known, the provisioning was

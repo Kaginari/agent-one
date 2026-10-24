@@ -495,8 +495,8 @@ form a member checks before it acts, and none adds to them or outranks the core 
 - **A coordinator** never does a domain's work itself: it routes the work to the domain owner.
 - **A domain owner** never passes a change its zone worker did not author, or whose doc did not
   change with it.
-- **A zone worker** never writes outside its zone and never speaks sideways: its questions go to
-  its domain owner.
+- **A zone worker** never writes outside its zone (its own seat and the workspace scratch,
+  `.agent-one/tmp/`, aside) and never speaks sideways: its questions go to its domain owner.
 - **A service owner** never tags, publishes or reaches outward for its subsystem without the
   operator's word.
 - **An auditor** never authors a change: it audits.
@@ -552,6 +552,8 @@ any member's ownership. When the orchestrator or an orchestrator-rank runtime wr
 neither *right zone worker authored* nor *doc truthful* fires; any other agent on the same file
 still fails right-author. A member's seat stays its own inside any broader ownership claim: an edit
 there owes no other member's doc.
+The workspace scratch (`.agent-one/tmp/`, Law 5) is every agent's own nest: no member's ownership,
+never a doc debt — but a plan deck there speaks for its own agent only.
 
 The verdict (pass / fail + reason) is recorded in `log.md`.
 

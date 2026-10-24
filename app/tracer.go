@@ -28,6 +28,7 @@ type Tracer struct {
 	headers  map[string]string
 	unset    []string // headersEnv variables that resolved empty: named on the first send
 	service  string
+	content  string // instruments.otlp.content: redacted | full | none
 	rankOf   func(body string) string
 	warn     func(string)
 	client   *http.Client
@@ -68,7 +69,7 @@ func NewTracer(o config.OTLP, service string, env func(string) string, rankOf fu
 	if o.Service != "" {
 		service = o.Service
 	}
-	t := &Tracer{endpoint: o.Endpoint, headers: map[string]string{}, service: service, rankOf: rankOf, warn: warn,
+	t := &Tracer{endpoint: o.Endpoint, headers: map[string]string{}, service: service, content: o.Content, rankOf: rankOf, warn: warn,
 		client: &http.Client{Timeout: 10 * time.Second}, every: 2 * time.Second,
 		chains: map[*loop.Session]*span{}, tools: map[*loop.StepRecord]*span{}, subagents: map[string]*span{}, warned: map[string]bool{},
 		queue: make(chan otlpSpan, traceQueue), done: make(chan struct{})}
@@ -116,7 +117,7 @@ func (t *Tracer) Observe(s *loop.Session, st *loop.StepRecord, phase string) {
 	if sp == nil {
 		parent := t.chain(s, rank)
 		sp = &span{trace: parent.trace, id: spanID(), parent: parent.id, name: st.Tool, start: time.Now(),
-			attrs: []otlpAttr{attrStr("openinference.span.kind", "TOOL"), attrStr("tool.name", st.Tool), attrStr("input.value", traceClip(string(st.Input)))}}
+			attrs: t.withContent([]otlpAttr{attrStr("openinference.span.kind", "TOOL"), attrStr("tool.name", st.Tool)}, "input.value", string(st.Input))}
 		if body := dispatchAgent(st); body != "" {
 			sp.name = "subagent · " + body
 			sp.attrs[0] = attrStr("openinference.span.kind", "AGENT")
@@ -135,7 +136,7 @@ func (t *Tracer) Observe(s *loop.Session, st *loop.StepRecord, phase string) {
 		}
 		return
 	}
-	sp.attrs = append(sp.attrs, attrStr("output.value", traceClip(st.Result.Output)), attrStr("agent_one.status", st.Status))
+	sp.attrs = append(t.withContent(sp.attrs, "output.value", st.Result.Output), attrStr("agent_one.status", st.Status))
 	t.emit(sp, st.Status == "failed", "")
 }
 
@@ -149,7 +150,7 @@ func (t *Tracer) Ended(s *loop.Session, r *loop.Result) {
 	defer t.mu.Unlock()
 	c := t.chain(s, rank)
 	delete(t.chains, s)
-	c.attrs = append(c.attrs, attrStr("agent_one.status", r.Status), attrInt("agent_one.steps", len(r.Steps)), attrInt("agent_one.holes", len(r.Holes)), attrStr("output.value", traceClip(r.Text)))
+	c.attrs = t.withContent(append(c.attrs, attrStr("agent_one.status", r.Status), attrInt("agent_one.steps", len(r.Steps)), attrInt("agent_one.holes", len(r.Holes))), "output.value", r.Text)
 	t.emit(c, r.Status == loop.Fail, strings.Join(r.Holes, "; "))
 }
 
@@ -171,6 +172,21 @@ func (t *Tracer) Close() {
 	case <-t.done:
 	case <-time.After(5 * time.Second):
 	}
+}
+
+// withContent adds a content attribute (a tool's input or output, a turn's answer) as
+// instruments.otlp.content says: masked of anything secret-looking (redacted, the default), as it
+// is (full), or not at all (none). Redaction runs before the cut, so a cut never splits a secret
+// past its mask.
+func (t *Tracer) withContent(attrs []otlpAttr, key, v string) []otlpAttr {
+	switch t.content {
+	case "none":
+		return attrs
+	case "full":
+	default:
+		v = config.RedactSecrets(v)
+	}
+	return append(attrs, attrStr(key, traceClip(v)))
 }
 
 // rank names the session's agent's rank — read before t.mu, never under it (the workspace's lock).

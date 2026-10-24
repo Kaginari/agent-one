@@ -9,7 +9,7 @@ import (
 // an endpoint named, and never a credential in a file.
 func TestOTLPExportIsTheMachinesWord(t *testing.T) {
 	c := newWorkspace(t, nil).load()
-	if o := c.Instruments.OTLP; o.Enabled || o.Endpoint != "" || len(o.HeadersEnv) != 0 {
+	if o := c.Instruments.OTLP; o.Enabled || o.Endpoint != "" || len(o.HeadersEnv) != 0 || o.Content != "redacted" {
 		t.Fatalf("the shipped export is off with nothing named: %+v", o)
 	}
 	cases := []struct{ name, file, yaml, env, want string }{
@@ -19,6 +19,7 @@ func TestOTLPExportIsTheMachinesWord(t *testing.T) {
 		{"not a URL", ".agent-one/config.local.yaml", "instruments: {otlp: {enabled: true, endpoint: \"collector:4318\"}}", "", "needs the collector's http(s) traces URL"},
 		{"a header value", ".agent-one/config.local.yaml", "instruments: {otlp: {headersEnv: {api_key: \"sk-live-123\"}}}", "", "must name an environment variable"},
 		{"a literal key", ".agent-one/config.local.yaml", "instruments: {otlp: {apiKey: abc}}", "", "a credential never lives in a config file"},
+		{"an unknown content mode", ".agent-one/config.local.yaml", "instruments: {otlp: {content: raw}}", "", "instruments.otlp.content"},
 		{"literal headers", ".agent-one/config.local.yaml", "instruments: {otlp: {headers: {Authorization: \"Bearer x\"}}}", "", "a credential never lives in a config file"},
 	}
 	for _, cs := range cases {

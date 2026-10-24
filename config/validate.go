@@ -36,6 +36,9 @@ func (c *Config) checkScalars() error {
 	if err := enum("mode", c.Mode, "build", "plan"); err != nil {
 		return err
 	}
+	if err := enum("instruments.otlp.content", c.Instruments.OTLP.Content, "redacted", "full", "none"); err != nil {
+		return err
+	}
 	if err := enum("output.format", c.Output.Format, "text", "json", "wire"); err != nil {
 		return err
 	}

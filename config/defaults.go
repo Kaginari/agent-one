@@ -90,7 +90,7 @@ const defaultsJSON = `{
     "loop":    { "enabled": true, "journalDir": "[dist-dir]/instruments/loop" },
     "toolbox": { "enabled": true, "journalDir": "[dist-dir]/instruments/toolbox" },
     "status":  { "showOff": true },
-    "otlp":    { "enabled": false, "endpoint": "", "headersEnv": {}, "service": "" }
+    "otlp":    { "enabled": false, "endpoint": "", "headersEnv": {}, "service": "", "content": "redacted" }
   },
   "permissions": {
     "enabled": true,

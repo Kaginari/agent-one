@@ -618,6 +618,9 @@ type OTLP struct {
 	Endpoint   string            `json:"endpoint"`   // the collector's traces URL, as-is (…/v1/traces)
 	HeadersEnv map[string]string `json:"headersEnv"` // header → env var holding its value
 	Service    string            `json:"service"`    // service.name; "" = the distribution's name
+	// Content is what a span carries of a tool's input and output and a turn's answer: "redacted"
+	// (the default — secret-looking values masked), "full" (as they are) or "none" (left off)
+	Content string `json:"content"`
 }
 
 type DirFeature struct {
