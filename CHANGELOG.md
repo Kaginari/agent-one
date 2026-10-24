@@ -85,6 +85,12 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **One answer to "whose file is this?"** The gate, the write rules and `agent-one onto owner` now
+  read ownership the same way. A member's own folder is always its own, even when another
+  member's claim covers the whole `.agent-one/` tree, so editing your own README no longer owes
+  someone else's doc. The shared shelf and the instruments shelf belong to no member and are
+  never billed to one. The scratch folder (`.agent-one/tmp/`) is every agent's own: writing there is
+  lawful and owes no doc, except another agent's plan deck, which is refused.
 - **The test suite no longer leaves folders in `/tmp`.** Two dashboard tests let a turn keep
   writing after their scratch folder was swept, so it came back; the end-to-end binaries were
   built into a folder nothing removed. Each run now leaves nothing behind.

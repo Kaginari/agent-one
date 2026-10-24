@@ -5,15 +5,22 @@ import (
 	"strings"
 )
 
-// ownerLine mirrors workspace.Owner() against the onto graph and returns the
-// winning member, or "" with no owner. Kept as a helper so CLI can wire it
-// with its `case` + stdout conventions (cli.go is the dispatch surface).
+// CLIOwner is the workspace's own ownership reading (workspace.ZoneOfPath), wired by the binary so
+// `onto owner` answers what the gate and the ownership policy answer; nil falls back to the
+// graph's mirror (ownerOf).
+var CLIOwner func(root, path string) (string, error)
+
+// ownerLine answers the member that owns p, or "" with no owner. Kept as a helper so CLI can
+// wire it with its `case` + stdout conventions (cli.go is the dispatch surface).
 func ownerLine(root, p string) (string, error) {
 	if root == "" {
 		root = "."
 		if v := os.Getenv("AGENT_ONE_ROOT"); v != "" {
 			root = v
 		}
+	}
+	if CLIOwner != nil {
+		return CLIOwner(root, p)
 	}
 	w, err := Load(root)
 	if err != nil {

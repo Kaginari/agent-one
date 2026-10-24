@@ -575,11 +575,36 @@ func cmdInstrument(name, dist string, f cliFlags, args []string, io IO) int {
 	default:
 		lex := lexiconFor()
 		onto.CLILayout = lex.Layout()
+		onto.CLIOwner = func(root, p string) (string, error) { return zoneOwner(d.Name, root, p, lex, io) }
 		if root != "" {
 			args = append([]string{"--root", root}, args...)
 		}
 		return onto.CLI(args, io.Out, io.Err)
 	}
+}
+
+// zoneOwner is `onto owner` answered by the workspace's own ZoneOfPath — one ownership truth for the
+// gate, the ownership policy and the census.
+func zoneOwner(dist, root, p string, lex workspace.Lexicon, io IO) (string, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	cfg, err := config.LoadWith(config.Options{Dist: dist, Root: abs, Env: io.Env})
+	if err != nil {
+		return "", err
+	}
+	w, err := openWorkspace(cfg, abs, lex)
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(p) {
+		p = w.Rel(p)
+	}
+	if c := w.Owner(p); c != nil {
+		return c.Name, nil
+	}
+	return "", nil
 }
 
 func findWorkspace(dir, workspaceDir string) (string, bool) {

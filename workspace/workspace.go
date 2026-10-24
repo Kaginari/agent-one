@@ -478,41 +478,10 @@ func under(rel, prefix string) bool {
 	return prefix != "" && prefix != "." && (rel == prefix || strings.HasPrefix(rel, prefix+"/"))
 }
 
-// Owner is the agent that owns a root-relative path: the authoring member with the longest
-// matching ownership, else the gate holder's, else nil. Its doc is the one Docs-as-code demands.
-func (w *Workspace) Owner(rel string) *Member {
-	rel = normRel(rel)
-	for _, pick := range []func(Rank) bool{func(r Rank) bool { return r.Authors }, func(r Rank) bool { return r.HoldsGate && !r.Authors }} {
-		var best *Member
-		bestLen := -1
-		for i := range w.Members {
-			c := &w.Members[i]
-			if r, ok := w.Ranks.Get(c.Rank); !ok || !pick(r) {
-				continue
-			}
-			for _, t := range c.Ownership {
-				if under(rel, t) && len(t) > bestLen {
-					best, bestLen = c, len(t)
-				}
-			}
-		}
-		if best != nil {
-			return best
-		}
-	}
-	// Seat fallback (auditor verdict 2026-10-02, arm-2 discrimination follow-up
-	// 2026-10-04): seat docs are the member's authorship; ownership prefixes
-	// never cover the seat — a doc at a member's Dir matches no ownership
-	// prefix (e.g. .agent-one/zone/api/README.md, ownership src/api/), so without
-	// this pass Owner returns nil and the gate's memberDoc branch stays dead.
-	for i := range w.Members {
-		c := &w.Members[i]
-		if c.Doc != "" && normRel(c.Doc) == rel {
-			return c
-		}
-	}
-	return nil
-}
+// Owner is the agent that owns a root-relative path — ZoneOfPath's member: a seat's member,
+// else the authoring member with the longest matching ownership, else the gate holder's;
+// nil on open ground, the harness's shelves and the scratch. Its doc is the one Docs-as-code demands.
+func (w *Workspace) Owner(rel string) *Member { return w.ZoneOfPath(rel).Member }
 
 func parentDir(d string) string { return filepath.Dir(d) }
 

@@ -109,7 +109,16 @@ func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, 
 		touched[self.Name] = self
 	}
 	for _, rel := range wrote {
-		owner := w.Owner(rel)
+		zone := w.ZoneOfPath(rel)
+		if zone.Soil == SoilScratch {
+			// the scratch is every agent's own nest (its redirected /tmp, its plan deck): lawful,
+			// nobody's soil, never a doc debt — but a deck speaks for its agent alone
+			if deck := w.foreignDeck(as, rel); deck != "" && opt.RightAuthor && domainOwners {
+				fail(fmt.Sprintf("%s: %s is %s's plan deck, written by %s — a deck speaks for its own agent; the plan tool pens yours", w.Lex.Checks[0], rel, deck, or(as, "orchestrator")))
+			}
+			continue
+		}
+		owner := zone.Member
 		if owner != nil {
 			touched[owner.Name] = owner
 		}
@@ -175,7 +184,8 @@ func (w *Workspace) Gate(ctx context.Context, s *loop.Session, opt GateOptions, 
 		// it (arm 2; lane B keyed by member name, kept at Close, bound 8 per member) —
 		// otherwise the check double-fired on every retry for a doc the orchestrator cannot lawfully
 		// write itself.
-		if opt.DocTruthful && !orchestratorSeat && owner != nil && owner.Doc != "" && !contains(wrote, owner.Doc) && normRel(rel) != normRel(owner.Doc) && !docPaired {
+		// A seat's files are the member's doc set, never a change its doc owes a pairing for.
+		if opt.DocTruthful && !orchestratorSeat && zone.Soil != SoilSeat && owner != nil && owner.Doc != "" && !contains(wrote, owner.Doc) && normRel(rel) != normRel(owner.Doc) && !docPaired {
 			fail(fmt.Sprintf("%s (Docs-as-code): %s changed under %s's ownership but %s did not move — pair it: edit %s in this wave, or have %s's own subagent author its doc first (the doc names the pairing vehicle)", w.Lex.Checks[3], rel, owner.Name, owner.Doc, owner.Doc, owner.Name))
 		}
 	}
