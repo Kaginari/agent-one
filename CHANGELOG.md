@@ -6,6 +6,19 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-24
+
+### Highlights
+
+Runs that survive: a stream that stalls is cut and a gateway restart no longer ends the run, stall
+guards and timeout autopsies say why a subagent stopped, and a dispatch to a missing agent fails at
+once. The workspace shares one work queue and one shelf for its bookkeeping, folded tool output
+can be brought back with `fold`, and `read` takes ranges and folders. The dashboard shows the
+plan, the shared board and the files written, with an ID card, rank plates and a full-screen net;
+traces go to any OpenTelemetry collector. The policy gains its negative half and says whose a seat
+is, the quick start leads with a model served by vLLM, and local builds are stamped with their
+version.
+
 ### Added
 
 - **Light a whole rank on the dashboard's net, and take the net full screen.** Each rank's
