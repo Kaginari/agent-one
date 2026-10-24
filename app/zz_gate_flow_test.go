@@ -73,9 +73,20 @@ func TestDashGateAnswerFlow(t *testing.T) {
 	// the turn must be fully over before teardown — the running loop still writes
 	// (.agent-one/instruments/...) while TempDir RemoveAll sweeps; that rank is the
 	// "directory not empty" TempDir flake the commission predicted
+	<-done
+	waitTurns(t, h)
+}
+
+// waitTurns holds a test until every turn the host started has finished, finish included —
+// a turn still writing while TempDir's RemoveAll sweeps recreates the workspace after it, and
+// the directory leaks.
+func waitTurns(t *testing.T, h *tuiHost) {
+	t.Helper()
+	idle := make(chan struct{})
+	go func() { h.turns.Wait(); close(idle) }()
 	select {
-	case <-done:
+	case <-idle:
 	case <-time.After(30 * time.Second):
-		t.Log("turn did not finish within 30s after approval — teardown rank risk")
+		t.Error("a turn did not finish within 30s — its writes outlive the test's temp dir")
 	}
 }

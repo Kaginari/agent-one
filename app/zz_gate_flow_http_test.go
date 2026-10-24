@@ -47,6 +47,9 @@ func TestDashGateAnswerOverHTTP(t *testing.T) {
 			t.Logf("submit why: %s", why)
 		}
 	}()
+	// the turn must be over before teardown: a loop still writing its journal while
+	// TempDir's RemoveAll sweeps recreates the workspace after it, and the directory leaks
+	defer waitTurns(t, h)
 
 	// Discover the choice id on the bus (the browser would see it via the dash event stream).
 	var gotID string

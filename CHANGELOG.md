@@ -85,6 +85,9 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ### Fixed
 
+- **The test suite no longer leaves folders in `/tmp`.** Two dashboard tests let a turn keep
+  writing after their scratch folder was swept, so it came back; the end-to-end binaries were
+  built into a folder nothing removed. Each run now leaves nothing behind.
 - **The "memory is out of date" notice says how to fix it.** A workspace that turned off automatic
   memory rebuilds is told once per turn that recall is running on an old index; the notice now
   names the command that rebuilds it (`agent-one memory index`) instead of "rebuild by hand".

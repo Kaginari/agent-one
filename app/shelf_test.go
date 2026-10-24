@@ -67,6 +67,9 @@ func TestMain(m *testing.M) {
 	if mcpBin != "" {
 		os.RemoveAll(filepath.Dir(mcpBin))
 	}
+	if e2eDir != "" { // the e2e binaries (e2e_test.go), built once per test binary
+		os.RemoveAll(e2eDir)
+	}
 	os.Exit(code)
 }
 

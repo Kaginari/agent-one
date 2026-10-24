@@ -112,6 +112,9 @@ type tuiHost struct {
 	ui  sender
 	out *bytes.Buffer // what slash commands and the engine's writers print
 	mu  sync.Mutex
+	// turns counts the turn goroutines still running, finish included: waiting on it is the
+	// only proof a turn's writes (journal, session sync) are over
+	turns sync.WaitGroup
 
 	cancel         context.CancelFunc
 	turnCtx        context.Context // the running turn's ctx; gate/ask waits select on it so esc can free them
@@ -542,7 +545,9 @@ func (h *tuiHost) start(text string, auto bool) {
 	h.mu.Unlock()
 	h.watchdog(tctx)
 	h.a.webBus().note(map[string]any{"type": "ask", "text": text})
+	h.turns.Add(1)
 	go func() {
+		defer h.turns.Done()
 		// a panic anywhere in the turn becomes a failed turn, never a dead process:
 		// running clears, the harness lives (Session.Turn recovers first and journals
 		// the stack; this is the outermost backstop)
