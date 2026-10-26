@@ -85,6 +85,78 @@ func TestClassifyCommand(t *testing.T) {
 	}
 }
 
+// A quoted string is one shell word: a regex or a program inside it is never read as paths, while a
+// quoted word that is a path outside the workspace is as outward as the bare one.
+func TestQuotedWordsAndPaths(t *testing.T) {
+	env, _ := workspace(t)
+	cases := map[string]Class{
+		// patterns and scripts: one word each, read as text
+		`awk '/([0-9]{4}-[0-9]{2}-[0-9]{2})/, /x/ {print}' log`:                          Read,
+		`awk 'BEGIN{n=0} /([0-9]{4}-[0-9]{2}-[0-9]{2})/, /^end$/ {print}' f`:             Read,
+		`grep -E '/([0-9]{4})/' f`:                                                       Read,
+		`sed -n '/^start/,/^end/p' f`:                                                    Read,
+		`awk "/x|y/ {print}" f`:                                                          Read,
+		`grep -E "^/usr/(lib|bin)/" f`:                                                   Read,
+		`awk '{print $1}' f`:                                                             Read,
+		`sed -n '/bluez_sink/,/Formats/p' f`:                                             Read,
+		`LC_ALL=C grep -rn -e '/(a|b)/' -e '/x/' src`:                                    Read,
+		`jq -r '.a | select(.p == "/x")' f.json`:                                         Read,
+		`awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on' f`: Read,
+		// a pattern tool's operands after its program are files, quoted or not
+		`grep -E '/(a|b)/' '/etc/shadow'`:   Outward,
+		`grep -e x -- '/etc/shadow'`:        Outward,
+		`grep -rf '/etc/shadow' src`:        Outward,
+		`grep --file='/etc/shadow' src`:     Outward,
+		`awk -f prog.awk '/etc/shadow'`:     Outward,
+		`sed -e 's/a/b/' '/etc/shadow'`:     Outward,
+		`sed '1r/etc/shadow' f`:             Outward,
+		`jq . '/etc/x.json'`:                Outward,
+		`jq -n 'import "/etc/x" as $x; $x'`: Outward,
+		`sed '1e cat /etc/shadow' f`:        Outward,
+		`sed 's/x/cat \/etc\/shadow/e' f`:   Outward,
+		`grep "$(cat /etc/shadow)" f`:       Outward,
+		`grep x {f,/etc/shadow}`:            Outward,
+		// a quoted path is the path: single, double, inside an option, with spaces
+		`cat '/etc/shadow'`:           Outward,
+		`cat "/etc/shadow"`:           Outward,
+		`head -n 3 '/etc/passwd' f`:   Outward,
+		`cat --file='/etc/shadow'`:    Outward,
+		`cat '/etc/my secrets.txt'`:   Outward,
+		`cat "/home/nobody/a b/c"`:    Outward,
+		`cat "../../../../../../x y"`: Outward,
+		`cat '/etc/'shadow`:           Outward,
+		`cat "$HOME/.ssh/id_rsa"`:     Outward,
+		`cat "${HOME}/.ssh/id_rsa"`:   Outward,
+		// a double-quoted word the shell still expands is never waved through as a pattern
+		`cat "/etc/sha$(printf dow)"`: Outward,
+		"cat \"/etc/sha`echo dow`\"":  Outward,
+		// a quoted program a shell runs is read word by word; a pattern tool's own strings too
+		`bash -c 'cat /etc/shadow'`:                                    Outward,
+		`bash -c 'cat /etc/shadow | grep x'`:                           Outward,
+		`ls; bash -c "cat '/etc/shadow'"`:                              Outward,
+		`cat "$(echo /etc/shadow)"`:                                    Outward,
+		`awk 'BEGIN{system("cat /etc/shadow")}'`:                       Outward,
+		`awk 'BEGIN{while ((getline l < "/etc/shadow") > 0) print l}'`: Outward,
+		`sed '/x/r /etc/shadow' f`:                                     Outward,
+		`bash -c "awk '/x/, /y/ {print}' f"`:                           Write,
+		// a quoted ~ or $ is not expanded: a name, not the home
+		`echo '~' '$HOME'`: Read, `echo "~/x"`: Read, `awk '$1 ~ /x/' f`: Read,
+		// an escape or ANSI-C quoting hides nothing either
+		`cat \/etc/shadow`:   Outward,
+		`cat $'/etc/shadow'`: Outward,
+		// brace expansions still reach every alternative; quoted braces are literal
+		`cat /etc/{hosts,shadow}`:    Outward,
+		`cat {src/a.go,/etc/shadow}`: Outward,
+		`cat '/etc/'{hosts,shadow}`:  Outward,
+		`cat "README.md" 'src/a.go'`: Read,
+	}
+	for cmd, want := range cases {
+		if got := env.ClassifyCommand(cmd); got.Class != want {
+			t.Errorf("%s: want %s, got %s (%s)", cmd, want, got.Class, got.Why)
+		}
+	}
+}
+
 func TestSettleOnlyTightens(t *testing.T) {
 	env, _ := workspace(t)
 	b := BashTool()

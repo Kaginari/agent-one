@@ -6,6 +6,32 @@ All notable changes to Agent-One are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **A quoted path outside the workspace now needs the gate.** The command classifier skipped any word
+  that began with a quote, so `cat '/etc/shadow'` or `cat "$HOME/.ssh/id_rsa"` read as a plain
+  read and never reached the gate, as did a quoted path given to grep or sed after its pattern.
+  Commands are now split into words the way the shell splits them, quotes removed, so a quoted
+  path counts like a bare one — spaces in it included — and a quoted program run by a shell
+  (`bash -c '…'`) is read word by word.
+
+### Fixed
+
+- **A regex inside a quoted awk, sed, grep or jq program is no longer taken for a path.** A
+  call like `awk '/([0-9]{4}-[0-9]{2})/, /x/ {print}' log` was escalated as reading outside the
+  workspace. The program of a pattern tool is now read in its own language: a regex names no file,
+  while the file of a sed `r`/`w` command and an awk string such as `getline < "/etc/x"` still do.
+- **The binary reaches a provider over HTTPS from a container without CA certificates.** The
+  release binary is static and trusted only the host's certificate store, so in a minimal image
+  (a benchmark's task container, `debian:*-slim` without `ca-certificates`) every call failed with
+  `x509: certificate signed by unknown authority`. It now carries the Mozilla root bundle and uses
+  it only when the host has no roots of its own.
+- **An upstream that fails mid-answer is asked again.** OpenRouter reports a failure of the
+  provider behind it as an error inside an answer already streaming ("Upstream error from …:
+  inference generation failed"); that ended the run at once. Such an error is now retried after
+  5 s and 15 s like an outage, and moves the call to a fallback model when one is set. An error
+  that blames the request itself (a 400, an invalid request) still comes back at once.
+
 ## [1.1.0] - 2026-10-24
 
 ### Highlights
@@ -178,16 +204,6 @@ version.
 
 ### Fixed
 
-- **The binary reaches a provider over HTTPS from a container without CA certificates.** The
-  release binary is static and trusted only the host's certificate store, so in a minimal image
-  (a benchmark's task container, `debian:*-slim` without `ca-certificates`) every call failed with
-  `x509: certificate signed by unknown authority`. It now carries the Mozilla root bundle and uses
-  it only when the host has no roots of its own.
-- **An upstream that fails mid-answer is asked again.** OpenRouter reports a failure of the
-  provider behind it as an error inside an answer already streaming ("Upstream error from …:
-  inference generation failed"); that ended the run at once. Such an error is now retried after
-  5 s and 15 s like an outage, and moves the call to a fallback model when one is set. An error
-  that blames the request itself (a 400, an invalid request) still comes back at once.
 - **The policy agrees with itself about the scratch.** Its list of what each rank never does said a
   Zone worker never writes outside its zone, while the gate lets every member write in the workspace's
   scratch (`.agent-one/tmp/`) and its own seat. The line now names both, and the gate section says

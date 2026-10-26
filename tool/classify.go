@@ -98,13 +98,10 @@ var readOnly = regexp.MustCompile(`^(cat|ls|head|tail|wc|grep|egrep|fgrep|rg|ag|
 
 var (
 	segmentLead = regexp.MustCompile(`^\s*(\w+=\S*\s+)*(sudo\s+|env\s+|time\s+|nice\s+)*`)
-	tokenSplit  = regexp.MustCompile(`[\s=]+`)
 	// a comma joins paths only inside a brace expansion ({a,/etc/x} is two words to the shell);
 	// a colon only in a list value (PATH=/a:/b). Elsewhere both are text — `sed -n 1,/^x/p` and
 	// `git show HEAD:path` name no path at the root.
 	assignList = regexp.MustCompile(`^[A-Za-z_]\w*=`)
-	// A quoted token is a pattern or a label, not a path — OutsideWorkspace skips it, so
-	// `awk '/x|y/'` never reads the alternation as /x|y/ on disk.
 	tokenTrail = regexp.MustCompile(`[)\]}>;,.]+$`)
 	tildePath  = regexp.MustCompile(`^~(/|$)`)
 	homeVar    = regexp.MustCompile(`^\$(HOME|\{HOME\})(/|$)`)
@@ -289,17 +286,14 @@ func lead(parts []string) []string {
 	return out
 }
 
-// OutsideWorkspace returns the first token of cmd that names a path outside the workspace, or "".
+// OutsideWorkspace returns the first word of cmd that names a path outside the workspace, or "".
 func (e Env) OutsideWorkspace(cmd string) string {
 	home, _ := os.UserHomeDir()
 	for _, tok := range pathWords(cmd) {
+		tok = strings.TrimLeft(tok, "<") // `cat </etc/hosts` reads the path after the redirection
 		if tok == "" {
 			continue
 		}
-		if c := tok[0]; c == '\'' || c == '"' || c == '`' {
-			continue // a quoted token is a pattern or a label, not a path
-		}
-		tok = strings.TrimLeft(tok, "<") // `cat </etc/hosts` reads the path after the redirection
 		p := ""
 		switch {
 		case tildePath.MatchString(tok):
@@ -318,19 +312,226 @@ func (e Env) OutsideWorkspace(cmd string) string {
 	return ""
 }
 
-// pathWords are the words of cmd that may name a path: split at spaces and =, a brace expansion
-// expanded as the shell does, an assignment's list value split at its colons.
+// pathWords are the words of cmd that may name a path: the shell's words (shellWords, quotes
+// removed), each split at = with an assignment's list value split at its colons, and a brace
+// expansion expanded as the shell does. A quoted word counts whole — `cat '/etc/my file'` names
+// /etc/my file — and, when it holds more than one word, so do the words inside it, for a shell
+// may run it (`bash -c 'cat /etc/x'`). The one exception is a pattern tool's program, quoted:
+// it is read in the tool's own language (programPaths), never as shell.
 func pathWords(cmd string) []string {
 	var out []string
-	for _, f := range strings.Fields(cmd) {
-		parts := tokenSplit.Split(f, -1)
-		if assignList.MatchString(f) {
-			parts = append(parts[:1], strings.Split(strings.Join(parts[1:], "="), ":")...)
+	var pt *patternTool
+	tool, prog, expect, operands := "", false, 0, false
+	for _, w := range shellWords(cmd, true) {
+		if w.first {
+			tool, pt, prog, expect, operands = "", nil, false, 0, false
 		}
-		for _, p := range parts {
-			out = append(out, braces(p)...)
+		switch {
+		case tool == "" && !assignList.MatchString(w.text):
+			tool = filepath.Base(w.text)
+			if p, ok := patternTools[tool]; ok { // after assignments only: a wrapper's command is unread
+				pt = &p
+			}
+		case pt == nil:
+		case expect == 1, expect == 0 && !prog && (operands || !strings.HasPrefix(w.text, "-")):
+			prog, expect = true, 0
+			if w.quoted && !w.bare && !w.expands {
+				out = append(out, programPaths(pt.lang, w.text)...)
+				continue
+			}
+		case expect != 0:
+			expect = 0
+		case operands:
+		case w.text == "--":
+			operands = true
+		case strings.HasPrefix(w.text, "-") && len(w.text) > 1:
+			if k, next := pt.option(w.text); k != 0 {
+				prog = prog || k != 3
+				if next {
+					expect = k
+				}
+			}
+		}
+		out = append(out, wordPaths(w)...)
+	}
+	return out
+}
+
+// wordPaths is one word's path candidates: the word split at = (an assignment's list value at
+// its colons too), each part brace-expanded, and a quoted word's inner words besides.
+func wordPaths(w shellWord) []string {
+	var out []string
+	if w.quoted && strings.ContainsAny(w.text, " \t\n") {
+		out = append(out, pathWords(w.text)...)
+	}
+	parts := strings.Split(w.text, "=")
+	if assignList.MatchString(w.text) {
+		parts = append(parts[:1], strings.Split(strings.Join(parts[1:], "="), ":")...)
+	}
+	for _, p := range parts {
+		out = append(out, braces(p)...)
+	}
+	return out
+}
+
+// A patternTool takes its first operand — or an -e value — as a program in its own language:
+// a regex (grep), a sed script, an awk program, a jq filter. prog are the options whose value
+// is the program, file those naming a program file (after them every operand is a file), vals
+// the other options that take a value.
+type patternTool struct{ lang, prog, file, vals string }
+
+var patternTools = func() map[string]patternTool {
+	grep := patternTool{"regex", "-e --regexp", "-f --file", "-A -B -C -m -d -D --after-context --before-context --context --max-count --label --binary-files --devices --directories --exclude --exclude-from --exclude-dir --include --color --colour"}
+	rg := patternTool{"regex", "-e --regexp", "-f --file", "-A -B -C -m -M -g -t -T -j -r -E --glob --iglob --type --type-not --threads --replace --encoding --max-count --max-columns --after-context --before-context --context --max-depth --sort --sortr --colors --type-add --pre --pre-glob --ignore-file --path-separator"}
+	sed := patternTool{"sed", "-e --expression", "-f --file", "-l --line-length"}
+	awk := patternTool{"awk", "", "-f --file", "-F -v --field-separator --assign"}
+	jq := patternTool{"jq", "", "-f --from-file", "--arg --argjson --slurpfile --rawfile --indent -L"}
+	return map[string]patternTool{"grep": grep, "egrep": grep, "fgrep": grep, "rg": rg,
+		"sed": sed, "awk": awk, "gawk": awk, "mawk": awk, "nawk": awk, "jq": jq}
+}()
+
+// option says what an option word takes — 1 the program, 2 a program file, 3 another value, 0
+// nothing known — and whether that value is the next word. A short cluster is read letter by
+// letter: the first letter that takes a value takes the rest of the word, or the next word
+// (-rf F, -e'x', --file=F).
+func (t *patternTool) option(w string) (kind int, next bool) {
+	find := func(name string) int {
+		for k, list := range []string{t.prog, t.file, t.vals} {
+			for _, o := range strings.Fields(list) {
+				if o == name {
+					return k + 1
+				}
+			}
+		}
+		return 0
+	}
+	if strings.HasPrefix(w, "--") {
+		name, _, attached := strings.Cut(w, "=")
+		return find(name), !attached
+	}
+	for i := 1; i < len(w); i++ {
+		if k := find("-" + w[i:i+1]); k != 0 {
+			return k, i == len(w)-1
 		}
 	}
+	return 0, false
+}
+
+// sedFile is a sed command that reads or writes a file named in the same word: r, R, w or W
+// leading the word or after its address (1r/f, $w/f, /re/r/f). sedExec finds a command that runs
+// a shell command in a program: e, or an s command's e flag (read broadly: a false find only
+// reads the program as shell).
+var (
+	sedFile = regexp.MustCompile(`^(?:[0-9]+|\$|/[^/]*/)?[rRwW](/.*)$`)
+	sedExec = regexp.MustCompile(`(^|[\s;{}0-9$/])e(\s|;|$)|[[:punct:]][gpIiMm0-9]*e[gpIiMm0-9]*\s*(;|}|$)`)
+)
+
+// programPaths are the paths a pattern tool's program names. A regex names none. In sed, the
+// file of an r, R, w or W command does — the word after the command, or the rest of a word like
+// 1r/etc/x — and a program that runs a shell command (sedExec) is read as shell throughout. In
+// awk, only its strings do ("/etc/x" to getline, print > or system), each read as a quoted word;
+// a bare /re/ is a regex. In jq, the module an import or include names.
+func programPaths(lang, prog string) []string {
+	var out []string
+	if lang == "sed" && sedExec.MatchString(prog) {
+		return wordPaths(shellWord{text: prog, quoted: true})
+	}
+	words := shellWords(prog, false)
+	for i, w := range words {
+		prev := ""
+		if i > 0 {
+			prev = words[i-1].text
+		}
+		switch {
+		case lang == "sed" && sedFile.MatchString(w.text):
+			out = append(out, sedFile.FindStringSubmatch(w.text)[1])
+		case lang == "sed" && prev != "" && strings.ContainsAny(prev[len(prev)-1:], "rRwW"),
+			lang == "awk" && w.quoted,
+			lang == "jq" && (prev == "import" || prev == "include"):
+			out = append(out, wordPaths(shellWord{text: w.text, quoted: true})...)
+		}
+	}
+	return out
+}
+
+// A shellWord is one word of a command as the shell splits it — at whitespace and, with ops, at
+// ; | & ( ) ` and newlines outside quotes — with its quotes and escapes removed: `'/etc/my file'`
+// is the one word /etc/my file. first marks a segment's first word; quoted a word with a quoted
+// part; bare one with a part outside quotes (where the shell still globs and brace-expands);
+// expands one whose double quotes hold a $ or ` the shell substitutes, or a $'…' escape — its
+// text is not what runs. A ~ or $ that leads a word inside quotes is not expanded, so the word
+// reads as ./~… — a name inside the workspace.
+type shellWord struct {
+	text                         string
+	first, quoted, bare, expands bool
+}
+
+func shellWords(cmd string, ops bool) []shellWord {
+	var out []shellWord
+	var cur strings.Builder
+	w := shellWord{first: true}
+	in := false
+	flush := func() {
+		if in {
+			w.text = cur.String()
+			out = append(out, w)
+			w = shellWord{}
+		}
+		cur.Reset()
+		in = false
+	}
+	// lead writes a quoted byte; a ~ (or a single-quoted $) that leads the word is a name
+	lead := func(d byte, single bool) {
+		if cur.Len() == 0 && (d == '~' || single && d == '$') {
+			cur.WriteString("./")
+		}
+		cur.WriteByte(d)
+	}
+	for i := 0; i < len(cmd); i++ {
+		switch c := cmd[i]; {
+		case ops && (c == '\n' || strings.IndexByte(";|&()`", c) >= 0):
+			flush()
+			w.first = true
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
+			flush()
+		case c == '\'' || c == '$' && i+1 < len(cmd) && cmd[i+1] == '\'':
+			ansi := c == '$' // $'…': its escapes can spell anything
+			if ansi {
+				i++
+			}
+			in, w.quoted = true, true
+			j := strings.IndexByte(cmd[i+1:], '\'')
+			if j < 0 {
+				j = len(cmd) - i - 1 // unterminated: the shell refuses it; read it to the end
+			}
+			lit := cmd[i+1 : i+1+j]
+			w.expands = w.expands || ansi && strings.Contains(lit, "\\")
+			for k := 0; k < len(lit); k++ {
+				lead(lit[k], true)
+			}
+			i += j + 1
+		case c == '"':
+			in, w.quoted = true, true
+			for i++; i < len(cmd) && cmd[i] != '"'; i++ {
+				d := cmd[i]
+				if d == '\\' && i+1 < len(cmd) && strings.IndexByte("\\\"$`\n", cmd[i+1]) >= 0 {
+					i++
+					d = cmd[i]
+				} else if d == '$' || d == '`' {
+					w.expands = true
+				}
+				lead(d, false)
+			}
+		case c == '\\' && i+1 < len(cmd):
+			in, w.bare = true, true
+			i++
+			cur.WriteByte(cmd[i])
+		default:
+			in, w.bare = true, true
+			cur.WriteByte(c)
+		}
+	}
+	flush()
 	return out
 }
 
