@@ -258,7 +258,7 @@ func (f *fallback) Complete(ctx context.Context, req provider.Request) (provider
 	}
 	resp2, err2 := f.secondary.Complete(ctx, req)
 	if err2 != nil {
-		return resp, fmt.Errorf("%v; fallback %s: %v", err, f.secondary.Name(), err2)
+		return resp, fmt.Errorf("%w; fallback %s: %w", err, f.secondary.Name(), err2)
 	}
 	return resp2, nil
 }
@@ -292,7 +292,8 @@ func (r *retrying) Complete(ctx context.Context, req provider.Request) (provider
 
 // transient is a fault worth asking again a little later: unavailability (429, 5xx, 529, a
 // refused or reset connection) or an answer cut short (EOF, a stall, finish_reason error, a
-// stream that ended before message_stop). A 4xx refusal, a 404 (the fallback's business) and
+// stream that ended before message_stop, an upstream failure relayed as a stream error event —
+// read by its kind, provider.StreamError). A 4xx refusal, a 404 (the fallback's business) and
 // the client's own timeout (its whole clock already spent) are not. The status is read first:
 // a 504 or a 503 whose text says "timeout" is the gateway's answer, not the client's clock.
 func transient(err error) bool {
@@ -301,6 +302,9 @@ func transient(err error) bool {
 	}
 	if errors.Is(err, provider.ErrStalled) {
 		return true
+	}
+	if se := (*provider.StreamError)(nil); errors.As(err, &se) {
+		return se.Transient()
 	}
 	s := err.Error()
 	for _, w := range []string{"HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504", "HTTP 529"} {
@@ -321,6 +325,9 @@ func transient(err error) bool {
 }
 
 func retryable(err error) bool {
+	if se := (*provider.StreamError)(nil); errors.As(err, &se) {
+		return se.Transient()
+	}
 	s := err.Error()
 	// 404 is retryable-for-fallback: a model group absent on the gateway is exactly what a
 	// fallback exists for — availability. The surfacing still names both failures when both fail.

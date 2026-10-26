@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -13,6 +14,38 @@ import (
 // or a gateway fault.
 func Retryable(code int) bool {
 	return code == 429 || code == 500 || code == 502 || code == 503 || code == 504 || code == 529
+}
+
+// StreamError is a failure the server reports inside a stream it already opened under HTTP 200:
+// OpenRouter relays an upstream provider's failure this way, after the headers and often after
+// some text. Code is the status the event names, 0 when it names none.
+type StreamError struct {
+	Provider, Type, Message string
+	Code                    int
+}
+
+func (e *StreamError) Error() string {
+	kind := e.Type
+	if e.Code != 0 {
+		kind = strings.TrimSpace(fmt.Sprintf("%s %d", e.Type, e.Code))
+	}
+	return fmt.Sprintf("%s: stream error %s: %s", e.Provider, kind, e.Message)
+}
+
+// Transient says whether asking again may succeed. The request was accepted — the stream began —
+// so a failure here is the server's or its upstream's unless the event says the request was at
+// fault: a 4xx other than 429, or a type naming an invalid, unauthorised or unknown request.
+func (e *StreamError) Transient() bool {
+	if e.Code != 0 {
+		return Retryable(e.Code) || e.Code >= 500
+	}
+	t := strings.ToLower(e.Type)
+	for _, w := range []string{"invalid", "auth", "permission", "not_found", "context_length"} {
+		if strings.Contains(t, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // Backoff is the wait before retry n (0-based) when the server names none; tests shorten it.

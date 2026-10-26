@@ -345,6 +345,20 @@ func errUpstream(model string) error {
 	return fmt.Errorf("openai: the upstream ended the answer with finish_reason error (model %s) — a failed call, not an answer", model)
 }
 
+// statusOf reads an error event's code — a number or a numeric string; anything else (a word, null)
+// names no status.
+func statusOf(raw json.RawMessage) int {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		raw = json.RawMessage(s)
+	}
+	var n int
+	if json.Unmarshal(raw, &n) != nil {
+		return 0
+	}
+	return n
+}
+
 func finishOf(s string) provider.StopReason {
 	switch s {
 	case "stop":
@@ -449,15 +463,16 @@ func (c *Client) readStream(r io.Reader, onDelta, onThinking func(string)) (prov
 			} `json:"choices"`
 			Usage *usage `json:"usage"`
 			Error *struct {
-				Message string `json:"message"`
-				Type    string `json:"type"`
+				Message string          `json:"message"`
+				Type    string          `json:"type"`
+				Code    json.RawMessage `json:"code"`
 			} `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			continue
 		}
 		if ev.Error != nil {
-			return provider.Response{}, fmt.Errorf("openai: stream error %s: %s", ev.Error.Type, ev.Error.Message)
+			return provider.Response{}, &provider.StreamError{Provider: "openai", Type: ev.Error.Type, Message: ev.Error.Message, Code: statusOf(ev.Error.Code)}
 		}
 		if ev.Model != "" {
 			resp.Model = ev.Model

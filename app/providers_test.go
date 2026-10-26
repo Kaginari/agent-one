@@ -281,6 +281,10 @@ func TestFinishReasonErrorFallsBack(t *testing.T) {
 	if !retryable(fmt.Errorf("openai: HTTP 404: model group z-ai/glm-5 not found")) {
 		t.Fatal("a gateway 404 on the primary must move the call to the fallback")
 	}
+	// an upstream failure relayed in the stream moves on too; the request's own fault does not
+	if !retryable(&provider.StreamError{Provider: "openai", Code: 502, Message: "Upstream error"}) || retryable(&provider.StreamError{Provider: "openai", Code: 400, Message: "prompt too long"}) {
+		t.Fatal("a stream error event is classified by its code")
+	}
 }
 
 // flaky fails with each of errs in turn, then answers.
@@ -314,6 +318,9 @@ func TestRetryLadder(t *testing.T) {
 		// a gateway's own timeout is its status, not the client's clock
 		errors.New("openai: HTTP 504: gateway timeout"),
 		errors.New("openai: HTTP 503: upstream connect error or disconnect/reset before headers. reset reason: connection timeout"),
+		// an upstream's failure relayed inside the stream, by its kind — with a code and without
+		fmt.Errorf("fallback: %w", &provider.StreamError{Provider: "openai", Code: 502, Message: "Upstream error from Darkbloom: inference generation failed"}),
+		&provider.StreamError{Provider: "openai", Message: "Upstream error from Darkbloom: inference generation failed"},
 	} {
 		f := &flaky{errs: []error{e, e}}
 		if err := ask(context.Background(), f); err != nil || f.calls != 3 {
@@ -327,6 +334,10 @@ func TestRetryLadder(t *testing.T) {
 		errors.New("openai: HTTP 404: model group not found"),
 		errors.New(`openai: Post "http://gw": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`),
 		fmt.Errorf("openai: %w", context.Canceled),
+		// the request's own fault, reported in the stream, and the client's whole clock spent reading it
+		&provider.StreamError{Provider: "openai", Code: 400, Message: "prompt too long"},
+		&provider.StreamError{Provider: "openai", Type: "invalid_request_error", Message: "bad tool schema"},
+		errors.New("openai: stream: context deadline exceeded (Client.Timeout or context cancellation while reading agent)"),
 	} {
 		f := &flaky{errs: []error{e}}
 		if err := ask(context.Background(), f); err == nil || f.calls != 1 {

@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,5 +123,40 @@ func TestFinishReasonErrorIsAFailure(t *testing.T) {
 	_, err := c.Complete(context.Background(), provider.Request{Messages: []provider.Message{{Role: provider.User, Text: "hi"}}, OnDelta: func(string) {}})
 	if err == nil || !strings.Contains(err.Error(), "finish_reason error") {
 		t.Fatalf("stream: want a failed call, got %v", err)
+	}
+}
+
+// OpenRouter relays an upstream provider's failure mid-stream as an SSE error event under HTTP
+// 200. It surfaces typed, with the code the event names (a number, a numeric string or none), so
+// the retry ladder classifies it by kind rather than by its wording.
+func TestStreamErrorEventIsTyped(t *testing.T) {
+	for _, tc := range []struct {
+		event     string
+		code      int
+		transient bool
+	}{
+		{`{"error":{"code":502,"message":"Upstream error from Darkbloom: inference generation failed"}}`, 502, true},
+		{`{"error":{"code":"503","message":"provider overloaded"}}`, 503, true},
+		{`{"error":{"code":429,"message":"rate limited upstream"}}`, 429, true},
+		{`{"error":{"message":"Upstream error from Darkbloom: inference generation failed"}}`, 0, true},
+		{`{"error":{"type":"server_error","message":"the model crashed"}}`, 0, true},
+		{`{"error":{"code":400,"message":"prompt too long"}}`, 400, false},
+		{`{"error":{"type":"invalid_request_error","message":"bad tool schema"}}`, 0, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"model\":\"m\",\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\ndata: " + tc.event + "\n\n"))
+		}))
+		c := &Client{Model: "m", BaseURL: srv.URL, Stream: true}
+		_, err := c.Complete(context.Background(), provider.Request{Messages: []provider.Message{{Role: provider.User, Text: "hi"}}, OnDelta: func(string) {}})
+		srv.Close()
+		var se *provider.StreamError
+		if !errors.As(err, &se) {
+			t.Errorf("%s: want a *provider.StreamError, got %v", tc.event, err)
+			continue
+		}
+		if se.Code != tc.code || se.Transient() != tc.transient || !strings.Contains(err.Error(), "stream error") {
+			t.Errorf("%s: code %d transient %v (%v), want %d %v", tc.event, se.Code, se.Transient(), err, tc.code, tc.transient)
+		}
 	}
 }
