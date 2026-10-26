@@ -6,6 +6,10 @@ import (
 	"os"
 
 	"github.com/Kaginari/agent-one/app"
+
+	// The binary is static (CGO_ENABLED=0) and trusts the host's roots; a minimal container image
+	// has none, so this embedded bundle stands in — only when the host has no roots of its own.
+	_ "golang.org/x/crypto/x509roots/fallback"
 )
 
 // Set by GoReleaser: -ldflags "-X main.version=… -X main.commit=… -X main.date=…".

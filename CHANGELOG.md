@@ -178,6 +178,11 @@ version.
 
 ### Fixed
 
+- **The binary reaches a provider over HTTPS from a container without CA certificates.** The
+  release binary is static and trusted only the host's certificate store, so in a minimal image
+  (a benchmark's task container, `debian:*-slim` without `ca-certificates`) every call failed with
+  `x509: certificate signed by unknown authority`. It now carries the Mozilla root bundle and uses
+  it only when the host has no roots of its own.
 - **The policy agrees with itself about the scratch.** Its list of what each rank never does said a
   Zone worker never writes outside its zone, while the gate lets every member write in the workspace's
   scratch (`.agent-one/tmp/`) and its own seat. The line now names both, and the gate section says

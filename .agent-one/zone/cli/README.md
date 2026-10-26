@@ -17,9 +17,11 @@
 
 - **onto owner** (`app/cli.go` cmdInstrument → zoneOwner): wires onto.CLIOwner to a workspace opened under the config, so `agent-one onto owner <path>` answers Workspace.ZoneOfPath — the gate's own reading — instead of the graph's mirror.
 - **fold sweep** (`app/app.go` New): once the workspace opens, tool.FoldSweep drops every run's fold drawer (and any loose file of the old shared shelf) untouched past tools.output.foldKeepDays (default 7; 0 keeps them) — TestAppSweepsTheFoldShelf.
+- **fallback roots** (`cmd/agent-one/main.go`): the binary blank-imports golang.org/x/crypto/x509roots/fallback — a static (CGO_ENABLED=0) build trusts the host's roots, and a minimal container (no ca-certificates, SSL_CERT_FILE/SSL_CERT_DIR empty) has none; the embedded bundle is used only then (x509.SetFallbackRoots never overrides real system roots). TestFallbackRootsWhenTheHostHasNone reads the pool in a child process with both pointed at an empty dir.
 
 ## Verify
 - `go test ./app/ -run 'TestEmbeddedLawsMatchTheWorkspace|TestInitBench|TestBenchOnMock|TestRunIgnoresAnOpenStdin|TestContainer|TestSetup|TestSketchTeam|TestMediumWritesOnceAndFoundingBrief|TestNormLevel|TestE2E|TestQueueCommand'`
 - `go vet ./cmd/...`
+- `go test -count=1 -run TestFallbackRootsWhenTheHostHasNone ./cmd/...`
 
 ## Working notes

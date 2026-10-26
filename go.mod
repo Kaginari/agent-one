@@ -15,6 +15,7 @@ require (
 	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260927004216-9c77d672503d
+	golang.org/x/crypto/x509roots/fallback v0.0.0-20261020153306-9f2b28d4331a
 	golang.org/x/image v0.36.0
 )
 
